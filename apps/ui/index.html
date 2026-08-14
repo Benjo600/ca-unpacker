@@ -1,0 +1,170 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CA Unpacker</title>
+  <link rel="stylesheet" href="styles.css" />
+</head>
+<body>
+  <div id="setup" class="screen hidden">
+    <div class="docket">
+      <p class="eyebrow">First launch</p>
+      <h1>This PC keeps the firm’s files.</h1>
+      <p class="lede">Nothing is uploaded. Clients, statements and packs stay in a folder on this computer.</p>
+      <label for="firm-name">Firm name</label>
+      <input id="firm-name" type="text" maxlength="200" placeholder="e.g. Mehta &amp; Associates" />
+      <label for="output-path">Folder for cleaned Excels</label>
+      <div class="path-row">
+        <input id="output-path" type="text" readonly placeholder="Choose a folder the app may write to" />
+        <button type="button" class="ghost" id="pick-output">Choose folder</button>
+      </div>
+      <p class="path-note">The app will create a subfolder per client and period. Originals stay in a private library on this PC.</p>
+      <p id="setup-error" class="error" hidden></p>
+      <button type="button" id="save-firm">Open the desk</button>
+    </div>
+  </div>
+
+  <div id="desk" class="screen hidden">
+    <aside class="rail">
+      <p class="mark">Unpacker</p>
+      <p class="firm-line" id="firm-label"></p>
+      <nav>
+        <span class="nav-current" id="nav-label">Clients</span>
+        <span class="nav-later">Packs later</span>
+      </nav>
+      <p class="rail-foot" id="output-label">No output folder</p>
+      <button type="button" class="danger-link" id="change-output">Change output folder</button>
+      <button type="button" class="danger-link" id="wipe-open">Delete library</button>
+    </aside>
+
+    <main class="sheet" id="pane-clients">
+      <header class="sheet-head">
+        <div>
+          <p class="eyebrow">Working paper</p>
+          <h1>Clients</h1>
+        </div>
+        <p class="count"><span id="client-count">0</span> on this PC</p>
+      </header>
+
+      <form id="add-form" class="add-row" autocomplete="off">
+        <div class="field">
+          <label for="client-name">Client name</label>
+          <input id="client-name" type="text" maxlength="200" placeholder="Legal name as you file it" required />
+        </div>
+        <div class="field gstin">
+          <label for="client-gstin">GSTIN <span class="optional">optional</span></label>
+          <input id="client-gstin" type="text" maxlength="15" placeholder="27AAAAA0000A1Z5" />
+        </div>
+        <button type="submit">Add client</button>
+      </form>
+      <p id="desk-error" class="error" hidden></p>
+
+      <div class="ledger">
+        <div class="ledger-head">
+          <span>Client</span>
+          <span>GSTIN</span>
+        </div>
+        <div id="client-list"></div>
+        <p id="empty" class="empty hidden">No clients yet. Add the first name above.</p>
+      </div>
+    </main>
+
+    <main class="sheet hidden" id="pane-periods">
+      <header class="sheet-head">
+        <div>
+          <button type="button" class="text-btn" id="back-to-clients">All clients</button>
+          <p class="eyebrow">Client</p>
+          <h1 id="period-client-name">Client</h1>
+        </div>
+      </header>
+      <form id="period-form" class="add-row" autocomplete="off">
+        <div class="field">
+          <label for="period-label">Period</label>
+          <input id="period-label" type="text" maxlength="80" placeholder="Aug 2026" required />
+        </div>
+        <button type="submit">Add period</button>
+      </form>
+      <p id="period-error" class="error" hidden></p>
+      <div class="ledger">
+        <div class="ledger-head">
+          <span>Period</span>
+          <span></span>
+        </div>
+        <div id="period-list"></div>
+        <p id="period-empty" class="empty hidden">Add the month you are working on, then dump files into it.</p>
+      </div>
+    </main>
+
+    <main class="sheet hidden" id="pane-dump">
+      <header class="sheet-head">
+        <div>
+          <button type="button" class="text-btn" id="back-to-periods">Periods</button>
+          <p class="eyebrow" id="dump-eyebrow">Dump tray</p>
+          <h1 id="dump-title">Period</h1>
+        </div>
+        <p class="count" id="dump-status"></p>
+      </header>
+
+      <div id="drop-zone" class="drop-zone">
+        <p class="drop-title">Drop a mixed folder here</p>
+        <p class="drop-copy">No need to label files. Bank PDFs, invoices, GSTR JSON and Tally exports can go in together.</p>
+        <div class="drop-actions">
+          <button type="button" id="add-files">Add files</button>
+          <button type="button" class="ghost" id="add-folder">Add folder</button>
+        </div>
+      </div>
+      <p id="dump-error" class="error" hidden></p>
+
+      <section id="pack-block" class="pack hidden">
+        <div>
+          <p class="eyebrow">Data pack</p>
+          <h2 id="pack-title">Excels for this period</h2>
+          <p id="pack-meta"></p>
+          <div id="pack-files"></div>
+        </div>
+        <div class="drop-actions">
+          <button type="button" id="open-pack">Open first Excel</button>
+          <button type="button" class="ghost" id="open-folder">Open pack folder</button>
+        </div>
+      </section>
+
+      <section id="preview-block" class="preview hidden">
+        <h2>Spot-check</h2>
+        <p>First and last lines from each statement. Open Excel for the full list.</p>
+        <div id="preview-list"></div>
+      </section>
+
+      <section id="review-block" class="review hidden">
+        <h2>Needs review</h2>
+        <p>We could not tell what these are. Set the type and they join the rest.</p>
+        <div id="review-list"></div>
+      </section>
+
+      <div class="ledger">
+        <div class="ledger-head files-head">
+          <span>File</span>
+          <span>Type</span>
+        </div>
+        <div id="file-list"></div>
+        <p id="file-empty" class="empty hidden">Nothing in this period yet.</p>
+      </div>
+    </main>
+  </div>
+
+  <div id="wipe-modal" class="modal hidden">
+    <div class="modal-card">
+      <p class="eyebrow">Delete library</p>
+      <h1>Wipe this PC’s app folder?</h1>
+      <p class="lede">Every client, dumped file and pack in the app will be deleted. Your Desktop project folder and the <code>test-dump</code> samples are not touched. The app will restart empty.</p>
+      <p id="wipe-error" class="error" hidden></p>
+      <div class="drop-actions">
+        <button type="button" class="danger" id="wipe-confirm">Delete and restart</button>
+        <button type="button" class="ghost" id="wipe-cancel">Keep data</button>
+      </div>
+    </div>
+  </div>
+
+  <script src="app.js"></script>
+</body>
+</html>
