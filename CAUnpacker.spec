@@ -8,19 +8,51 @@ ROOT = Path(SPECPATH)
 datas = [(str(ROOT / "apps" / "ui"), "ui")]
 binaries = []
 hiddenimports = [
+    "apps",
     "apps.desktop",
+    "apps.desktop.app",
     "apps.engine",
+    "apps.engine.ocr",
+    "apps.engine.pdf_extract",
+    "apps.engine.pdf_passwords",
+    "apps.engine.pdf_render",
+    "apps.engine.pipeline",
+    "apps.engine.dump",
+    "apps.engine.classifier",
+    "apps.engine.pack.bank_xlsx",
+    "apps.engine.pack.gstr_xlsx",
+    "apps.engine.pack.table_xlsx",
+    "apps.engine.parsers.bank.parser",
+    "apps.engine.parsers.gstr",
+    "apps.engine.parsers.invoice",
+    "apps.engine.parsers.tally",
+    "apps.engine.parsers.zoho",
     "pdf_inspector",
     "webview",
     "clr_loader",
     "pythonnet",
     "openpyxl",
     "pypdf",
+    "pypdfium2",
+    "pytesseract",
+    "PIL",
     "sqlalchemy",
 ]
 
-for package in ("pdf_inspector", "webview", "openpyxl", "pypdf"):
-    collected = collect_all(package)
+for package in (
+    "pdf_inspector",
+    "webview",
+    "openpyxl",
+    "pypdf",
+    "pypdfium2",
+    "pytesseract",
+    "PIL",
+    "sqlalchemy",
+):
+    try:
+        collected = collect_all(package)
+    except Exception:
+        continue
     datas += collected[0]
     binaries += collected[1]
     hiddenimports += collected[2]

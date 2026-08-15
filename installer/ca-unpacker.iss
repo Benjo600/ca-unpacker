@@ -1,5 +1,5 @@
 #define AppName "CA Unpacker"
-#define AppVersion "0.1.0"
+#define AppVersion "0.7.0"
 #define AppPublisher "CA Unpacker"
 #define AppExeName "CAUnpacker.exe"
 
@@ -8,7 +8,7 @@ AppId={{8F3C2E11-9B4A-4D6E-A1C8-CA00UNPACK01}
 AppName={#AppName}
 AppVersion={#AppVersion}
 AppPublisher={#AppPublisher}
-DefaultDirName={autopf}\CA Unpacker
+DefaultDirName={localappdata}\Programs\CA Unpacker
 DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
@@ -19,8 +19,8 @@ WizardStyle=modern
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
-SetupIconFile=
 UninstallDisplayName={#AppName}
+SetupLogging=yes
 
 [Languages]
 Name: "english"; MessagesFile: "compiler:Default.isl"

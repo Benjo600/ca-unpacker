@@ -4,7 +4,7 @@ Companion to `BUILD-PLAN.md`. That file is the product map. This file is the **o
 
 **Rule:** do not start Stage N+1 until Stage N’s gate is checked. A half-working stage is not a pass. If a later stage needs a fix in an earlier one, go back, pass that gate again, then continue.
 
-**Current stage:** Prototype pack (bank + GSTR + invoice + books). Stage 4 crops/OCR still open.
+**Current stage:** Stage 7 Tally/Zoho passed on fixtures. Next is Stage 8 (master reconciliation grid).
 
 ---
 
@@ -299,11 +299,11 @@ Record the date a stage passed. Empty means not passed. Do not start the next st
 |---|---|---|
 | 1 Windows shell | 2026-08-13 | Client “Benny” created and stored locally |
 | 2 Dump and router | 2026-08-13 | Mixed test-dump labelled correctly; jpg + docx left as Unknown |
-| 3 Bank pack | | |
-| 4 Trust | | |
-| 5 Invoices | | |
-| 6 GST portal files | | |
-| 7 Tally / Zoho | | |
+| 3 Bank pack | 2026-08-15 | HDFC/ICICI/SBI simple+complex+long all match; Excel Balance Check + Source #p; 37 tests OK. Scans still out. |
+| 4 Trust | 2026-08-15 | Click-to-crop + in-memory password + local Tesseract at %LOCALAPPDATA%\CAUnpacker\tesseract. Scan fixture produces rows. 57 tests OK. |
+| 5 Invoices | 2026-08-15 | Digital + rendered PNG invoices; GSTIN/HSN/math flags; 1x1 photo stays unknown; field crops. 75 tests OK. |
+| 6 GST portal files | 2026-08-15 | 2B B2B + 1 outward + 3B summary Excel; Match/Books ref empty; offline JSON only. 92 tests OK. |
+| 7 Tally / Zoho | 2026-08-15 | Canonical invoice fields; purchase+sales Excels; garbage zip safe. 110 tests OK. |
 | 8 Master grid | | |
 | 9 License | | |
 | 10 Firm-ready | | |

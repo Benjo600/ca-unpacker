@@ -107,7 +107,7 @@
       </header>
 
       <div id="drop-zone" class="drop-zone">
-        <p class="drop-title">Drop a mixed folder here</p>
+        <p class="drop-title">Drop PDFs here, or use Add folder</p>
         <p class="drop-copy">No need to label files. Bank PDFs, invoices, GSTR JSON and Tally exports can go in together.</p>
         <div class="drop-actions">
           <button type="button" id="add-files">Add files</button>
@@ -124,20 +124,22 @@
           <div id="pack-files"></div>
         </div>
         <div class="drop-actions">
-          <button type="button" id="open-pack">Open first Excel</button>
+          <button type="button" id="open-pack">Open in Excel</button>
           <button type="button" class="ghost" id="open-folder">Open pack folder</button>
         </div>
       </section>
 
       <section id="preview-block" class="preview hidden">
         <h2>Spot-check</h2>
-        <p>First and last lines from each statement. Open Excel for the full list.</p>
+        <p>First and last lines from each statement. Click an amount to see it on the page. Open Excel for the full list.</p>
         <div id="preview-list"></div>
       </section>
+      <p id="scan-note" class="mute-note hidden">This statement looks scanned. Digital PDFs still pack as usual.</p>
 
       <section id="review-block" class="review hidden">
         <h2>Needs review</h2>
         <p>We could not tell what these are. Set the type and they join the rest.</p>
+        <p id="review-pack-note" hidden>These files are not in an Excel yet; set type to Bank statement to parse.</p>
         <div id="review-list"></div>
       </section>
 
@@ -162,6 +164,35 @@
         <button type="button" class="danger" id="wipe-confirm">Delete and restart</button>
         <button type="button" class="ghost" id="wipe-cancel">Keep data</button>
       </div>
+    </div>
+  </div>
+
+  <div id="crop-modal" class="modal hidden">
+    <div class="modal-card crop-card">
+      <p class="eyebrow">Source</p>
+      <p id="crop-caption" class="crop-caption"></p>
+      <p class="lede">From the statement, not from Excel.</p>
+      <img id="crop-image" alt="Page crop" />
+      <div class="drop-actions">
+        <button type="button" class="ghost" id="crop-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="unlock-modal" class="modal hidden">
+    <div class="modal-card">
+      <p class="eyebrow">Password</p>
+      <h1 id="unlock-filename">Unlock PDF</h1>
+      <p class="lede">Password is used once and not saved.</p>
+      <form id="unlock-form" autocomplete="off">
+        <label for="unlock-password">Password</label>
+        <input id="unlock-password" type="password" autocomplete="off" />
+        <p id="unlock-error" class="error" hidden></p>
+        <div class="drop-actions">
+          <button type="submit" id="unlock-submit">Unlock</button>
+          <button type="button" class="ghost" id="unlock-cancel">Cancel</button>
+        </div>
+      </form>
     </div>
   </div>
 

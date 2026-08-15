@@ -1,5 +1,7 @@
 pywebview>=5.4
 sqlalchemy>=2.0.36
 pypdf>=5.1.0
+pypdfium2>=4.30.0
 pdf-inspector>=1.14.1
 openpyxl>=3.1.5
+pytesseract>=0.3.10

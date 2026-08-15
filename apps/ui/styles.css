@@ -8,6 +8,7 @@
   --mute: #5c6b63;
   --line: #1b302814;
   --bad: #8b2a2a;
+  --ok: #2a6b3f;
   --focus: #1b3028;
 }
 
@@ -119,6 +120,13 @@ button {
 
 button:hover { background: #0f1c17; }
 
+button:disabled {
+  opacity: 0.45;
+  cursor: not-allowed;
+}
+
+button:disabled:hover { background: var(--ink); }
+
 .error {
   color: var(--bad);
   margin: 12px 0 0;
@@ -208,6 +216,72 @@ button.danger {
 }
 
 button.danger:hover { background: #6e1f1f; }
+
+.modal-card.crop-card {
+  width: min(720px, 100%);
+}
+
+.crop-caption {
+  margin: 0 0 8px;
+  font-family: Cambria, "Palatino Linotype", serif;
+  font-size: 22px;
+  font-weight: 600;
+  line-height: 1.25;
+  word-break: break-word;
+}
+
+#crop-image {
+  display: block;
+  width: 100%;
+  max-height: 68vh;
+  object-fit: contain;
+  background: #1b30280d;
+  margin: 4px 0 18px;
+}
+
+button.source-amt {
+  margin: 0;
+  padding: 0;
+  background: none;
+  color: var(--ink);
+  font: inherit;
+  font-weight: inherit;
+  text-decoration: underline;
+  text-underline-offset: 2px;
+  cursor: pointer;
+  font-variant-numeric: tabular-nums;
+}
+
+button.source-amt:hover {
+  background: none;
+  color: var(--tab);
+}
+
+.file-actions {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+}
+
+.file-actions .kind-pick {
+  flex: 1;
+  min-width: 0;
+}
+
+.unlock-btn {
+  margin-top: 0;
+  flex-shrink: 0;
+}
+
+.mute-note {
+  color: var(--mute);
+  font-size: 12px;
+  margin: 0 0 16px;
+}
+
+#unlock-form .drop-actions {
+  margin-top: 22px;
+}
 
 .sheet {
   background:
@@ -328,6 +402,8 @@ button.ghost {
 
 button.ghost:hover { background: #1b30280d; }
 
+button.ghost:disabled:hover { background: transparent; }
+
 .pack {
   display: flex;
   justify-content: space-between;
@@ -349,9 +425,26 @@ button.ghost:hover { background: #1b30280d; }
 
 .pack button { margin-top: 0; }
 
+.pack.match {
+  border-color: var(--ok);
+  background: #e8f1ea;
+}
+
+.pack.mismatch {
+  border-color: var(--bad);
+  background: #f6e8e4;
+}
+
 .file-flag {
   font-size: 12px;
   margin: 4px 0 0;
+}
+
+.pack-file-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex-wrap: wrap;
 }
 
 .preview {
@@ -387,6 +480,38 @@ button.ghost:hover { background: #1b30280d; }
 }
 
 .preview-table .num { text-align: right; font-variant-numeric: tabular-nums; }
+
+.preview-table .omit {
+  text-align: center;
+  color: var(--mute);
+  font-style: italic;
+}
+
+.preview-table .gstin {
+  font-family: Consolas, "Cascadia Mono", monospace;
+  letter-spacing: 0.03em;
+  white-space: nowrap;
+}
+
+.preview-table .flag-list {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.pill.mute {
+  background: #1b30280d;
+  color: var(--mute);
+  font-weight: 600;
+  text-transform: none;
+  letter-spacing: 0.02em;
+}
+
+.preview-note {
+  color: var(--mute);
+  font-size: 12px;
+  margin: -8px 0 16px;
+}
 
 .review {
   margin: 8px 0 22px;
@@ -433,6 +558,16 @@ button.ghost:hover { background: #1b30280d; }
 }
 
 .pill.unknown { background: #c45a2a22; color: var(--tab); }
+
+.pill.match {
+  background: #d7eadc;
+  color: var(--ok);
+}
+
+.pill.mismatch {
+  background: #f0d6d6;
+  color: var(--bad);
+}
 
 select.kind-pick {
   width: 100%;

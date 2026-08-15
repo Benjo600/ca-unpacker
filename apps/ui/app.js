@@ -27,20 +27,45 @@ const dumpEyebrowEl = document.getElementById("dump-eyebrow");
 const dumpStatusEl = document.getElementById("dump-status");
 const dumpErrorEl = document.getElementById("dump-error");
 const dropZone = document.getElementById("drop-zone");
+const addFilesBtn = document.getElementById("add-files");
+const addFolderBtn = document.getElementById("add-folder");
 const fileListEl = document.getElementById("file-list");
 const fileEmptyEl = document.getElementById("file-empty");
 const reviewBlock = document.getElementById("review-block");
 const reviewListEl = document.getElementById("review-list");
+const reviewPackNoteEl = document.getElementById("review-pack-note");
 const packBlock = document.getElementById("pack-block");
 const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
+const scanNoteEl = document.getElementById("scan-note");
+const cropModal = document.getElementById("crop-modal");
+const cropCaptionEl = document.getElementById("crop-caption");
+const cropImageEl = document.getElementById("crop-image");
+const unlockModal = document.getElementById("unlock-modal");
+const unlockFilenameEl = document.getElementById("unlock-filename");
+const unlockPasswordEl = document.getElementById("unlock-password");
+const unlockErrorEl = document.getElementById("unlock-error");
 
 let currentClient = null;
 let currentPeriod = null;
 let kindOptions = [];
 let pollTimer = null;
+let activeJobId = null;
+let lastFileCount = 0;
+let lastFiles = [];
+let lastPreviewFiles = [];
+let packVisible = false;
+let packHasBank = false;
+let packOpenKey = "";
+let unlockFile = null;
+let tesseractChecked = false;
+let tesseractFound = true;
+
+function desktopApi() {
+  return (window.pywebview && window.pywebview.api) || null;
+}
 
 function showError(el, message) {
   if (!message) {
@@ -118,12 +143,26 @@ function kindSelect(file, compact) {
     select.append(option);
   }
   select.addEventListener("change", async () => {
-    const result = await window.pywebview.api.override_kind(file.id, select.value);
+    const api = desktopApi();
+    if (!api || !api.override_kind) return;
+    const result = await api.override_kind(file.id, select.value);
     if (!result.ok) {
       showError(dumpErrorEl, result.error);
       return;
     }
-    if (currentPeriod) await openPeriod(currentPeriod.id);
+    if (!currentPeriod) return;
+    if (api.reparse_period) {
+      const r = await api.reparse_period(currentPeriod.id);
+      if (r.ok && r.job_id) {
+        activeJobId = r.job_id;
+        setDumpBusy(true);
+        pollJob(r.job_id);
+      } else {
+        await openPeriod(currentPeriod.id);
+      }
+    } else {
+      await openPeriod(currentPeriod.id);
+    }
   });
   if (compact && file.kind !== "unknown") {
     const wrap = document.createElement("div");
@@ -136,34 +175,70 @@ function kindSelect(file, compact) {
   return select;
 }
 
+function setDumpBusy(busy) {
+  addFilesBtn.disabled = busy;
+  addFolderBtn.disabled = busy;
+}
+
+function fileCountLabel(count) {
+  return `${count} files`;
+}
+
+function updateReviewNote() {
+  const unknown = lastFiles.some((file) => file.kind === "unknown" || file.needs_review);
+  const show = unknown && !packVisible;
+  if (reviewPackNoteEl) reviewPackNoteEl.hidden = !show;
+}
+
+function fileNeedsPassword(file) {
+  if (!file) return false;
+  if (file.needs_password) return true;
+  return (file.classify_reason || "").toLowerCase().includes("password");
+}
+
+function appendFileRow(container, file, className) {
+  const row = document.createElement("div");
+  row.className = className;
+  const name = document.createElement("span");
+  name.className = "name";
+  name.textContent = file.original_name;
+  name.title = file.classify_reason || "";
+  const actions = document.createElement("div");
+  actions.className = "file-actions";
+  if (fileNeedsPassword(file)) {
+    const unlock = document.createElement("button");
+    unlock.type = "button";
+    unlock.className = "text-btn unlock-btn";
+    unlock.textContent = "Unlock";
+    unlock.addEventListener("click", (event) => {
+      event.preventDefault();
+      openUnlockModal(file);
+    });
+    actions.append(unlock);
+  }
+  actions.append(kindSelect(file, false));
+  row.append(name, actions);
+  container.append(row);
+}
+
 function renderFiles(files) {
-  const review = files.filter((file) => file.needs_review);
-  const rest = files.filter((file) => !file.needs_review);
+  lastFiles = files || [];
+  lastFileCount = lastFiles.length;
+  const review = lastFiles.filter((file) => file.needs_review);
+  const rest = lastFiles.filter((file) => !file.needs_review);
   reviewBlock.classList.toggle("hidden", review.length === 0);
+  updateReviewNote();
   reviewListEl.innerHTML = "";
   for (const file of review) {
-    const row = document.createElement("div");
-    row.className = "review-row";
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = file.original_name;
-    name.title = file.classify_reason || "";
-    row.append(name, kindSelect(file, false));
-    reviewListEl.append(row);
+    appendFileRow(reviewListEl, file, "review-row");
   }
 
   fileListEl.innerHTML = "";
-  fileEmptyEl.classList.toggle("hidden", files.length > 0);
+  fileEmptyEl.classList.toggle("hidden", lastFiles.length > 0);
   for (const file of rest) {
-    const row = document.createElement("div");
-    row.className = "file-row";
-    const name = document.createElement("span");
-    name.className = "name";
-    name.textContent = file.original_name;
-    name.title = file.classify_reason || "";
-    row.append(name, kindSelect(file, false));
-    fileListEl.append(row);
+    appendFileRow(fileListEl, file, "file-row");
   }
+  updateScanNote();
 }
 
 function setOutputLabel(path) {
@@ -222,6 +297,7 @@ async function openPeriod(periodId) {
   renderPreview(result.preview);
   dumpStatusEl.textContent = `${(result.files || []).length} files`;
   showPane("dump");
+  refreshTesseractNote();
 }
 
 function money(value) {
@@ -229,15 +305,50 @@ function money(value) {
   return Number(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
+function dash(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  return String(value);
+}
+
+function textCell(value, className) {
+  const td = document.createElement("td");
+  if (className) td.className = className;
+  td.textContent = dash(value);
+  return td;
+}
+
+function moneyCell(value) {
+  const td = document.createElement("td");
+  td.className = "num";
+  td.textContent = money(value);
+  return td;
+}
+
 function renderPack(pack) {
+  packHasBank = false;
+  packOpenKey = "";
+  packVisible = Boolean(pack && pack.exists);
+  packBlock.classList.remove("match", "mismatch");
   if (!pack || !pack.exists) {
     packBlock.classList.add("hidden");
+    updateReviewNote();
     return;
   }
   packBlock.classList.remove("hidden");
-  const result = pack.balance_status === "match" ? "all balances match" : "one or more mismatches";
-  packMetaEl.textContent = `${pack.row_count || 0} extracted rows${pack.balance_status ? " · bank " + result : ""}`;
+  const bankOut = (pack.outputs || []).find((out) => out.key === "bank");
+  const purchaseOut = (pack.outputs || []).find((out) => out.key === "purchase");
+  packHasBank = Boolean(bankOut);
+  packOpenKey = bankOut ? "bank" : purchaseOut ? "purchase" : "";
+  if (pack.balance_status === "match") packBlock.classList.add("match");
+  if (pack.balance_status === "mismatch") packBlock.classList.add("mismatch");
+  packMetaEl.textContent = `Excel ready · ${pack.row_count || 0} rows`;
   packFilesEl.innerHTML = "";
+  if (bankOut && !pack.balance_status) {
+    const note = document.createElement("p");
+    note.className = "file-flag";
+    note.textContent = "Balance not checked";
+    packFilesEl.append(note);
+  }
   for (const out of pack.outputs || []) {
     const line = document.createElement("p");
     line.className = "file-flag";
@@ -253,17 +364,112 @@ function renderPack(pack) {
     packFilesEl.append(line);
   }
   for (const file of pack.files || []) {
-    const line = document.createElement("p");
+    const line = document.createElement("div");
     line.className = "file-flag";
-    line.textContent = `${file.filename} · ${file.row_count} bank lines · ${file.status}`;
+    const head = document.createElement("div");
+    head.className = "pack-file-head";
+    const name = document.createElement("span");
+    name.textContent = `${file.filename} · ${file.row_count} lines`;
+    const chip = document.createElement("span");
+    chip.className = "pill";
+    if (file.status === "match") {
+      chip.classList.add("match");
+      chip.textContent = "MATCH";
+    } else if (file.status === "mismatch") {
+      chip.classList.add("mismatch");
+      chip.textContent = "MISMATCH";
+    } else {
+      chip.textContent = "Balance not checked";
+    }
+    head.append(name, chip);
+    const moneyLine = document.createElement("p");
+    moneyLine.textContent = `Opening ${money(file.opening_balance)} · Stated close ${money(file.stated_closing)} · Computed close ${money(file.computed_closing)}`;
+    line.append(head, moneyLine);
     packFilesEl.append(line);
   }
+  updateReviewNote();
+}
+
+function looksLikeGstin(value) {
+  if (value === null || value === undefined || value === "") return false;
+  return String(value).trim().length === 15;
+}
+
+function cropCaptionValue(field, value) {
+  if (field === "supplier_gstin" || looksLikeGstin(value)) {
+    const raw = value === null || value === undefined ? "" : String(value).trim();
+    return raw || "—";
+  }
+  return money(value);
+}
+
+function flagList(row) {
+  let raw = row && (row.flags != null ? row.flags : row.validation_flags);
+  if (raw == null || raw === "") return [];
+  if (Array.isArray(raw)) return raw.map(String).map((item) => item.trim()).filter(Boolean);
+  if (typeof raw === "string") {
+    const trimmed = raw.trim();
+    if (trimmed.startsWith("[")) {
+      try {
+        const parsed = JSON.parse(trimmed);
+        if (Array.isArray(parsed)) {
+          return parsed.map(String).map((item) => item.trim()).filter(Boolean);
+        }
+      } catch {
+        /* fall through */
+      }
+    }
+    return trimmed.split(/[,;]+/).map((item) => item.trim()).filter(Boolean);
+  }
+  return [];
+}
+
+function flagsCell(row) {
+  const td = document.createElement("td");
+  td.className = "flags";
+  const flags = flagList(row);
+  if (!flags.length) {
+    td.textContent = "—";
+    return td;
+  }
+  const wrap = document.createElement("div");
+  wrap.className = "flag-list";
+  for (const flag of flags) {
+    const pill = document.createElement("span");
+    pill.className = "pill mute";
+    pill.textContent = flag;
+    wrap.append(pill);
+  }
+  td.append(wrap);
+  return td;
+}
+
+function amountCell(file, row, field, value) {
+  const td = document.createElement("td");
+  const gstinish = field === "supplier_gstin" || looksLikeGstin(value);
+  td.className = gstinish ? "gstin" : "num";
+  const btn = document.createElement("button");
+  btn.type = "button";
+  btn.className = "source-amt";
+  btn.textContent = cropCaptionValue(field, value);
+  btn.title = "View source";
+  btn.addEventListener("click", () => openSourceCrop(file, row, field, value));
+  btn.addEventListener("keydown", (event) => {
+    if (event.key === "Enter") {
+      event.preventDefault();
+      openSourceCrop(file, row, field, value);
+    }
+  });
+  td.append(btn);
+  return td;
 }
 
 function renderPreview(preview) {
   const files = (preview && preview.files) || [];
+  lastPreviewFiles = files;
   if (!files.length) {
     previewBlock.classList.add("hidden");
+    updateScanNote();
     return;
   }
   previewBlock.classList.remove("hidden");
@@ -274,20 +480,279 @@ function renderPreview(preview) {
     title.textContent = `${file.filename} · ${file.kind || ""} · ${file.row_count} rows`;
     const table = document.createElement("table");
     table.className = "preview-table";
-    table.innerHTML = "<thead><tr><th>Date</th><th>Detail</th><th>Debit / Taxable</th><th>Credit / Tax</th><th>Balance / Value</th></tr></thead>";
+    const isBank = file.kind === "bank";
+    const isInvoice = file.kind === "invoice";
+    const isGstrInv = file.kind === "gstr_2b" || file.kind === "gstr_1";
+    const isGstr3b = file.kind === "gstr_3b";
+    const isBooks = file.kind === "tally" || file.kind === "zoho";
+    table.innerHTML = isGstrInv
+      ? "<thead><tr><th>Date</th><th>GSTIN</th><th>Trade</th><th>Invoice no</th><th>Taxable</th><th>Value</th><th>Flags</th></tr></thead>"
+      : isGstr3b
+        ? "<thead><tr><th>Section</th><th>Taxable</th><th>IGST</th><th>CGST</th><th>SGST</th><th>Cess</th></tr></thead>"
+        : isInvoice
+          ? "<thead><tr><th>Date</th><th>Supplier</th><th>GSTIN</th><th>Invoice no</th><th>Taxable</th><th>Tax</th><th>Value</th><th>Flags</th></tr></thead>"
+          : isBank
+            ? "<thead><tr><th>Date</th><th>Detail</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Page</th></tr></thead>"
+            : isBooks
+              ? "<thead><tr><th>Register</th><th>Date</th><th>Party</th><th>GSTIN</th><th>Invoice no</th><th>Value</th><th>Flags</th></tr></thead>"
+              : "<thead><tr><th>Date</th><th>Detail</th><th>Debit / Taxable</th><th>Credit / Tax</th><th>Balance / Value</th></tr></thead>";
     const body = document.createElement("tbody");
-    for (const row of file.preview || []) {
+    const rows = file.preview || [];
+    for (const row of rows) {
       const tr = document.createElement("tr");
-      const detail = row.description || row.trade_name || row.party_name || row.section || row.invoice_number || "";
-      const left = row.debit ?? row.taxable_value ?? row.taxable;
-      const mid = row.credit ?? row.tax;
-      const right = row.balance ?? row.invoice_value ?? row.amount;
-      tr.innerHTML = `<td>${row.date || row.invoice_date || ""}</td><td>${escapeHtml(detail)}</td><td class="num">${money(left)}</td><td class="num">${money(mid)}</td><td class="num">${money(right)}</td>`;
+      if (isGstrInv) {
+        tr.append(
+          textCell(row.invoice_date),
+          textCell(row.gstin, "gstin"),
+          textCell(row.trade_name),
+          textCell(row.invoice_number),
+          moneyCell(row.taxable),
+          moneyCell(row.invoice_value),
+          flagsCell(row)
+        );
+      } else if (isGstr3b) {
+        tr.append(
+          textCell(row.section),
+          moneyCell(row.taxable),
+          moneyCell(row.igst),
+          moneyCell(row.cgst),
+          moneyCell(row.sgst),
+          moneyCell(row.cess)
+        );
+      } else if (isBooks) {
+        tr.append(
+          textCell(row.register),
+          textCell(row.invoice_date || row.date),
+          textCell(row.supplier_name || row.party_name),
+          textCell(row.supplier_gstin || row.gstin, "gstin"),
+          textCell(row.invoice_number || row.voucher_number),
+          moneyCell(row.invoice_value ?? row.amount),
+          flagsCell(row)
+        );
+      } else {
+        const detail = row.description || row.trade_name || row.party_name || row.section || row.invoice_number || "";
+        const dateTd = document.createElement("td");
+        dateTd.textContent = row.date || row.invoice_date || "";
+        if (isInvoice) {
+          const supplierTd = document.createElement("td");
+          supplierTd.textContent = row.supplier_name || row.trade_name || row.party_name || "";
+          const invTd = document.createElement("td");
+          invTd.textContent = row.invoice_number || "";
+          const gstin = row.supplier_gstin || row.gstin || "";
+          const taxable = row.taxable_value ?? row.taxable;
+          const value = row.invoice_value ?? row.amount;
+          tr.append(
+            dateTd,
+            supplierTd,
+            amountCell(file, row, "supplier_gstin", gstin),
+            invTd,
+            amountCell(file, row, "taxable_value", taxable),
+            amountCell(file, row, "tax", row.tax),
+            amountCell(file, row, "invoice_value", value),
+            flagsCell(row)
+          );
+        } else {
+          const detailTd = document.createElement("td");
+          detailTd.textContent = detail;
+          if (isBank) {
+            const page = row.source_page == null ? "" : String(row.source_page);
+            const pageTd = document.createElement("td");
+            pageTd.className = "num";
+            pageTd.textContent = page;
+            tr.append(
+              dateTd,
+              detailTd,
+              amountCell(file, row, "Debit", row.debit),
+              amountCell(file, row, "Credit", row.credit),
+              amountCell(file, row, "Balance", row.balance),
+              pageTd
+            );
+          } else {
+            const left = row.debit ?? row.taxable_value ?? row.taxable;
+            const mid = row.credit ?? row.tax;
+            const right = row.balance ?? row.invoice_value ?? row.amount;
+            const leftTd = document.createElement("td");
+            leftTd.className = "num";
+            leftTd.textContent = money(left);
+            const midTd = document.createElement("td");
+            midTd.className = "num";
+            midTd.textContent = money(mid);
+            const rightTd = document.createElement("td");
+            rightTd.className = "num";
+            rightTd.textContent = money(right);
+            tr.append(dateTd, detailTd, leftTd, midTd, rightTd);
+          }
+        }
+      }
       body.append(tr);
+    }
+    if (rows.length < (file.row_count || 0)) {
+      const omitted = (file.row_count || 0) - rows.length;
+      const spacer = document.createElement("tr");
+      const cell = document.createElement("td");
+      cell.colSpan = isGstrInv || isBooks ? 7 : isGstr3b || isBank ? 6 : isInvoice ? 8 : 5;
+      cell.className = "omit";
+      cell.textContent = `… ${omitted} lines omitted — open Excel …`;
+      spacer.append(cell);
+      if (body.children.length > 8) {
+        body.insertBefore(spacer, body.children[8]);
+      } else {
+        body.append(spacer);
+      }
     }
     table.append(body);
     previewListEl.append(title, table);
+    if (isInvoice) {
+      const note = document.createElement("p");
+      note.className = "preview-note";
+      note.textContent = "Click a GSTIN or amount to see it on the bill.";
+      previewListEl.append(note);
+    }
+    if (isGstrInv || isGstr3b) {
+      const note = document.createElement("p");
+      note.className = "preview-note";
+      note.textContent = "Open the GSTR Excel for the full register. Match columns stay empty until reconciliation.";
+      previewListEl.append(note);
+    }
+    if (isBooks) {
+      const note = document.createElement("p");
+      note.className = "preview-note";
+      note.textContent = "Purchase and sales also go into the register Excels.";
+      previewListEl.append(note);
+    }
   }
+  updateScanNote();
+}
+
+function closeCropModal() {
+  if (!cropModal) return;
+  cropModal.classList.add("hidden");
+  if (cropImageEl) {
+    cropImageEl.removeAttribute("src");
+    cropImageEl.alt = "Page crop";
+  }
+}
+
+async function openSourceCrop(file, row, field, value) {
+  const api = desktopApi();
+  if (!api || !api.get_source_crop) return;
+  const fieldBox = row.fields && row.fields[field];
+  const page = (fieldBox && fieldBox.page) || row.source_page || 1;
+  const bbox = (fieldBox && fieldBox.bbox) || row.source_bbox || "";
+  let result;
+  try {
+    result = await api.get_source_crop(file.file_id || file.id, page, bbox);
+  } catch {
+    showError(dumpErrorEl, "Could not load the page crop.");
+    return;
+  }
+  if (!result || !result.ok) {
+    showError(dumpErrorEl, (result && result.error) || "Could not load the page crop.");
+    return;
+  }
+  const src = result.data_url || result.path || "";
+  if (!src) {
+    showError(dumpErrorEl, "Could not load the page crop.");
+    return;
+  }
+  cropImageEl.src = src;
+  cropImageEl.alt = `${file.filename || "Statement"} page ${page}`;
+  cropCaptionEl.textContent = `${file.filename} · page ${page} · ${field} ${cropCaptionValue(field, value)}`;
+  cropModal.classList.remove("hidden");
+}
+
+function closeUnlockModal() {
+  if (!unlockModal) return;
+  unlockModal.classList.add("hidden");
+  unlockFile = null;
+  if (unlockPasswordEl) unlockPasswordEl.value = "";
+  if (unlockErrorEl) showError(unlockErrorEl, "");
+}
+
+function openUnlockModal(file) {
+  unlockFile = file;
+  if (unlockFilenameEl) unlockFilenameEl.textContent = file.original_name || "Unlock PDF";
+  if (unlockPasswordEl) unlockPasswordEl.value = "";
+  if (unlockErrorEl) showError(unlockErrorEl, "");
+  unlockModal.classList.remove("hidden");
+  if (unlockPasswordEl) unlockPasswordEl.focus();
+}
+
+async function submitUnlock(event) {
+  if (event) event.preventDefault();
+  if (!unlockFile) return;
+  const api = desktopApi();
+  if (!api || !api.set_file_password) {
+    showError(unlockErrorEl, "Update the app to unlock PDFs.");
+    if (unlockPasswordEl) unlockPasswordEl.value = "";
+    return;
+  }
+  const secret = unlockPasswordEl ? unlockPasswordEl.value : "";
+  if (unlockPasswordEl) unlockPasswordEl.value = "";
+  let result;
+  try {
+    result = await api.set_file_password(unlockFile.id, secret);
+  } catch {
+    showError(unlockErrorEl, "Could not unlock that file.");
+    return;
+  }
+  if (!result || !result.ok) {
+    showError(unlockErrorEl, (result && result.error) || "Could not unlock that file.");
+    return;
+  }
+  const periodId = currentPeriod && currentPeriod.id;
+  closeUnlockModal();
+  if (!periodId) return;
+  if (api.reparse_period) {
+    let job;
+    try {
+      job = await api.reparse_period(periodId);
+    } catch {
+      showError(dumpErrorEl, "Could not re-read the period.");
+      return;
+    }
+    if (job && job.ok && job.job_id) {
+      activeJobId = job.job_id;
+      setDumpBusy(true);
+      pollJob(job.job_id);
+    } else if (job && !job.ok) {
+      showError(dumpErrorEl, job.error || "Could not re-read the period.");
+    } else {
+      await openPeriod(periodId);
+    }
+  } else {
+    await openPeriod(periodId);
+  }
+}
+
+function updateScanNote() {
+  if (!scanNoteEl) return;
+  if (tesseractFound) {
+    scanNoteEl.classList.add("hidden");
+    return;
+  }
+  const emptyScannedBank = lastFiles.some((file) => {
+    if (file.kind !== "bank") return false;
+    const reason = (file.classify_reason || "").toLowerCase();
+    if (!/scan|ocr|tesseract|image|raster|photo/.test(reason)) return false;
+    const preview = lastPreviewFiles.find((item) => item.file_id === file.id);
+    return !preview || !preview.row_count;
+  });
+  scanNoteEl.classList.toggle("hidden", !emptyScannedBank);
+}
+
+async function refreshTesseractNote() {
+  const api = desktopApi();
+  if (!tesseractChecked && api && api.tesseract_status) {
+    tesseractChecked = true;
+    try {
+      const status = await api.tesseract_status();
+      tesseractFound = Boolean(status && status.found);
+    } catch {
+      tesseractFound = true;
+    }
+  }
+  updateScanNote();
 }
 
 function escapeHtml(value) {
@@ -305,30 +770,54 @@ async function startDump(paths) {
   }
   showError(dumpErrorEl, "");
   dumpStatusEl.textContent = "Sorting…";
+  setDumpBusy(true);
   const result = await window.pywebview.api.start_dump(currentPeriod.id, paths);
   if (!result.ok) {
     showError(dumpErrorEl, result.error);
+    activeJobId = null;
+    setDumpBusy(false);
+    dumpStatusEl.textContent = fileCountLabel(lastFileCount);
     return;
   }
+  activeJobId = result.job_id;
   pollJob(result.job_id);
 }
 
 function pollJob(jobId) {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
+    if (jobId !== activeJobId) return;
     const result = await window.pywebview.api.get_job(jobId);
+    if (jobId !== activeJobId) return;
     if (!result.ok) return;
     const job = result.job;
     if (job.status === "routing" || job.status === "queued" || job.status === "parsing") {
-      dumpStatusEl.textContent = job.status === "parsing" ? "Reading bank PDF…" : `Sorting ${job.files.length}…`;
+      renderFiles(job.files || []);
+      dumpStatusEl.textContent = job.status === "parsing"
+        ? "Reading bank PDF…"
+        : `Sorting ${(job.files || []).length}…`;
       return;
     }
     clearInterval(pollTimer);
     pollTimer = null;
-    if (job.status === "failed") {
-      showError(dumpErrorEl, job.error_message || "Could not sort those files.");
+    if (jobId !== activeJobId) return;
+    activeJobId = null;
+    setDumpBusy(false);
+    const failed = job.status === "failed";
+    const jobError = job.error_message || "Could not sort those files.";
+    const passwordFail = failed && /password/i.test(job.error_message || "");
+    if (failed) {
+      showError(dumpErrorEl, jobError);
     }
-    await openPeriod(currentPeriod.id);
+    const dumpVisible = !paneDump.classList.contains("hidden");
+    if (dumpVisible && currentPeriod && currentPeriod.id === job.period_id) {
+      await openPeriod(currentPeriod.id);
+    }
+    if (passwordFail) {
+      showError(dumpErrorEl, jobError);
+      const locked = lastFiles.find(fileNeedsPassword);
+      if (locked) openUnlockModal(locked);
+    }
   }, 350);
 }
 
@@ -429,7 +918,8 @@ document.getElementById("back-to-periods").addEventListener("click", () => {
 
 document.getElementById("open-pack").addEventListener("click", async () => {
   if (!currentPeriod) return;
-  const result = await window.pywebview.api.open_bank_pack(currentPeriod.id, "");
+  const key = packOpenKey || (packHasBank ? "bank" : "");
+  const result = await window.pywebview.api.open_bank_pack(currentPeriod.id, key);
   if (!result.ok) showError(dumpErrorEl, result.error);
 });
 
@@ -439,32 +929,50 @@ document.getElementById("open-folder").addEventListener("click", async () => {
   if (!result.ok) showError(dumpErrorEl, result.error);
 });
 
-document.getElementById("add-files").addEventListener("click", async () => {
+addFilesBtn.addEventListener("click", async () => {
   const picked = await window.pywebview.api.pick_files();
-  if (picked.ok) await startDump(picked.paths);
+  if (!picked.ok) {
+    showError(dumpErrorEl, picked.error);
+    return;
+  }
+  if (!picked.paths.length) return;
+  await startDump(picked.paths);
 });
 
-document.getElementById("add-folder").addEventListener("click", async () => {
+addFolderBtn.addEventListener("click", async () => {
   const picked = await window.pywebview.api.pick_folder();
-  if (picked.ok) await startDump(picked.paths);
+  if (!picked.ok) {
+    showError(dumpErrorEl, picked.error);
+    return;
+  }
+  if (!picked.paths.length) return;
+  await startDump(picked.paths);
+});
+
+document.addEventListener("dragover", (event) => {
+  event.preventDefault();
+});
+document.addEventListener("drop", (event) => {
+  event.preventDefault();
 });
 
 dropZone.addEventListener("dragover", (event) => {
   event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
   dropZone.classList.add("over");
 });
-dropZone.addEventListener("dragleave", () => dropZone.classList.remove("over"));
+dropZone.addEventListener("dragleave", (event) => {
+  if (!dropZone.contains(event.relatedTarget)) dropZone.classList.remove("over");
+});
 dropZone.addEventListener("drop", async (event) => {
   event.preventDefault();
   dropZone.classList.remove("over");
   const paths = [];
   for (const file of event.dataTransfer.files) {
-    if (file.path) paths.push(file.path);
+    const path = file.pywebviewFullPath || file.path;
+    if (path) paths.push(path);
   }
-  if (!paths.length) {
-    showError(dumpErrorEl, "Use Add files or Add folder if drag-and-drop does not give a path.");
-    return;
-  }
+  if (!paths.length) return;
   await startDump(paths);
 });
 
@@ -485,6 +993,35 @@ document.getElementById("wipe-confirm").addEventListener("click", async () => {
   const result = await window.pywebview.api.wipe_and_restart();
   if (!result.ok) {
     showError(wipeErrorEl, result.error);
+  }
+});
+
+if (cropModal) {
+  cropModal.addEventListener("click", (event) => {
+    if (event.target === cropModal) closeCropModal();
+  });
+}
+const cropCloseBtn = document.getElementById("crop-close");
+if (cropCloseBtn) cropCloseBtn.addEventListener("click", closeCropModal);
+
+if (unlockModal) {
+  unlockModal.addEventListener("click", (event) => {
+    if (event.target === unlockModal) closeUnlockModal();
+  });
+}
+const unlockForm = document.getElementById("unlock-form");
+if (unlockForm) unlockForm.addEventListener("submit", submitUnlock);
+const unlockCancelBtn = document.getElementById("unlock-cancel");
+if (unlockCancelBtn) unlockCancelBtn.addEventListener("click", closeUnlockModal);
+
+document.addEventListener("keydown", (event) => {
+  if (event.key !== "Escape") return;
+  if (cropModal && !cropModal.classList.contains("hidden")) {
+    closeCropModal();
+    return;
+  }
+  if (unlockModal && !unlockModal.classList.contains("hidden")) {
+    closeUnlockModal();
   }
 });
 

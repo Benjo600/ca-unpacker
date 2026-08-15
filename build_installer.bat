@@ -2,19 +2,20 @@
 setlocal
 cd /d "%~dp0"
 
-set "PY=%~dp0.venv\Scripts\python.exe"
-if not exist "%PY%" (
-  echo Run start.bat once first so the virtual environment exists.
-  pause
-  exit /b 1
-)
+set "PY=C:\Users\Admin\AppData\Local\Programs\Python\Python313\python.exe"
+if exist "%~dp0.venv\Scripts\python.exe" set "PY=%~dp0.venv\Scripts\python.exe"
 
-echo Installing PyInstaller...
-"%PY%" -m pip install -q pyinstaller
+echo Using %PY%
+
+"%PY%" -m pip install -q -r requirements.txt pyinstaller
 if errorlevel 1 goto fail
 
 echo Building CAUnpacker.exe ...
 "%PY%" -m PyInstaller --noconfirm --clean CAUnpacker.spec
+if errorlevel 1 goto fail
+
+echo Bundling Tesseract if present...
+"%PY%" installer\bundle_tesseract.py
 if errorlevel 1 goto fail
 
 set "ISCC="
@@ -22,22 +23,25 @@ if exist "%LocalAppData%\Programs\Inno Setup 6\ISCC.exe" set "ISCC=%LocalAppData
 if exist "%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles(x86)%\Inno Setup 6\ISCC.exe"
 if exist "%ProgramFiles%\Inno Setup 6\ISCC.exe" set "ISCC=%ProgramFiles%\Inno Setup 6\ISCC.exe"
 
-if defined ISCC (
-  echo Building installer with Inno Setup...
-  "%ISCC%" "installer\ca-unpacker.iss"
-  if errorlevel 1 goto fail
-  echo.
-  echo Installer: dist\CAUnpacker-Setup.exe
-) else (
-  echo Inno Setup not found. Creating a portable zip instead.
-  "%PY%" -c "import shutil; shutil.make_archive('dist/CAUnpacker-Portable', 'zip', 'dist/CAUnpacker')"
-  echo Portable zip: dist\CAUnpacker-Portable.zip
+if not defined ISCC (
+  echo Inno Setup 6 not found. Install it from https://jrsoftware.org/isinfo.php
+  goto fail
 )
 
-echo Done.
+echo Building one-file installer...
+"%ISCC%" "installer\ca-unpacker.iss"
+if errorlevel 1 goto fail
+
+if exist "dist\CAUnpacker-Windows.zip" del /q "dist\CAUnpacker-Windows.zip"
+"%PY%" -c "import zipfile; from pathlib import Path; z=Path('dist/CAUnpacker-Windows.zip'); src=Path('dist/CAUnpacker-Setup.exe');
+zf=zipfile.ZipFile(z,'w',zipfile.ZIP_DEFLATED); zf.write(src, src.name); zf.close(); print('Wrote', z, 'size', z.stat().st_size)"
+
+echo.
+echo Give people this zip: dist\CAUnpacker-Windows.zip
+echo Inside it is one file: CAUnpacker-Setup.exe
+echo They double-click Setup, then open CA Unpacker from the Start menu.
 exit /b 0
 
 :fail
 echo Build failed.
-pause
 exit /b 1

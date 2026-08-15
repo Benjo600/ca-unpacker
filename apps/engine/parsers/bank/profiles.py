@@ -30,7 +30,7 @@ PROFILES = (
     BankProfile(
         key="sbi",
         label="State Bank of India",
-        hints=("state bank", "sbi ", " sbi"),
+        hints=("state bank", "sbi ", " sbi", "sbi_", "sbi-"),
         debit_words=("debit", "withdrawal", "dr", "to transfer", "atm wdl", "cheque wdl"),
         credit_words=("credit", "deposit", "cr", "by transfer", "cash deposit"),
     ),

@@ -10,15 +10,25 @@ import webview
 
 from apps.engine.clients import create_client, get_client, list_clients
 from apps.engine.db import get_engine
-from apps.engine.dump import get_job, ingest_paths, list_period_files, override_kind, start_job
+from apps.engine.dump import (
+    fail_job,
+    get_job,
+    ingest_paths,
+    list_period_files,
+    override_kind,
+    reparse_period,
+    start_job,
+)
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import get_output_root, set_output_root
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
+from apps.engine.pdf_passwords import set_file_password as store_file_password
 from apps.engine.pipeline import (
     get_period_pack,
     get_period_preview,
+    get_source_crop as crop_source,
     open_pack_folder,
     open_pack_path,
 )
@@ -36,6 +46,8 @@ def _dialog_folder():
 
 
 class DesktopApi:
+    def __init__(self) -> None:
+        self._current_period_id: int | None = None
 
     def get_state(self) -> dict:
         init_library()
@@ -87,6 +99,7 @@ class DesktopApi:
         period = get_period(int(period_id))
         if period is None:
             return {"ok": False, "error": "Period was not found."}
+        self._current_period_id = period["id"]
         client = get_client(period["client_id"])
         return {
             "ok": True,
@@ -95,7 +108,7 @@ class DesktopApi:
             "files": list_period_files(period["id"]),
             "kinds": [{"id": key, "label": KIND_LABELS[key]} for key in KINDS],
             "pack": get_period_pack(period["id"]),
-            "preview": get_period_preview(period["id"]),
+            "preview": get_period_preview(period["id"], 10),
         }
 
     def pick_files(self) -> dict:
@@ -152,14 +165,7 @@ class DesktopApi:
             job = start_job(int(period_id))
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
-
-        def work() -> None:
-            try:
-                ingest_paths(job["id"], list(paths))
-            except Exception:
-                return
-
-        threading.Thread(target=work, daemon=True).start()
+        _run_job_thread(job["id"], lambda: ingest_paths(job["id"], list(paths)))
         return {"ok": True, "job_id": job["id"]}
 
     def get_job(self, job_id: int) -> dict:
@@ -174,6 +180,14 @@ class DesktopApi:
             return {"ok": True, "file": row}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def reparse_period(self, period_id: int) -> dict:
+        try:
+            job = start_job(int(period_id))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        _run_job_thread(job["id"], lambda: reparse_period(int(period_id), job["id"]))
+        return {"ok": True, "job_id": job["id"]}
 
     def open_bank_pack(self, period_id: int, key: str = "") -> dict:
         try:
@@ -194,6 +208,23 @@ class DesktopApi:
             return {"ok": False, "error": str(exc)}
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def set_file_password(self, file_id: int, password: str) -> dict:
+        if not str(password or "").strip():
+            return {"ok": False, "error": "Enter the PDF password."}
+        store_file_password(int(file_id), str(password))
+        return {"ok": True}
+
+    def get_source_crop(self, file_id: int, page: int, bbox: str = "") -> dict:
+        return crop_source(int(file_id), int(page), bbox or None)
+
+    def tesseract_status(self) -> dict:
+        try:
+            from apps.engine.ocr import tesseract_status
+
+            return {"ok": True, **tesseract_status()}
+        except Exception:
+            return {"ok": True, "found": False, "path": None, "note": "OCR module not loaded"}
 
     def wipe_and_restart(self) -> dict:
         try:
@@ -218,6 +249,13 @@ def _repo_root() -> Path:
 
 
 def _spawn_fresh_app() -> None:
+    if getattr(sys, "frozen", False):
+        exe = Path(sys.executable)
+        if sys.platform == "win32":
+            subprocess.Popen(["cmd", "/c", "start", "", str(exe)], cwd=str(exe.parent))
+            return
+        subprocess.Popen([str(exe)], cwd=str(exe.parent))
+        return
     root = _repo_root()
     if sys.platform == "win32":
         subprocess.Popen(
@@ -244,6 +282,62 @@ def _log_crash(message: str) -> None:
     log_path.write_text(message, encoding="utf-8")
 
 
+def _run_job_thread(job_id: int, fn) -> None:
+    def work() -> None:
+        try:
+            fn()
+        except Exception:
+            import traceback
+
+            _log_crash(traceback.format_exc())
+            leftover = get_job(job_id)
+            if leftover is None or leftover.get("status") in {"queued", "routing", "parsing"}:
+                fail_job(job_id, "Could not process these files.")
+
+    threading.Thread(target=work, daemon=True).start()
+
+
+def _drop_paths(event) -> list[str]:
+    files = (event or {}).get("dataTransfer", {}).get("files") or []
+    paths: list[str] = []
+    for item in files:
+        if not isinstance(item, dict):
+            continue
+        path = item.get("pywebviewFullPath") or item.get("path")
+        if path:
+            paths.append(path)
+    return paths
+
+
+def _bind_explorer_drop(api: DesktopApi) -> None:
+    if _WINDOW is None:
+        return
+    try:
+        from webview.dom import DOMEventHandler
+    except Exception:
+        return
+
+    def on_zone_drop(_event) -> None:
+        # Bind so WebView2 injects pywebviewFullPath into the JS File list.
+        # JS startDump owns the job so the tray can poll.
+
+    def _prevent(_event) -> None:
+        return None
+
+    try:
+        zone = _WINDOW.dom.get_element("#drop-zone")
+        if zone is not None:
+            zone.events.drop += DOMEventHandler(on_zone_drop, True, True)
+    except Exception:
+        pass
+    try:
+        document = _WINDOW.dom.document
+        document.events.dragover += DOMEventHandler(_prevent, True, False)
+        document.events.drop += DOMEventHandler(_prevent, True, False)
+    except Exception:
+        pass
+
+
 def main() -> None:
     import traceback
 
@@ -261,6 +355,7 @@ def main() -> None:
             min_size=(880, 580),
             background_color="#2C3330",
         )
+        _WINDOW.events.shown += lambda: _bind_explorer_drop(api)
         webview.start()
     except Exception:
         _log_crash(traceback.format_exc())

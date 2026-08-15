@@ -68,7 +68,7 @@ def classify_path(path: Path) -> Classification:
     if suffix in SPREADSHEET_SUFFIXES:
         return _classify_spreadsheet(path, name)
     if suffix in IMAGE_SUFFIXES:
-        return _classify_image(name)
+        return _classify_image(path, name)
     if suffix == ".pdf":
         return _classify_pdf(path, name)
     return Classification("unknown", 0.2, "no matching file type")
@@ -170,7 +170,15 @@ def _classify_zip(path: Path, name: str) -> Classification:
 def _classify_spreadsheet(path: Path, name: str) -> Classification:
     if "zoho" in name or "books" in name:
         return Classification("zoho", 0.8, "filename looks like a Zoho export")
-    if path.suffix.lower() != ".csv":
+    suffix = path.suffix.lower()
+    if suffix in {".xlsx", ".xls"}:
+        cells = _xlsx_header_cells(path)
+        if cells is None:
+            return Classification("unknown", 0.2, "spreadsheet could not be read")
+        if _zoho_header_match(cells):
+            return Classification("zoho", 0.88, "Excel headers look like Zoho Books")
+        return Classification("unknown", 0.35, "spreadsheet is not a Zoho export")
+    if suffix != ".csv":
         return Classification("unknown", 0.35, "spreadsheet is not a Zoho CSV")
     try:
         with path.open(encoding="utf-8-sig", newline="") as handle:
@@ -178,14 +186,104 @@ def _classify_spreadsheet(path: Path, name: str) -> Classification:
             header = next(reader, [])
     except (OSError, UnicodeError):
         return Classification("unknown", 0.2, "CSV could not be read")
-    cells = {cell.strip().lower() for cell in header}
-    if cells & ZOHO_HEADERS or {"invoice number", "invoice date"} <= cells:
+    cells = {str(cell).strip().lower() for cell in header if str(cell).strip()}
+    if _zoho_header_match(cells):
         return Classification("zoho", 0.88, "CSV headers look like Zoho Books")
     return Classification("unknown", 0.3, "CSV headers did not match Zoho")
 
 
-def _classify_image(name: str) -> Classification:
-    if any(token in name for token in ("inv", "invoice", "bill", "tax")):
+def _zoho_header_match(cells: set[str]) -> bool:
+    return bool(cells & ZOHO_HEADERS) or "invoice number" in cells
+
+
+def _xlsx_header_cells(path: Path) -> set[str] | None:
+    try:
+        from openpyxl import load_workbook
+
+        book = load_workbook(path, read_only=True, data_only=True)
+        try:
+            first = next(book.active.iter_rows(min_row=1, max_row=1, values_only=True), None)
+        finally:
+            book.close()
+    except Exception:
+        return None
+    if not first:
+        return set()
+    return {str(cell).strip().lower() for cell in first if cell is not None and str(cell).strip()}
+
+
+def _filename_invoice_hint(name: str) -> bool:
+    return any(token in name for token in ("inv", "invoice", "bill", "tax"))
+
+
+def _has_printed_invoice_text(text: str) -> bool:
+    if not text or not text.strip():
+        return False
+    if GSTIN_RE.search(text.upper()):
+        return True
+    lowered = text.lower()
+    if any(hint in lowered for hint in INVOICE_HINTS):
+        return True
+    return "invoice" in lowered
+
+
+def _image_too_small(path: Path) -> bool:
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            width, height = image.size
+    except Exception:
+        return False
+    return width < 8 or height < 8
+
+
+def _ocr_available() -> bool:
+    from apps.engine.ocr import find_tesseract
+
+    if find_tesseract() is None:
+        return False
+    try:
+        import pytesseract  # noqa: F401
+    except ImportError:
+        return False
+    return True
+
+
+def _ocr_image_text(path: Path) -> str:
+    from apps.engine.ocr import ocr_image_lines
+
+    try:
+        from PIL import Image
+
+        with Image.open(path) as image:
+            width, height = image.size
+    except Exception:
+        width, height = 1, 1
+    if width <= 0 or height <= 0:
+        return ""
+    lines = ocr_image_lines(path, 1, float(width), float(height), 1.0)
+    return "\n".join(line.text for line in lines if line.text)
+
+
+def _classify_image(path: Path, name: str) -> Classification:
+    # 1x1 / tiny bitmaps cannot hold printed GST invoice text.
+    if _image_too_small(path):
+        return Classification("unknown", 0.4, "image; no printed invoice text")
+
+    if _ocr_available():
+        text = _ocr_image_text(path)
+        result = classify_from_text(name, 1, text)
+        if _has_printed_invoice_text(text):
+            if result.kind == "invoice":
+                return result
+            return Classification("invoice", 0.85, "invoice wording or GSTIN on a short document")
+        # OCR ran: filename must not promote junk/handwritten photos to invoice.
+        if result.kind == "invoice" or not text.strip():
+            return Classification("unknown", 0.4, "image; no printed invoice text")
+        return result
+
+    if _filename_invoice_hint(name):
         return Classification("invoice", 0.6, "image name looks like an invoice")
     return Classification("unknown", 0.4, "image; cannot read GSTIN without OCR yet")
 

@@ -115,7 +115,11 @@ def get_engine():
     global _engine, SessionLocal
     if _engine is None:
         init_library()
-        _engine = create_engine(f"sqlite:///{get_db_path()}", echo=False)
+        _engine = create_engine(
+            f"sqlite:///{get_db_path()}",
+            echo=False,
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
         Base.metadata.create_all(_engine)
         SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
