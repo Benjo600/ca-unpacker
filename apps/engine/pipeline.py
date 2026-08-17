@@ -9,7 +9,12 @@ from pathlib import Path
 from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session
 from apps.engine.kinds import IMAGE_SUFFIXES
 from apps.engine.library import init_library, resolve_storage_key
-from apps.engine.pdf_passwords import get_file_password
+from apps.engine.outcomes import (
+    evaluate_file_outcome,
+    failed_file_outcome,
+    persist_file_outcome,
+)
+from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
 from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3b
@@ -117,16 +122,57 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         for stored in files:
             kind = file_kind(stored)
             if not stored.storage_key:
+                persist_file_outcome(
+                    stored,
+                    failed_file_outcome(
+                        "copy_failed",
+                        stored.classify_reason or "The file could not be copied into the library.",
+                    ),
+                )
+                session.commit()
                 continue
             path = resolve_storage_key(stored.storage_key)
             if not path.exists():
+                persist_file_outcome(
+                    stored,
+                    failed_file_outcome(
+                        "source_missing", "The stored source file is missing."
+                    ),
+                )
+                session.commit()
+                continue
+            if kind == "unknown":
+                persist_file_outcome(
+                    stored,
+                    evaluate_file_outcome(
+                        kind=kind,
+                        rows=[],
+                        parser_metadata={},
+                        classification_reason=stored.classify_reason,
+                    ),
+                )
+                session.commit()
                 continue
             try:
                 rows, extra = _dispatch_stored(stored, path, kind)
             except Exception as exc:
-                stored.classify_reason = f"could not parse: {_redact_secret(str(exc), stored.id)[:200]}"
+                message = _redact_secret(str(exc), stored.id)
+                stored.classify_reason = f"could not parse: {message[:200]}"
+                persist_file_outcome(
+                    stored,
+                    failed_file_outcome("parser_error", message, kind=kind),
+                )
                 session.commit()
                 continue
+            persist_file_outcome(
+                stored,
+                evaluate_file_outcome(
+                    kind=kind,
+                    rows=rows,
+                    parser_metadata=extra,
+                    classification_reason=stored.classify_reason,
+                ),
+            )
             for row in rows:
                 session.add(
                     ExtractedRow(
@@ -165,6 +211,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         purchase_rows.append(_as_register_row(row))
                     elif register == "sales":
                         sales_rows.append(_as_register_row(row))
+            session.commit()
 
         period = session.get(Period, period_id)
         client = session.get(Client, period.client_id) if period else None
@@ -305,7 +352,7 @@ def _simple_out(key: str, label: str, dest: Path, rows: int) -> dict:
 
 def _redact_secret(text: str, file_id: int) -> str:
     password = get_file_password(file_id)
-    cleaned = (text or "").strip()
+    cleaned = redact_known_passwords((text or "").strip())
     if password and password in cleaned:
         cleaned = cleaned.replace(password, "********")
     if "traceback (most recent call last)" in cleaned.lower():
@@ -523,6 +570,7 @@ def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
             "filename": filename,
             "profile_label": parsed.get("profile_label"),
             "engine": parsed.get("engine"),
+            "pdf_type": parsed.get("pdf_type"),
             "page_count": parsed.get("page_count"),
             "account_number": parsed.get("account_number"),
             "ifsc": parsed.get("ifsc"),

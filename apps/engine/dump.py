@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import mimetypes
 import re
 import shutil
@@ -11,6 +12,7 @@ from apps.engine.classifier import classify_path
 from apps.engine.db import Job, Period, StoredFile, get_session, utcnow
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.engine.library import files_root
+from apps.engine.outcomes import derive_job_status, failed_file_outcome, persist_file_outcome
 from apps.engine.pdf_passwords import redact_known_passwords
 from apps.engine.periods import get_period
 from apps.engine.pipeline import parse_period_banks
@@ -30,6 +32,12 @@ class IntakePreflight:
 def _file_dict(row: StoredFile) -> dict:
     kind = row.override_kind or row.detected_kind
     reason = row.classify_reason or ""
+    parse_outcome = getattr(row, "parse_outcome", "unclassified")
+    try:
+        parse_warnings = json.loads(getattr(row, "parse_warnings_json", "[]") or "[]")
+    except (TypeError, ValueError):
+        parse_warnings = []
+    processed_at = getattr(row, "processed_at", None)
     return {
         "id": row.id,
         "job_id": row.job_id,
@@ -43,8 +51,18 @@ def _file_dict(row: StoredFile) -> dict:
         "kind_label": KIND_LABELS.get(kind, kind),
         "confidence": row.confidence,
         "classify_reason": reason,
-        "needs_review": kind == "unknown" and row.override_kind is None,
-        "needs_password": "password" in reason.lower(),
+        "parse_outcome": parse_outcome,
+        "parse_reason_code": getattr(row, "parse_reason_code", None),
+        "parse_reason_message": getattr(row, "parse_reason_message", None),
+        "parse_row_count": getattr(row, "parse_row_count", 0),
+        "parse_warnings": parse_warnings if isinstance(parse_warnings, list) else [],
+        "parser_id": getattr(row, "parser_id", None),
+        "parser_version": getattr(row, "parser_version", None),
+        "processed_at": processed_at.isoformat() if processed_at else None,
+        "needs_review": parse_outcome == "needs_review"
+        or (parse_outcome == "unclassified" and kind == "unknown"),
+        "needs_password": getattr(row, "parse_reason_code", None) == "password_required"
+        or "password" in reason.lower(),
     }
 
 
@@ -79,6 +97,8 @@ def get_job(job_id: int) -> dict | None:
             "period_id": job.period_id,
             "status": job.status,
             "error_message": job.error_message,
+            "intake_discovered_count": job.intake_discovered_count,
+            "intake_accepted_count": job.intake_accepted_count,
             "files": [_file_dict(row) for row in files],
         }
     finally:
@@ -156,7 +176,7 @@ def fail_job(job_id: int, message: str) -> None:
     session = get_session()
     try:
         job = session.get(Job, job_id)
-        if job is None or job.status in {"done", "failed"}:
+        if job is None or job.status in {"done", "done_with_warnings", "failed"}:
             return
         job.status = "failed"
         job.error_message = redact_known_passwords(message or "Could not process these files.")[:500]
@@ -215,12 +235,19 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         preflight = preflight_paths(paths)
         to_copy = preflight.paths
         job.status = "routing"
+        job.intake_discovered_count = preflight.discovered_count
+        job.intake_accepted_count = preflight.accepted_count
         session.commit()
         dest_root = files_root() / str(period.client_id) / str(period.id)
         dest_root.mkdir(parents=True, exist_ok=True)
 
         for source in to_copy:
-            size = source.stat().st_size
+            copy_failure_code = None
+            try:
+                size = source.stat().st_size
+            except OSError:
+                size = 0
+                copy_failure_code = "source_missing"
             key_name = f"{uuid.uuid4().hex[:8]}_{_safe_name(source.name)}"
             storage_key = f"{period.client_id}/{period.id}/{key_name}"
             dest = dest_root / key_name
@@ -229,14 +256,18 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             kind = "unknown"
             confidence = 0.0
             copied = False
-            if size > MAX_FILE_BYTES:
+            if copy_failure_code:
+                reason = "source file could not be read"
+            elif size > MAX_FILE_BYTES:
                 reason = "file is larger than 100 MB"
+                copy_failure_code = "copy_failed"
             else:
                 try:
                     shutil.copy2(source, dest)
                     copied = dest.is_file()
                 except OSError:
                     reason = "could not copy file into the library"
+                    copy_failure_code = "copy_failed"
                 if copied:
                     result = classify_path(dest)
                     kind = result.kind
@@ -255,28 +286,31 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
                 confidence=confidence,
                 classify_reason=reason,
             )
+            if not copied:
+                persist_file_outcome(
+                    row,
+                    failed_file_outcome(
+                        copy_failure_code or "copy_failed",
+                        "The source file could not be read."
+                        if copy_failure_code == "source_missing"
+                        else "The file could not be copied into the library.",
+                    ),
+                )
             session.add(row)
             session.commit()
 
         job.status = "parsing"
         session.commit()
         period_id = period.id
-        had_bank = any(
-            (stored.override_kind or stored.detected_kind) == "bank"
-            for stored in session.query(StoredFile).filter(StoredFile.job_id == job_id)
-        )
         parse_period_banks(period_id, job_id)
-        if had_bank:
-            from apps.engine.pipeline import get_period_pack
-
-            pack = get_period_pack(period_id)
-            outputs = (pack or {}).get("outputs") or []
-            if not any(item.get("key") == "bank" for item in outputs):
-                fail_job(job_id, "Bank statement was found but no Excel pack was written.")
-                return get_job(job_id) or {"id": job_id, "status": "failed", "files": []}
         job = session.get(Job, job_id)
         if job is not None:
-            job.status = "done"
+            job.status = _period_job_status(session, period_id)
+            job.error_message = (
+                "No files could be processed."
+                if job.status == "failed"
+                else None
+            )
             job.finished_at = utcnow()
             session.commit()
         return get_job(job_id) or {"id": job_id, "status": "done", "files": []}
@@ -285,6 +319,7 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             session.rollback()
         except Exception:
             pass
+        _mark_unfinished_files_failed(session, job_id)
         fail_job(job_id, _user_job_error(exc))
         raise
     finally:
@@ -326,16 +361,66 @@ def reparse_period(period_id: int, job_id: int | None = None) -> dict:
         parse_period_banks(period_id, job_id)
         job = session.get(Job, job_id)
         if job is not None:
-            job.status = "done"
+            job.status = _period_job_status(session, period_id)
+            job.error_message = (
+                "No files could be processed."
+                if job.status == "failed"
+                else None
+            )
             job.finished_at = utcnow()
             session.commit()
-        return get_job(job_id) or {"id": job_id, "period_id": period_id, "status": "done", "files": []}
+        return get_job(job_id) or {
+            "id": job_id,
+            "period_id": period_id,
+            "status": "done_with_warnings",
+            "files": [],
+        }
     except Exception as exc:
         try:
             session.rollback()
         except Exception:
             pass
+        _mark_unfinished_files_failed(session, job_id)
         fail_job(job_id, _user_job_error(exc))
         raise
     finally:
         session.close()
+
+
+def _period_job_status(session, period_id: int) -> str:
+    session.expire_all()
+    outcomes = [
+        row.parse_outcome
+        for row in session.query(StoredFile).filter(StoredFile.period_id == period_id)
+    ]
+    return derive_job_status(outcomes)
+
+
+def _mark_unfinished_files_failed(session, job_id: int) -> None:
+    try:
+        session.expire_all()
+        job = session.get(Job, job_id)
+        if job is None:
+            return
+        rows = (
+            session.query(StoredFile)
+            .filter(
+                StoredFile.period_id == job.period_id,
+                StoredFile.processed_at.is_(None),
+            )
+            .all()
+        )
+        for row in rows:
+            persist_file_outcome(
+                row,
+                failed_file_outcome(
+                    "infrastructure_error",
+                    "Processing could not finish because an internal service failed.",
+                ),
+            )
+        session.commit()
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
