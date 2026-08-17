@@ -4,8 +4,10 @@ import os
 import sqlite3
 import tempfile
 import unittest
+from concurrent.futures import ThreadPoolExecutor
 from contextlib import closing
 from pathlib import Path
+from threading import Barrier
 from unittest.mock import patch
 
 from sqlalchemy import inspect
@@ -104,6 +106,41 @@ def create_legacy_database(path: Path) -> None:
             "(1, 1, 1, 'packs/bank.xlsx', 'balanced', 12, '2026-08-01')"
         )
         connection.commit()
+
+
+def initialize_concurrently(path: Path, worker_count: int = 8) -> list[Exception | None]:
+    from sqlalchemy import create_engine
+
+    from apps.engine.db import Base
+    from apps.engine.migrations import ensure_schema
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    barrier = Barrier(worker_count)
+
+    def initialize() -> Exception | None:
+        engine = create_engine(
+            f"sqlite:///{path}",
+            connect_args={"check_same_thread": False, "timeout": 30},
+        )
+        try:
+            barrier.wait()
+            ensure_schema(engine, Base.metadata)
+        except Exception as exc:
+            return exc
+        finally:
+            engine.dispose()
+        return None
+
+    with ThreadPoolExecutor(max_workers=worker_count) as executor:
+        return list(executor.map(lambda _: initialize(), range(worker_count)))
+
+
+def column_defaults(path: Path, table: str) -> dict[str, str | None]:
+    with closing(sqlite3.connect(path)) as connection:
+        return {
+            row[1]: row[4]
+            for row in connection.execute(f"PRAGMA table_info({table})")
+        }
 
 
 class MigrationTests(unittest.TestCase):
@@ -251,6 +288,91 @@ class MigrationTests(unittest.TestCase):
             self.assertNotIn("partial_change", file_columns)
             self.assertNotIn("schema_version", table_names)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
+
+    def test_concurrent_fresh_initializers_converge_on_latest_schema(self) -> None:
+        errors = initialize_concurrently(self.db_path)
+
+        self.assertEqual(errors, [None] * 8)
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT version FROM schema_version").fetchone()[0],
+                2,
+            )
+            file_columns = [
+                row[1] for row in connection.execute("PRAGMA table_info(files)")
+            ]
+            self.assertEqual(file_columns.count("parse_outcome"), 1)
+        self.assertEqual(list(self.db_path.parent.glob("*.backup")), [])
+
+    def test_concurrent_v1_initializers_create_one_backup_and_converge_on_v2(self) -> None:
+        create_legacy_database(self.db_path)
+
+        errors = initialize_concurrently(self.db_path)
+
+        self.assertEqual(errors, [None] * 8)
+        backups = list(self.db_path.parent.glob("app.db.v1-to-v2*.backup"))
+        self.assertEqual(len(backups), 1)
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT version FROM schema_version").fetchone()[0],
+                2,
+            )
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
+        with closing(sqlite3.connect(backups[0])) as connection:
+            self.assertNotIn(
+                "schema_version",
+                {row[0] for row in connection.execute("SELECT name FROM sqlite_master")},
+            )
+            self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
+
+    def test_fresh_and_upgraded_schemas_have_matching_task3_server_defaults(self) -> None:
+        from sqlalchemy import create_engine
+
+        from apps.engine.db import Base
+        from apps.engine.migrations import ensure_schema
+
+        fresh_path = self.db_path
+        fresh_path.parent.mkdir(parents=True)
+        fresh_engine = create_engine(f"sqlite:///{fresh_path}")
+        ensure_schema(fresh_engine, Base.metadata)
+        fresh_engine.dispose()
+
+        upgraded_path = self.local_app_data / "upgraded" / "app.db"
+        create_legacy_database(upgraded_path)
+        upgraded_engine = create_engine(f"sqlite:///{upgraded_path}")
+        ensure_schema(upgraded_engine, Base.metadata)
+        upgraded_engine.dispose()
+
+        expected_file_defaults = {
+            "parse_outcome": "'unclassified'",
+            "parse_row_count": "0",
+            "parse_warnings_json": "'[]'",
+        }
+        expected_job_defaults = {
+            "intake_discovered_count": "0",
+            "intake_accepted_count": "0",
+        }
+        fresh_file_defaults = column_defaults(fresh_path, "files")
+        upgraded_file_defaults = column_defaults(upgraded_path, "files")
+        fresh_job_defaults = column_defaults(fresh_path, "jobs")
+        upgraded_job_defaults = column_defaults(upgraded_path, "jobs")
+
+        self.assertEqual(
+            {name: fresh_file_defaults[name] for name in expected_file_defaults},
+            expected_file_defaults,
+        )
+        self.assertEqual(
+            {name: upgraded_file_defaults[name] for name in expected_file_defaults},
+            expected_file_defaults,
+        )
+        self.assertEqual(
+            {name: fresh_job_defaults[name] for name in expected_job_defaults},
+            expected_job_defaults,
+        )
+        self.assertEqual(
+            {name: upgraded_job_defaults[name] for name in expected_job_defaults},
+            expected_job_defaults,
+        )
 
 
 if __name__ == "__main__":

@@ -47,13 +47,12 @@ def _database_path(engine: Engine) -> Path:
     return Path(engine.url.database)
 
 
-def _read_version(engine: Engine, table_names: set[str]) -> int:
+def _read_version(connection: Connection, table_names: set[str]) -> int:
     if VERSION_TABLE not in table_names:
         return BASELINE_SCHEMA_VERSION
-    with engine.connect() as connection:
-        rows = connection.exec_driver_sql(
-            f"SELECT version FROM {VERSION_TABLE}"
-        ).fetchall()
+    rows = connection.exec_driver_sql(
+        f"SELECT version FROM {VERSION_TABLE}"
+    ).fetchall()
     if len(rows) != 1:
         raise RuntimeError("schema_version must contain exactly one row")
     return int(rows[0][0])
@@ -96,20 +95,13 @@ def _create_version_table(connection: Connection) -> None:
     )
 
 
-def _create_fresh_schema(engine: Engine, metadata: MetaData) -> None:
-    with engine.connect() as connection:
-        connection.exec_driver_sql("BEGIN IMMEDIATE")
-        try:
-            metadata.create_all(connection)
-            _create_version_table(connection)
-            connection.exec_driver_sql(
-                f"INSERT INTO {VERSION_TABLE} (version) VALUES (?)",
-                (LATEST_SCHEMA_VERSION,),
-            )
-        except BaseException:
-            connection.rollback()
-            raise
-        connection.commit()
+def _create_fresh_schema(connection: Connection, metadata: MetaData) -> None:
+    metadata.create_all(connection)
+    _create_version_table(connection)
+    connection.exec_driver_sql(
+        f"INSERT INTO {VERSION_TABLE} (version) VALUES (?)",
+        (LATEST_SCHEMA_VERSION,),
+    )
 
 
 def ensure_schema(
@@ -119,45 +111,45 @@ def ensure_schema(
     migration_steps: Mapping[int, Migration] | None = None,
 ) -> None:
     """Create the latest schema or transactionally upgrade an existing database."""
-    table_names = set(inspect(engine).get_table_names())
-    if not (table_names & APP_TABLES):
-        _create_fresh_schema(engine, metadata)
-        return
-
-    current_version = _read_version(engine, table_names)
-    if current_version > LATEST_SCHEMA_VERSION:
-        raise RuntimeError(
-            f"Database schema v{current_version} is newer than supported "
-            f"v{LATEST_SCHEMA_VERSION}"
-        )
-    if current_version == LATEST_SCHEMA_VERSION:
-        return
-
-    steps = MIGRATION_STEPS if migration_steps is None else migration_steps
-    missing_steps = [
-        version
-        for version in range(current_version + 1, LATEST_SCHEMA_VERSION + 1)
-        if version not in steps
-    ]
-    if missing_steps:
-        raise RuntimeError(f"Missing database migration steps: {missing_steps}")
-
-    create_backup(_database_path(engine), current_version, LATEST_SCHEMA_VERSION)
     with engine.connect() as connection:
         connection.exec_driver_sql("BEGIN IMMEDIATE")
         try:
-            if VERSION_TABLE not in table_names:
-                _create_version_table(connection)
-                connection.exec_driver_sql(
-                    f"INSERT INTO {VERSION_TABLE} (version) VALUES (?)",
-                    (current_version,),
-                )
-            for version in range(current_version + 1, LATEST_SCHEMA_VERSION + 1):
-                steps[version](connection)
-                connection.exec_driver_sql(
-                    f"UPDATE {VERSION_TABLE} SET version = ?",
-                    (version,),
-                )
+            table_names = set(inspect(connection).get_table_names())
+            if not (table_names & APP_TABLES):
+                _create_fresh_schema(connection, metadata)
+            else:
+                current_version = _read_version(connection, table_names)
+                if current_version > LATEST_SCHEMA_VERSION:
+                    raise RuntimeError(
+                        f"Database schema v{current_version} is newer than supported "
+                        f"v{LATEST_SCHEMA_VERSION}"
+                    )
+                steps = MIGRATION_STEPS if migration_steps is None else migration_steps
+                missing_steps = [
+                    version
+                    for version in range(current_version + 1, LATEST_SCHEMA_VERSION + 1)
+                    if version not in steps
+                ]
+                if missing_steps:
+                    raise RuntimeError(f"Missing database migration steps: {missing_steps}")
+                if current_version < LATEST_SCHEMA_VERSION:
+                    create_backup(
+                        _database_path(engine), current_version, LATEST_SCHEMA_VERSION
+                    )
+                    if VERSION_TABLE not in table_names:
+                        _create_version_table(connection)
+                        connection.exec_driver_sql(
+                            f"INSERT INTO {VERSION_TABLE} (version) VALUES (?)",
+                            (current_version,),
+                        )
+                    for version in range(
+                        current_version + 1, LATEST_SCHEMA_VERSION + 1
+                    ):
+                        steps[version](connection)
+                        connection.exec_driver_sql(
+                            f"UPDATE {VERSION_TABLE} SET version = ?",
+                            (version,),
+                        )
         except BaseException:
             connection.rollback()
             raise
