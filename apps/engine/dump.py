@@ -20,6 +20,7 @@ from apps.engine.pipeline import parse_period_banks
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
+_FILE_OUTCOMES = ("processed", "needs_review", "failed", "unclassified")
 
 
 @dataclass(frozen=True)
@@ -66,6 +67,15 @@ def _file_dict(row: StoredFile) -> dict:
     }
 
 
+def _outcome_counts(rows: list[StoredFile]) -> dict[str, int]:
+    """Return the complete, stable set of terminal file-outcome totals."""
+    counts = {outcome: 0 for outcome in _FILE_OUTCOMES}
+    for row in rows:
+        outcome = getattr(row, "parse_outcome", "unclassified")
+        counts[outcome if outcome in counts else "unclassified"] += 1
+    return counts
+
+
 def list_period_files(period_id: int) -> list[dict]:
     session = get_session()
     try:
@@ -93,12 +103,14 @@ def get_job(job_id: int) -> dict | None:
             .all()
         )
         return {
+            "api_version": 1,
             "id": job.id,
             "period_id": job.period_id,
             "status": job.status,
             "error_message": job.error_message,
             "intake_discovered_count": job.intake_discovered_count,
             "intake_accepted_count": job.intake_accepted_count,
+            "outcome_counts": _outcome_counts(files),
             "files": [_file_dict(row) for row in files],
         }
     finally:
