@@ -88,20 +88,26 @@ def get_job(job_id: int) -> dict | None:
 def preflight_paths(raw_paths: list[str]) -> IntakePreflight:
     collected: list[Path] = []
     seen: set[str] = set()
+    discovered_count = 0
 
-    def add_path(path: Path) -> None:
-        if path.name.startswith("."):
-            return
-        if "__macosx" in {part.lower() for part in path.parts}:
-            return
-        key = str(path.resolve()).lower()
-        if key in seen:
-            return
-        seen.add(key)
+    def reject_legacy_xls(path: Path) -> None:
         if path.suffix.lower() == ".xls":
             raise ValueError(
                 "Legacy .xls files are not supported. Export the file as .xlsx or .csv and try again."
             )
+
+    def add_path(path: Path) -> None:
+        nonlocal discovered_count
+        if path.name.startswith("."):
+            return
+        if "__macosx" in {part.lower() for part in path.parts}:
+            return
+        discovered_count += 1
+        key = str(path.resolve()).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        reject_legacy_xls(path)
         collected.append(path)
         if len(collected) > MAX_FOLDER_FILES:
             raise ValueError(f"Choose at most {MAX_FOLDER_FILES} files at a time.")
@@ -118,10 +124,11 @@ def preflight_paths(raw_paths: list[str]) -> IntakePreflight:
             continue
         if not path.is_file():
             raise ValueError(f"Selected path is not a regular file or folder: {path}")
+        reject_legacy_xls(path)
         add_path(path)
     return IntakePreflight(
         paths=collected,
-        discovered_count=len(collected),
+        discovered_count=discovered_count,
         accepted_count=len(collected),
     )
 

@@ -202,7 +202,7 @@ class DumpCopyTests(unittest.TestCase):
 
         result = preflight_paths([str(source), str(source)])
 
-        self.assertEqual(result.discovered_count, 1)
+        self.assertEqual(result.discovered_count, 2)
         self.assertEqual(result.accepted_count, 1)
         self.assertEqual(result.paths, [source])
 
@@ -214,6 +214,13 @@ class DumpCopyTests(unittest.TestCase):
 
     def test_preflight_rejects_legacy_xls_with_reexport_guidance(self) -> None:
         legacy = Path(self._tmp.name) / "legacy.xls"
+        legacy.write_bytes(b"legacy spreadsheet")
+
+        with self.assertRaisesRegex(ValueError, r"\.xlsx or \.csv"):
+            preflight_paths([str(legacy)])
+
+    def test_preflight_rejects_explicit_hidden_xls_with_reexport_guidance(self) -> None:
+        legacy = Path(self._tmp.name) / ".legacy.xls"
         legacy.write_bytes(b"legacy spreadsheet")
 
         with self.assertRaisesRegex(ValueError, r"\.xlsx or \.csv"):
