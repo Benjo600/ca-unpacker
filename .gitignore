@@ -11,9 +11,5 @@ apps/ui/node_modules/
 Thumbs.db
 *.spec.bak
 
-# Test files and generated test data
-apps/engine/tests/
+# Generated test data
 test-dump/
-make_test_dump.py
-make_complex_statements.py
-make_long_statements.py
