@@ -4,6 +4,7 @@ import mimetypes
 import re
 import shutil
 import uuid
+from dataclasses import dataclass
 from pathlib import Path
 
 from apps.engine.classifier import classify_path
@@ -17,6 +18,13 @@ from apps.engine.pipeline import parse_period_banks
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
+
+
+@dataclass(frozen=True)
+class IntakePreflight:
+    paths: list[Path]
+    discovered_count: int
+    accepted_count: int
 
 
 def _file_dict(row: StoredFile) -> dict:
@@ -77,35 +85,50 @@ def get_job(job_id: int) -> dict | None:
         session.close()
 
 
-def collect_paths(raw_paths: list[str]) -> list[Path]:
+def preflight_paths(raw_paths: list[str]) -> IntakePreflight:
     collected: list[Path] = []
     seen: set[str] = set()
+
+    def add_path(path: Path) -> None:
+        if path.name.startswith("."):
+            return
+        if "__macosx" in {part.lower() for part in path.parts}:
+            return
+        key = str(path.resolve()).lower()
+        if key in seen:
+            return
+        seen.add(key)
+        if path.suffix.lower() == ".xls":
+            raise ValueError(
+                "Legacy .xls files are not supported. Export the file as .xlsx or .csv and try again."
+            )
+        collected.append(path)
+        if len(collected) > MAX_FOLDER_FILES:
+            raise ValueError(f"Choose at most {MAX_FOLDER_FILES} files at a time.")
+
     for raw in raw_paths:
         path = Path(raw)
         if not path.exists():
-            continue
+            raise ValueError(f"Selected path no longer exists: {path}")
         if path.is_dir():
-            for child in path.rglob("*"):
+            for child in sorted(path.rglob("*"), key=lambda item: str(item).lower()):
                 if not child.is_file():
                     continue
-                if child.name.startswith("."):
-                    continue
-                if "__macosx" in {part.lower() for part in child.parts}:
-                    continue
-                key = str(child.resolve()).lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                collected.append(child)
-                if len(collected) >= MAX_FOLDER_FILES:
-                    return collected
+                add_path(child)
             continue
-        key = str(path.resolve()).lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        collected.append(path)
-    return collected
+        if not path.is_file():
+            raise ValueError(f"Selected path is not a regular file or folder: {path}")
+        add_path(path)
+    return IntakePreflight(
+        paths=collected,
+        discovered_count=len(collected),
+        accepted_count=len(collected),
+    )
+
+
+def collect_paths(raw_paths: list[str]) -> list[Path]:
+    """Compatibility wrapper for callers that only need the accepted paths."""
+    return preflight_paths(raw_paths).paths
 
 
 def _user_job_error(exc: BaseException) -> str:
@@ -182,10 +205,10 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         if period is None:
             raise ValueError("Period was not found.")
 
+        preflight = preflight_paths(paths)
+        to_copy = preflight.paths
         job.status = "routing"
         session.commit()
-
-        to_copy = collect_paths(paths)
         dest_root = files_root() / str(period.client_id) / str(period.id)
         dest_root.mkdir(parents=True, exist_ok=True)
 

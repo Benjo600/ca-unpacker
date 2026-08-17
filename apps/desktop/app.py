@@ -119,7 +119,7 @@ class DesktopApi:
                 _dialog_open(),
                 allow_multiple=True,
                 file_types=(
-                    "Client documents (*.pdf;*.json;*.xml;*.zip;*.txt;*.csv;*.xlsx;*.xls;*.jpg;*.jpeg;*.png)",
+                    "Client documents (*.pdf;*.json;*.xml;*.zip;*.txt;*.csv;*.xlsx;*.jpg;*.jpeg;*.png)",
                     "All files (*.*)",
                 ),
             )

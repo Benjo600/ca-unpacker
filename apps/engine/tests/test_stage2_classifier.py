@@ -14,7 +14,14 @@ if str(ROOT) not in sys.path:
 
 from apps.engine.classifier import classify_from_text, classify_path
 from apps.engine.db import reset_engine
-from apps.engine.dump import collect_paths, ingest_paths, list_period_files, override_kind, start_job
+from apps.engine.dump import (
+    collect_paths,
+    ingest_paths,
+    list_period_files,
+    override_kind,
+    preflight_paths,
+    start_job,
+)
 from apps.engine.firm import save_firm
 from apps.engine.clients import create_client
 from apps.engine.periods import create_period, suggested_period_label
@@ -176,6 +183,53 @@ class DumpCopyTests(unittest.TestCase):
         (folder / ".hidden").write_bytes(b"x")
         paths = collect_paths([str(folder)])
         self.assertEqual([p.name for p in paths], ["a.pdf"])
+
+    def test_preflight_rejects_401_inventory_files_before_ingestion(self) -> None:
+        folder = Path(self._tmp.name) / "too-many"
+        folder.mkdir()
+        for index in range(401):
+            (folder / f"unknown-{index}.bin").write_bytes(b"x")
+
+        job = start_job(self.period["id"])
+        with self.assertRaisesRegex(ValueError, "at most 400 files"):
+            ingest_paths(job["id"], [str(folder)])
+
+        self.assertEqual(list_period_files(self.period["id"]), [])
+
+    def test_preflight_deduplicates_repeated_file_paths(self) -> None:
+        source = Path(self._tmp.name) / "statement.pdf"
+        source.write_bytes(b"%PDF")
+
+        result = preflight_paths([str(source), str(source)])
+
+        self.assertEqual(result.discovered_count, 1)
+        self.assertEqual(result.accepted_count, 1)
+        self.assertEqual(result.paths, [source])
+
+    def test_preflight_rejects_missing_path(self) -> None:
+        missing = Path(self._tmp.name) / "gone.pdf"
+
+        with self.assertRaisesRegex(ValueError, "no longer exists"):
+            preflight_paths([str(missing)])
+
+    def test_preflight_rejects_legacy_xls_with_reexport_guidance(self) -> None:
+        legacy = Path(self._tmp.name) / "legacy.xls"
+        legacy.write_bytes(b"legacy spreadsheet")
+
+        with self.assertRaisesRegex(ValueError, r"\.xlsx or \.csv"):
+            preflight_paths([str(legacy)])
+
+    def test_preflight_accepts_xlsx_and_csv(self) -> None:
+        xlsx = Path(self._tmp.name) / "current.xlsx"
+        csv = Path(self._tmp.name) / "current.csv"
+        xlsx.write_bytes(b"xlsx")
+        csv.write_text("Invoice Number\nINV-1\n", encoding="utf-8")
+
+        result = preflight_paths([str(xlsx), str(csv)])
+
+        self.assertEqual(result.discovered_count, 2)
+        self.assertEqual(result.accepted_count, 2)
+        self.assertEqual(result.paths, [xlsx, csv])
 
 
 def _render_invoice_png(dest: Path) -> None:

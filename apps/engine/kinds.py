@@ -21,5 +21,5 @@ KIND_LABELS = {
 }
 
 IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp"}
-SPREADSHEET_SUFFIXES = {".csv", ".xlsx", ".xls"}
+SPREADSHEET_SUFFIXES = {".csv", ".xlsx"}
 TALLY_SUFFIXES = {".xml", ".txt"}
