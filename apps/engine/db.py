@@ -52,6 +52,8 @@ class Job(Base):
     period_id: Mapped[int] = mapped_column(ForeignKey("periods.id"))
     status: Mapped[str] = mapped_column(String(20), default="queued")
     error_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    intake_discovered_count: Mapped[int] = mapped_column(Integer, default=0)
+    intake_accepted_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 
@@ -70,6 +72,16 @@ class StoredFile(Base):
     override_kind: Mapped[str | None] = mapped_column(String(20), nullable=True)
     confidence: Mapped[float] = mapped_column(Float, default=0.0)
     classify_reason: Mapped[str] = mapped_column(String(300), default="")
+    parse_outcome: Mapped[str] = mapped_column(String(20), default="unclassified")
+    parse_reason_code: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    parse_reason_message: Mapped[str | None] = mapped_column(String(500), nullable=True)
+    parse_row_count: Mapped[int] = mapped_column(Integer, default=0)
+    parse_warnings_json: Mapped[str] = mapped_column(String, default="[]")
+    parser_id: Mapped[str | None] = mapped_column(String(80), nullable=True)
+    parser_version: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    processed_at: Mapped[datetime | None] = mapped_column(
+        DateTime(timezone=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -120,7 +132,14 @@ def get_engine():
             echo=False,
             connect_args={"check_same_thread": False, "timeout": 30},
         )
-        Base.metadata.create_all(_engine)
+        from apps.engine.migrations import ensure_schema
+
+        try:
+            ensure_schema(_engine, Base.metadata)
+        except BaseException:
+            _engine.dispose()
+            _engine = None
+            raise
         SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine
 
