@@ -10,6 +10,11 @@
 
 **Spec:** `docs/superpowers/specs/2026-08-17-ca-unpacker-full-product-design.md`
 
+## Lean Prototype Scope Checkpoint — 2026-08-17
+
+Tasks 1–5 form the completed Release 0 prototype scope. Tasks 6–7 are deferred
+production-hardening work and are not required for the lean prototype.
+
 ## Global Constraints
 
 - File terminal statuses are exactly `processed`, `needs_review`, `failed`, and `unclassified`.
@@ -97,4 +102,3 @@
 - [ ] Document the clean Windows 11 installed-app checklist and clearly leave that external gate pending until run on a clean VM.
 - [ ] Run every locally available gate and the full test suite.
 - [ ] Commit CI and release-gate documentation.
-

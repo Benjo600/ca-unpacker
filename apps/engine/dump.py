@@ -98,12 +98,13 @@ def get_job(job_id: int) -> dict | None:
             return None
         files = (
             session.query(StoredFile)
-            .filter(StoredFile.job_id == job_id)
+            .filter(StoredFile.period_id == job.period_id)
             .order_by(StoredFile.id.asc())
             .all()
         )
         return {
             "api_version": 1,
+            "summary_scope": "period",
             "id": job.id,
             "period_id": job.period_id,
             "status": job.status,
@@ -428,7 +429,7 @@ def _mark_unfinished_files_failed(session, job_id: int) -> None:
         rows = (
             session.query(StoredFile)
             .filter(
-                StoredFile.period_id == job.period_id,
+                StoredFile.job_id == job.id,
                 StoredFile.processed_at.is_(None),
             )
             .all()

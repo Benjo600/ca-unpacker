@@ -55,6 +55,7 @@ class DesktopWarningApiContractTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         job = result["job"]
         self.assertEqual(job["api_version"], 1)
+        self.assertEqual(job["summary_scope"], "period")
         self.assertEqual(
             job["outcome_counts"],
             {

@@ -350,6 +350,131 @@ class PersistedOutcomeTests(unittest.TestCase):
             {"processed", "unclassified"},
         )
 
+    def test_clean_second_intake_reports_the_whole_period_summary(self) -> None:
+        unknown = self.inbox / "older-notes.bin"
+        unknown.write_bytes(b"not a supported accounting export")
+        first = self._ingest(unknown)
+        bank = write_hdfc(self.inbox)
+
+        second = self._ingest(bank)
+
+        self.assertEqual(second["summary_scope"], "period")
+        self.assertEqual(second["status"], "done_with_warnings")
+        self.assertEqual(second["intake_discovered_count"], 1)
+        self.assertEqual(second["intake_accepted_count"], 1)
+        self.assertEqual(
+            second["outcome_counts"],
+            {
+                "processed": 1,
+                "needs_review": 0,
+                "failed": 0,
+                "unclassified": 1,
+            },
+        )
+        self.assertEqual(
+            [file["job_id"] for file in second["files"]],
+            [first["id"], second["id"]],
+        )
+
+    def test_terminal_reparse_reports_existing_period_files_and_counts(self) -> None:
+        from apps.engine.dump import reparse_period
+
+        bank = write_hdfc(self.inbox)
+        first = self._ingest(bank)
+
+        reparsed = reparse_period(self.period["id"])
+
+        self.assertEqual(reparsed["summary_scope"], "period")
+        self.assertEqual(reparsed["status"], "done")
+        self.assertEqual(reparsed["intake_discovered_count"], 0)
+        self.assertEqual(reparsed["intake_accepted_count"], 0)
+        self.assertEqual(
+            reparsed["outcome_counts"],
+            {
+                "processed": 1,
+                "needs_review": 0,
+                "failed": 0,
+                "unclassified": 0,
+            },
+        )
+        self.assertEqual(len(reparsed["files"]), 1)
+        self.assertEqual(reparsed["files"][0]["job_id"], first["id"])
+
+    def test_failed_job_cleanup_does_not_rewrite_an_older_unfinished_row(self) -> None:
+        from apps.engine.db import Job, StoredFile, get_session
+        from apps.engine.dump import ingest_paths, start_job
+
+        session = get_session()
+        try:
+            old_job = Job(
+                client_id=self.period["client_id"],
+                period_id=self.period["id"],
+                status="done_with_warnings",
+            )
+            session.add(old_job)
+            session.flush()
+            legacy = StoredFile(
+                job_id=old_job.id,
+                period_id=self.period["id"],
+                original_name="legacy-unresolved.bin",
+                mime="application/octet-stream",
+                size=17,
+                storage_key="legacy/unchanged.bin",
+                detected_kind="unknown",
+                override_kind=None,
+                confidence=0.25,
+                classify_reason="migrated unresolved record",
+                parse_outcome="unclassified",
+                parse_reason_code=None,
+                parse_reason_message=None,
+                parse_row_count=0,
+                parse_warnings_json="[]",
+                parser_id=None,
+                parser_version=None,
+                processed_at=None,
+            )
+            session.add(legacy)
+            session.commit()
+            session.refresh(legacy)
+            legacy_id = legacy.id
+            before = {
+                column.name: getattr(legacy, column.name)
+                for column in StoredFile.__table__.columns
+            }
+        finally:
+            session.close()
+
+        source = self.inbox / "new-intake.bin"
+        source.write_bytes(b"new manifest row")
+        started = start_job(self.period["id"])
+        with patch(
+            "apps.engine.dump.Path.mkdir",
+            side_effect=OSError("destination unavailable"),
+        ):
+            with self.assertRaises(OSError):
+                ingest_paths(started["id"], [str(source)])
+
+        session = get_session()
+        try:
+            unchanged = session.get(StoredFile, legacy_id)
+            after = {
+                column.name: getattr(unchanged, column.name)
+                for column in StoredFile.__table__.columns
+            }
+            new_rows = (
+                session.query(StoredFile)
+                .filter(StoredFile.job_id == started["id"])
+                .all()
+            )
+        finally:
+            session.close()
+
+        self.assertEqual(after, before)
+        self.assertEqual(len(new_rows), 1)
+        self.assertEqual(new_rows[0].parse_outcome, "failed")
+        self.assertEqual(new_rows[0].parse_reason_code, "infrastructure_error")
+        self.assertIsNotNone(new_rows[0].processed_at)
+
     def test_reparse_preserves_failed_copy_truth(self) -> None:
         from apps.engine.dump import list_period_files, reparse_period
 
