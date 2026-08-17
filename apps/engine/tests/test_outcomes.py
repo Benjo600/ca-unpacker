@@ -64,6 +64,27 @@ class OutcomeContractTests(unittest.TestCase):
         self.assertEqual(unknown.outcome, FileOutcome.UNCLASSIFIED)
         self.assertEqual(unknown.reason_code, "unknown_type")
 
+    def test_structured_parser_error_is_failed_with_safe_provenance(self) -> None:
+        from apps.engine.outcomes import FileOutcome, evaluate_file_outcome
+        from apps.engine.pdf_passwords import clear_all_passwords, set_file_password
+
+        set_file_password(999, "known-secret")
+        try:
+            result = evaluate_file_outcome(
+                kind="tally",
+                rows=[],
+                parser_metadata={"error": "bad export known-secret\ninternal detail"},
+            )
+        finally:
+            clear_all_passwords()
+
+        self.assertEqual(result.outcome, FileOutcome.FAILED)
+        self.assertEqual(result.reason_code, "parser_error")
+        self.assertEqual(result.parser_id, "tally")
+        self.assertTrue(result.parser_version)
+        self.assertNotIn("known-secret", result.reason_message)
+        self.assertNotIn("internal detail", result.reason_message)
+
     def test_job_status_is_derived_from_terminal_file_outcomes(self) -> None:
         from apps.engine.outcomes import FileOutcome, derive_job_status
 
@@ -184,6 +205,79 @@ class PersistedOutcomeTests(unittest.TestCase):
         self.assertEqual(file["parse_outcome"], "failed")
         self.assertEqual(file["parse_reason_code"], "copy_failed")
 
+    def test_manifest_is_durable_before_destination_mkdir(self) -> None:
+        from apps.engine.db import Job, StoredFile, get_session
+        from apps.engine.dump import get_job, ingest_paths, start_job
+
+        first = self.inbox / "first.txt"
+        second = self.inbox / "second.txt"
+        first.write_text("first", encoding="utf-8")
+        second.write_text("second", encoding="utf-8")
+        started = start_job(self.period["id"])
+        observed: list[tuple[int, int, int]] = []
+
+        def fail_mkdir(*_args, **_kwargs):
+            session = get_session()
+            try:
+                job = session.get(Job, started["id"])
+                file_count = (
+                    session.query(StoredFile)
+                    .filter(StoredFile.job_id == started["id"])
+                    .count()
+                )
+                observed.append(
+                    (
+                        job.intake_accepted_count,
+                        job.intake_discovered_count,
+                        file_count,
+                    )
+                )
+            finally:
+                session.close()
+            raise OSError("destination unavailable")
+
+        with patch("apps.engine.dump.Path.mkdir", side_effect=fail_mkdir):
+            with self.assertRaises(OSError):
+                ingest_paths(started["id"], [str(first), str(second)])
+
+        job = get_job(started["id"])
+        self.assertIsNotNone(job)
+        self.assertEqual(observed, [(2, 2, 2)])
+        self.assertEqual(job["intake_accepted_count"], 2)
+        self.assertEqual(len(job["files"]), 2)
+        self.assertEqual(
+            [file["parse_outcome"] for file in job["files"]],
+            ["failed", "failed"],
+        )
+        self.assertTrue(all(file["processed_at"] for file in job["files"]))
+
+    def test_classification_failure_keeps_copied_file_attached_to_manifest(self) -> None:
+        from apps.engine.dump import get_job, ingest_paths, start_job
+        from apps.engine.library import resolve_storage_key
+
+        source = self.inbox / "classification.txt"
+        source.write_text("classification input", encoding="utf-8")
+        started = start_job(self.period["id"])
+
+        with patch(
+            "apps.engine.dump.classify_path",
+            side_effect=RuntimeError("classifier unavailable"),
+        ):
+            with self.assertRaises(RuntimeError):
+                ingest_paths(started["id"], [str(source)])
+
+        job = get_job(started["id"])
+        self.assertIsNotNone(job)
+        self.assertEqual(job["intake_accepted_count"], 1)
+        self.assertEqual(len(job["files"]), 1)
+        file = job["files"][0]
+        self.assertEqual(file["parse_outcome"], "failed")
+        self.assertEqual(file["parse_reason_code"], "infrastructure_error")
+        self.assertTrue(file["storage_key"])
+        copied = resolve_storage_key(file["storage_key"])
+        self.assertTrue(copied.is_file())
+        self.assertEqual(copied.read_bytes(), source.read_bytes())
+
     def test_parser_exception_is_redacted_and_persisted_per_file(self) -> None:
         tally = self.inbox / "Tally_Daybook.xml"
         tally.write_text(
@@ -208,6 +302,20 @@ class PersistedOutcomeTests(unittest.TestCase):
         self.assertTrue(file["parser_version"])
         self.assertNotIn("Traceback", file["parse_reason_message"])
         self.assertNotIn("parser.py", file["parse_reason_message"])
+
+    def test_real_gstr_structured_error_fails_file_and_job(self) -> None:
+        broken = self.inbox / "GSTR2B.json"
+        broken.write_text("{not valid JSON", encoding="utf-8")
+
+        job = self._ingest(broken)
+        file = job["files"][0]
+
+        self.assertEqual(job["status"], "failed")
+        self.assertEqual(file["parse_outcome"], "failed")
+        self.assertEqual(file["parse_reason_code"], "parser_error")
+        self.assertEqual(file["parse_reason_message"], "not valid JSON")
+        self.assertEqual(file["parser_id"], "gstr")
+        self.assertTrue(file["parser_version"])
 
     def test_infrastructure_failure_leaves_every_accepted_file_terminal(self) -> None:
         from apps.engine.dump import get_job, ingest_paths, start_job

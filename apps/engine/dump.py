@@ -237,66 +237,77 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         job.status = "routing"
         job.intake_discovered_count = preflight.discovered_count
         job.intake_accepted_count = preflight.accepted_count
-        session.commit()
-        dest_root = files_root() / str(period.client_id) / str(period.id)
-        dest_root.mkdir(parents=True, exist_ok=True)
-
+        manifest: list[tuple[Path, StoredFile]] = []
         for source in to_copy:
-            copy_failure_code = None
-            try:
-                size = source.stat().st_size
-            except OSError:
-                size = 0
-                copy_failure_code = "source_missing"
-            key_name = f"{uuid.uuid4().hex[:8]}_{_safe_name(source.name)}"
-            storage_key = f"{period.client_id}/{period.id}/{key_name}"
-            dest = dest_root / key_name
-
-            reason = ""
-            kind = "unknown"
-            confidence = 0.0
-            copied = False
-            if copy_failure_code:
-                reason = "source file could not be read"
-            elif size > MAX_FILE_BYTES:
-                reason = "file is larger than 100 MB"
-                copy_failure_code = "copy_failed"
-            else:
-                try:
-                    shutil.copy2(source, dest)
-                    copied = dest.is_file()
-                except OSError:
-                    reason = "could not copy file into the library"
-                    copy_failure_code = "copy_failed"
-                if copied:
-                    result = classify_path(dest)
-                    kind = result.kind
-                    confidence = result.confidence
-                    reason = result.reason
-
             mime, _ = mimetypes.guess_type(source.name)
             row = StoredFile(
                 job_id=job.id,
                 period_id=period.id,
                 original_name=source.name,
                 mime=mime,
-                size=size,
-                storage_key=storage_key if copied else "",
-                detected_kind=kind,
-                confidence=confidence,
-                classify_reason=reason,
+                size=0,
+                storage_key="",
+                detected_kind="unknown",
+                confidence=0.0,
+                classify_reason="",
             )
-            if not copied:
+            session.add(row)
+            manifest.append((source, row))
+        session.commit()
+        dest_root = files_root() / str(period.client_id) / str(period.id)
+        dest_root.mkdir(parents=True, exist_ok=True)
+
+        for source, row in manifest:
+            try:
+                size = source.stat().st_size
+            except OSError:
+                row.classify_reason = "source file could not be read"
                 persist_file_outcome(
                     row,
                     failed_file_outcome(
-                        copy_failure_code or "copy_failed",
-                        "The source file could not be read."
-                        if copy_failure_code == "source_missing"
-                        else "The file could not be copied into the library.",
+                        "source_missing", "The source file could not be read."
                     ),
                 )
-            session.add(row)
+                session.commit()
+                continue
+
+            row.size = size
+            if size > MAX_FILE_BYTES:
+                row.classify_reason = "file is larger than 100 MB"
+                persist_file_outcome(
+                    row,
+                    failed_file_outcome(
+                        "copy_failed", "The file could not be copied into the library."
+                    ),
+                )
+                session.commit()
+                continue
+
+            key_name = f"{uuid.uuid4().hex[:8]}_{_safe_name(source.name)}"
+            row.storage_key = f"{period.client_id}/{period.id}/{key_name}"
+            dest = dest_root / key_name
+            session.commit()
+            try:
+                shutil.copy2(source, dest)
+                copied = dest.is_file()
+            except OSError:
+                copied = False
+            if not copied:
+                row.storage_key = ""
+                row.classify_reason = "could not copy file into the library"
+                persist_file_outcome(
+                    row,
+                    failed_file_outcome(
+                        "copy_failed", "The file could not be copied into the library."
+                    ),
+                )
+                session.commit()
+                continue
+
+            result = classify_path(dest)
+            row.detected_kind = result.kind
+            row.confidence = result.confidence
+            row.classify_reason = result.reason
             session.commit()
 
         job.status = "parsing"

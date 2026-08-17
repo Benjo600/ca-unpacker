@@ -7,6 +7,7 @@ from enum import Enum
 from typing import Iterable, Mapping, Sequence
 
 from apps.engine.db import utcnow
+from apps.engine.pdf_passwords import redact_known_passwords
 
 
 class FileOutcome(str, Enum):
@@ -64,21 +65,31 @@ def evaluate_file_outcome(
     parser_id, parser_version = _PARSERS[kind]
     row_count = len(rows)
     warnings = _warnings(rows, metadata)
+    if _password_required(classification_reason, metadata):
+        return FileOutcomeResult(
+            outcome=FileOutcome.NEEDS_REVIEW,
+            reason_code="password_required",
+            reason_message="This file needs a password before it can be processed.",
+            warnings=warnings,
+            parser_id=parser_id,
+            parser_version=parser_version,
+        )
+    if metadata.get("error"):
+        return FileOutcomeResult(
+            outcome=FileOutcome.FAILED,
+            reason_code="parser_error",
+            reason_message=_safe_parser_error(metadata.get("error")),
+            row_count=row_count,
+            warnings=warnings,
+            parser_id=parser_id,
+            parser_version=parser_version,
+        )
     if row_count:
         return FileOutcomeResult(
             outcome=FileOutcome.PROCESSED,
             reason_code="rows_extracted",
             reason_message=f"Extracted {row_count} row{'s' if row_count != 1 else ''}.",
             row_count=row_count,
-            warnings=warnings,
-            parser_id=parser_id,
-            parser_version=parser_version,
-        )
-    if _password_required(classification_reason, metadata):
-        return FileOutcomeResult(
-            outcome=FileOutcome.NEEDS_REVIEW,
-            reason_code="password_required",
-            reason_message="This file needs a password before it can be processed.",
             warnings=warnings,
             parser_id=parser_id,
             parser_version=parser_version,
@@ -154,6 +165,13 @@ def _password_required(classification_reason: str, metadata: Mapping) -> bool:
         for text in texts
         if text
     )
+
+
+def _safe_parser_error(error) -> str:
+    cleaned = redact_known_passwords(str(error or "").strip())
+    if not cleaned or "traceback (most recent call last)" in cleaned.lower():
+        return "Could not parse this file."
+    return cleaned.splitlines()[0][:500]
 
 
 def _warnings(rows: Sequence[Mapping], metadata: Mapping) -> tuple[str, ...]:
