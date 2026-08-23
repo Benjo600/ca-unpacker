@@ -1,6 +1,9 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+if exist "%~dp0dist\CAUnpacker\tesseract\tesseract.exe" (
+  set "CAUNPACKER_TESSERACT=%~dp0dist\CAUnpacker\tesseract\tesseract.exe"
+)
 set "PY=%~dp0.venv\Scripts\python.exe"
 set "LOG=%~dp0start-log.txt"
 
@@ -27,6 +30,12 @@ if not exist "%PY%" (
     pause
     exit /b 1
   )
+)
+
+"%PY%" -c "import cryptography" >nul 2>nul
+if errorlevel 1 (
+  echo Installing missing libraries...
+  "%PY%" -m pip install -r requirements.txt
 )
 
 echo Opening CA Unpacker...
