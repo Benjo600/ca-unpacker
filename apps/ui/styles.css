@@ -547,6 +547,12 @@ button.ghost:disabled:hover { background: transparent; }
   white-space: nowrap;
 }
 
+.file-reason {
+  display: block;
+  font-size: 12px;
+  color: #8a4b08;
+}
+
 .pill {
   display: inline-block;
   font-size: 11px;

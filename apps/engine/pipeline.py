@@ -127,6 +127,13 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 stored.classify_reason = f"could not parse: {_redact_secret(str(exc), stored.id)[:200]}"
                 session.commit()
                 continue
+            if (
+                not rows
+                and kind in {"bank", "invoice", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho"}
+                and "password" not in (stored.classify_reason or "").lower()
+            ):
+                stored.classify_reason = f"recognised as {kind} but no rows extracted"
+                session.commit()
             for row in rows:
                 session.add(
                     ExtractedRow(
