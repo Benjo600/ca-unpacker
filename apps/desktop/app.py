@@ -119,7 +119,7 @@ class DesktopApi:
                 _dialog_open(),
                 allow_multiple=True,
                 file_types=(
-                    "Client documents (*.pdf;*.json;*.xml;*.zip;*.txt;*.csv;*.xlsx;*.xls;*.jpg;*.jpeg;*.png)",
+                    "Client documents (*.pdf;*.json;*.xml;*.zip;*.txt;*.csv;*.xlsx;*.jpg;*.jpeg;*.png)",
                     "All files (*.*)",
                 ),
             )
@@ -320,6 +320,7 @@ def _bind_explorer_drop(api: DesktopApi) -> None:
     def on_zone_drop(_event) -> None:
         # Bind so WebView2 injects pywebviewFullPath into the JS File list.
         # JS startDump owns the job so the tray can poll.
+        return None
 
     def _prevent(_event) -> None:
         return None
