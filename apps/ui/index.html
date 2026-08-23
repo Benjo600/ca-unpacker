@@ -4,6 +4,7 @@
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
   <title>CA Unpacker</title>
+  <link rel="icon" href="app-icon.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
@@ -11,7 +12,12 @@
     <div class="docket">
       <p class="eyebrow">First launch</p>
       <h1>This PC keeps the firm’s files.</h1>
-      <p class="lede">Nothing is uploaded. Clients, statements and packs stay in a folder on this computer.</p>
+      <p class="lede">Nothing is uploaded. Do these three clicks, then the desk opens.</p>
+      <ol class="howto">
+        <li>Type your firm name below.</li>
+        <li>Click <strong>Choose folder</strong> — that is where cleaned Excels will be saved.</li>
+        <li>Click <strong>Open the desk</strong>.</li>
+      </ol>
       <label for="firm-name">Firm name</label>
       <input id="firm-name" type="text" maxlength="200" placeholder="e.g. Mehta &amp; Associates" />
       <label for="output-path">Folder for cleaned Excels</label>
@@ -34,6 +40,7 @@
         <span class="nav-later">Packs later</span>
       </nav>
       <p class="rail-foot" id="output-label">No output folder</p>
+      <button type="button" class="rail-link" id="guide-open">How to use</button>
       <button type="button" class="danger-link" id="change-output">Change output folder</button>
       <button type="button" class="danger-link" id="wipe-open">Delete library</button>
     </aside>
@@ -153,6 +160,17 @@
       </div>
     </main>
   </div>
+
+  <aside id="guide" class="guide hidden" aria-live="polite">
+    <p class="eyebrow">How to use</p>
+    <p class="guide-kicker" id="guide-kicker">Step 1 of 5</p>
+    <h2 id="guide-title">Add a client</h2>
+    <p class="lede" id="guide-copy">Type the legal name, then click Add client. GSTIN is optional.</p>
+    <ol class="howto" id="guide-list"></ol>
+    <div class="drop-actions">
+      <button type="button" class="ghost" id="guide-skip">Skip for now</button>
+    </div>
+  </aside>
 
   <div id="wipe-modal" class="modal hidden">
     <div class="modal-card">

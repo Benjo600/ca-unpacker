@@ -4,10 +4,11 @@ Windows desktop app. A CA dumps a client’s month of files and gets GST-ready E
 
 ## Install (for a CA)
 
-1. Download **CAUnpacker-Windows.zip** from the GitHub Release (not the green “Code” source zip).
-2. Unzip. You should see **one file**: `CAUnpacker-Setup.exe`.
-3. Double-click Setup. No Python, no Docker.
-4. Open **CA Unpacker** from the Start menu or the desktop shortcut.
+1. Open the landing page and click **Download for Windows**, or take **CAUnpacker-Setup.exe** from the GitHub Release (not the green “Code” source zip).
+2. Double-click that one file. No unzip, no Python, no Docker.
+3. Open **CA Unpacker** from the Start menu or the desktop shortcut.
+
+Landing page (open in a browser): `designs/ca-unpacker-landing/index.html`.
 
 Files stay under `%LOCALAPPDATA%\CAUnpacker\`. Cleaned Excels go in the folder you pick on first launch.
 

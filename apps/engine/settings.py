@@ -39,6 +39,14 @@ def get_output_root() -> Path | None:
     return path if path.exists() else None
 
 
+def is_guide_dismissed() -> bool:
+    return bool(load_settings().get("guide_dismissed"))
+
+
+def set_guide_dismissed(dismissed: bool = True) -> None:
+    save_settings({"guide_dismissed": bool(dismissed)})
+
+
 def set_output_root(raw: str) -> Path:
     path = Path((raw or "").strip())
     if not str(path):

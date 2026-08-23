@@ -62,6 +62,9 @@ let packOpenKey = "";
 let unlockFile = null;
 let tesseractChecked = false;
 let tesseractFound = true;
+let guideDismissed = false;
+let lastGuideHighlight = null;
+let lastPeriodCount = 0;
 
 function desktopApi() {
   return (window.pywebview && window.pywebview.api) || null;
@@ -263,6 +266,7 @@ function showDesk(state) {
   setOutputLabel(state.output_path || "");
   renderClients(state.clients || []);
   showPane("clients");
+  syncGuide();
 }
 
 function showSetup(state) {
@@ -273,6 +277,7 @@ function showSetup(state) {
   setOutputLabel(state.output_path || "");
   if (state.firm && state.firm.name) firmNameEl.value = state.firm.name;
   firmNameEl.focus();
+  syncGuide();
 }
 
 async function openClient(clientId) {
@@ -286,7 +291,9 @@ async function openClient(clientId) {
   periodClientNameEl.textContent = result.client.name;
   periodLabelEl.value = result.suggested_period || "";
   renderPeriods(result.periods);
+  lastPeriodCount = (result.periods || []).length;
   showPane("periods");
+  syncGuide();
 }
 
 async function openPeriod(periodId) {
@@ -306,6 +313,7 @@ async function openPeriod(periodId) {
   dumpStatusEl.textContent = `${(result.files || []).length} files`;
   showPane("dump");
   refreshTesseractNote();
+  syncGuide();
 }
 
 function money(value) {
@@ -829,6 +837,7 @@ function pollJob(jobId) {
     if (job.warnings && job.warnings.length) {
       showError(dumpErrorEl, job.warnings.join(" · "));
     }
+    syncGuide();
   }, 350);
 }
 
@@ -840,11 +849,184 @@ async function chooseOutputFolder() {
     return "";
   }
   setOutputLabel(picked.output_path);
+  syncGuide();
   return picked.output_path;
+}
+
+function clearGuideHighlight() {
+  if (lastGuideHighlight) {
+    lastGuideHighlight.classList.remove("guide-target");
+    lastGuideHighlight = null;
+  }
+}
+
+function highlightGuide(selector) {
+  clearGuideHighlight();
+  if (!selector) return;
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.classList.add("guide-target");
+  lastGuideHighlight = el;
+}
+
+function guideOnSetup() {
+  return !setupEl.classList.contains("hidden");
+}
+
+function currentGuideCard() {
+  const onSetup = guideOnSetup();
+  const onClients = !paneClients.classList.contains("hidden");
+  const onPeriods = !panePeriods.classList.contains("hidden");
+  const onDump = !paneDump.classList.contains("hidden");
+  const clientCount = clientListEl.children.length;
+  const periodCount = periodListEl.children.length;
+  const hasFiles = lastFileCount > 0;
+  const hasPack = packVisible;
+  const folderChosen = Boolean(document.getElementById("output-path") && document.getElementById("output-path").value);
+
+  if (onSetup) {
+    if (!folderChosen) {
+      return {
+        kicker: "Step 1 of 5",
+        title: "Name the firm, then pick a folder",
+        copy: "Type the firm name. Then click Choose folder — that is where cleaned Excels will be saved.",
+        items: ["Type the firm name.", "Click Choose folder.", "After the path appears, click Open the desk."],
+        highlight: "#pick-output",
+      };
+    }
+    return {
+      kicker: "Step 1 of 5",
+      title: "Open the desk",
+      copy: "Folder is set. Click Open the desk to continue.",
+      items: ["Click Open the desk."],
+      highlight: "#save-firm",
+    };
+  }
+  if (onClients && clientCount === 0) {
+    return {
+      kicker: "Step 2 of 5",
+      title: "Add the first client",
+      copy: "Type the legal name as you file it, then click Add client. GSTIN is optional.",
+      items: ["Type the client name.", "Click Add client."],
+      highlight: "#add-form",
+    };
+  }
+  if (onClients && clientCount > 0) {
+    return {
+      kicker: "Step 3 of 5",
+      title: "Open that client",
+      copy: "Click the client row you just added. Periods live under the client.",
+      items: ["Click the client name in the list."],
+      highlight: "#client-list .client-row",
+    };
+  }
+  if (onPeriods && periodCount === 0) {
+    return {
+      kicker: "Step 3 of 5",
+      title: "Add this month’s period",
+      copy: "Type the month you are working on, for example Aug 2026, then click Add period.",
+      items: ["Check the period box.", "Click Add period."],
+      highlight: "#period-form",
+    };
+  }
+  if (onPeriods && periodCount > 0) {
+    return {
+      kicker: "Step 4 of 5",
+      title: "Open the period",
+      copy: "Click the period row. That is the dump tray for this month.",
+      items: ["Click the period in the list."],
+      highlight: "#period-list .period-row",
+    };
+  }
+  if (onDump && !hasFiles) {
+    return {
+      kicker: "Step 4 of 5",
+      title: "Dump this month’s files",
+      copy: "Click Add folder and pick the mixed folder. Bank PDFs, invoices, GSTR JSON and Tally/Zoho can go in together. You can also drop files onto the dashed box.",
+      items: ["Click Add folder (or drop files on the dashed box)."],
+      highlight: "#add-folder",
+    };
+  }
+  if (onDump && hasFiles && !hasPack) {
+    return {
+      kicker: "Step 4 of 5",
+      title: "Wait for the pack",
+      copy: "The app is sorting files on this PC. Unknown files stay in Needs review — set a type if you know it.",
+      items: ["Wait until an Excel pack appears below.", "If a file is Unknown, set its type."],
+      highlight: "#drop-zone",
+    };
+  }
+  if (onDump && hasPack) {
+    return {
+      kicker: "Step 5 of 5",
+      title: "Open the Excel pack",
+      copy: "Click Open in Excel. Click an amount in Spot-check if you want to see it on the original page.",
+      items: ["Click Open in Excel.", "Optional: click an amount to see the source crop."],
+      highlight: "#open-pack",
+    };
+  }
+  return null;
+}
+
+function renderGuideList(items) {
+  const list = document.getElementById("guide-list");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const item of items || []) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    list.append(li);
+  }
+}
+
+function syncGuide() {
+  const card = document.getElementById("guide");
+  if (!card) return;
+  const onSetup = guideOnSetup();
+  if (onSetup || guideDismissed) {
+    card.classList.add("hidden");
+    clearGuideHighlight();
+    if (onSetup) {
+      const folderChosen = Boolean(document.getElementById("output-path") && document.getElementById("output-path").value);
+      highlightGuide(folderChosen ? "#save-firm" : "#pick-output");
+    }
+    return;
+  }
+  const step = currentGuideCard();
+  if (!step) {
+    card.classList.add("hidden");
+    clearGuideHighlight();
+    return;
+  }
+  document.getElementById("guide-kicker").textContent = step.kicker;
+  document.getElementById("guide-title").textContent = step.title;
+  document.getElementById("guide-copy").textContent = step.copy;
+  renderGuideList(step.items);
+  card.classList.remove("hidden");
+  highlightGuide(step.highlight);
+}
+
+async function dismissGuide() {
+  guideDismissed = true;
+  const api = desktopApi();
+  if (api && api.set_guide_dismissed) {
+    await api.set_guide_dismissed(true);
+  }
+  syncGuide();
+}
+
+async function reopenGuide() {
+  guideDismissed = false;
+  const api = desktopApi();
+  if (api && api.set_guide_dismissed) {
+    await api.set_guide_dismissed(false);
+  }
+  syncGuide();
 }
 
 async function boot() {
   const state = await window.pywebview.api.get_state();
+  guideDismissed = Boolean(state.guide_dismissed);
   if (state.firm && state.output_path) {
     showDesk(state);
   } else {
@@ -900,6 +1082,7 @@ addForm.addEventListener("submit", async (event) => {
   renderClients(result.clients);
   addForm.reset();
   clientNameEl.focus();
+  syncGuide();
 });
 
 periodForm.addEventListener("submit", async (event) => {
@@ -915,6 +1098,8 @@ periodForm.addEventListener("submit", async (event) => {
     return;
   }
   renderPeriods(result.periods);
+  lastPeriodCount = (result.periods || []).length;
+  syncGuide();
 });
 
 document.getElementById("back-to-clients").addEventListener("click", async () => {
@@ -989,6 +1174,9 @@ dropZone.addEventListener("drop", async (event) => {
 
 const wipeModal = document.getElementById("wipe-modal");
 const wipeErrorEl = document.getElementById("wipe-error");
+
+document.getElementById("guide-skip").addEventListener("click", dismissGuide);
+document.getElementById("guide-open").addEventListener("click", reopenGuide);
 
 document.getElementById("wipe-open").addEventListener("click", () => {
   showError(wipeErrorEl, "");

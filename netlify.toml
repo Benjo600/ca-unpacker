@@ -1,0 +1,6 @@
+[build]
+  publish = "designs/ca-unpacker-landing"
+  command = "echo ready"
+
+[build.environment]
+  NODE_VERSION = "20"

@@ -1,0 +1,24 @@
+CA Unpacker is installed. Nothing is uploaded — client files stay on this PC.
+
+Do this next:
+
+1. Click Finish, then open CA Unpacker (Start menu or the desktop shortcut).
+
+2. Type your firm name.
+
+3. Click Choose folder and pick where cleaned Excels should go
+   (Desktop or Documents is fine).
+
+4. Click Open the desk.
+
+5. Type a client name and click Add client.
+
+6. Click that client. Type the month (for example Aug 2026) and click Add period.
+
+7. Click the period. Click Add folder and choose the month’s files
+   (bank PDFs, invoices, GSTR JSON, Tally/Zoho — they can go in together).
+
+8. When the pack appears, click Open in Excel.
+
+The app will keep pointing at the next button until you skip the guide.
+You can open How to use again from the left rail at any time.

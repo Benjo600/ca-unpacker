@@ -16,10 +16,13 @@ OutputBaseFilename=CAUnpacker-Setup
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern
+InfoAfterFile=FIRST-RUN.txt
 PrivilegesRequired=lowest
 PrivilegesRequiredOverridesAllowed=dialog
 ArchitecturesInstallIn64BitMode=x64compatible
 UninstallDisplayName={#AppName}
+UninstallDisplayIcon={app}\{#AppExeName}
+SetupIconFile=..\apps\ui\app-icon.ico
 SetupLogging=yes
 
 [Languages]

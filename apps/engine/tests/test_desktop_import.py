@@ -18,3 +18,16 @@ class DesktopImportTests(unittest.TestCase):
 
         self.assertTrue(callable(main))
         self.assertTrue(hasattr(DesktopApi, "start_dump"))
+        self.assertTrue(hasattr(DesktopApi, "set_guide_dismissed"))
+
+    def test_app_icon_files_exist(self) -> None:
+        from apps.desktop.app import app_icon_path
+
+        ico = ROOT / "apps" / "ui" / "app-icon.ico"
+        png = ROOT / "apps" / "ui" / "app-icon.png"
+        self.assertTrue(ico.is_file(), ico)
+        self.assertTrue(png.is_file(), png)
+        self.assertGreater(ico.stat().st_size, 1024)
+        resolved = app_icon_path()
+        self.assertIsNotNone(resolved)
+        self.assertTrue(Path(resolved).is_file())

@@ -37,7 +37,12 @@ if exist "dist\CAUnpacker-Windows.zip" del /q "dist\CAUnpacker-Windows.zip"
 zf=zipfile.ZipFile(z,'w',zipfile.ZIP_DEFLATED); zf.write(src, src.name); zf.close(); print('Wrote', z, 'size', z.stat().st_size)"
 
 echo.
-echo Give people this zip: dist\CAUnpacker-Windows.zip
+if exist "dist\CAUnpacker-Setup.exe" (
+  copy /y "dist\CAUnpacker-Setup.exe" "designs\ca-unpacker-landing\CAUnpacker-Setup.exe" >nul
+  echo Landing download file: designs\ca-unpacker-landing\CAUnpacker-Setup.exe
+)
+echo Give people the Setup exe (one file, double-click to install): dist\CAUnpacker-Setup.exe
+echo Zip is optional: dist\CAUnpacker-Windows.zip
 echo Inside it is one file: CAUnpacker-Setup.exe
 echo They double-click Setup, then open CA Unpacker from the Start menu.
 exit /b 0

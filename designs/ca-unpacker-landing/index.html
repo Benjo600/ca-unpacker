@@ -1,0 +1,511 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1" />
+  <title>CA Unpacker — dump a month, get GST-ready Excels on this PC</title>
+  <meta name="description" content="Windows desktop app for practising CAs. Dump bank PDFs, invoices, GSTR JSON and Tally or Zoho exports. Processing stays on the laptop. One Setup.exe, no Python, nothing uploaded." />
+  <link rel="icon" href="app-icon.png" />
+  <style>
+    :root {
+      --desk: #2c3330;
+      --desk-ink: #c8d2cb;
+      --tab: #c45a2a;
+      --paper: #f4efe3;
+      --rule: #cfd6c8;
+      --ink: #1b3028;
+      --mute: #5c6b63;
+      --ok: #2a6b3f;
+      --bad: #8b2a2a;
+      --line: #1b302814;
+      --shadow: 0 18px 40px #00000040;
+    }
+    * { box-sizing: border-box; }
+    html { scroll-behavior: smooth; }
+    body {
+      margin: 0;
+      background: var(--paper);
+      color: var(--ink);
+      font: 15px/1.5 "Segoe UI", system-ui, sans-serif;
+    }
+    h1, h2, h3 {
+      font-family: Cambria, "Palatino Linotype", Georgia, serif;
+      font-weight: 600;
+      letter-spacing: -0.02em;
+      line-height: 1.15;
+    }
+    a { color: var(--tab); }
+    .wrap { max-width: 1080px; margin: 0 auto; padding: 0 28px; }
+    header.top {
+      background: var(--desk);
+      color: var(--desk-ink);
+    }
+    header.top .wrap {
+      display: flex;
+      justify-content: space-between;
+      align-items: center;
+      gap: 16px;
+      padding: 16px 28px;
+    }
+    .brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      color: #f4efe3;
+      text-decoration: none;
+      font-family: Cambria, Georgia, serif;
+      font-size: 22px;
+    }
+    .brand img { width: 36px; height: 36px; border-radius: 8px; }
+    nav a {
+      color: var(--desk-ink);
+      text-decoration: none;
+      margin-left: 20px;
+      font-size: 13px;
+      font-weight: 600;
+    }
+    nav a:hover { color: #f4efe3; }
+    .btn {
+      display: inline-block;
+      text-decoration: none;
+      font: inherit;
+      font-weight: 600;
+      padding: 11px 18px;
+      border: 0;
+      cursor: pointer;
+    }
+    .btn-ink { background: var(--ink); color: var(--paper); }
+    .btn-ink:hover { background: #0f1c17; }
+    .btn-tab { background: var(--tab); color: #fff8f4; }
+    .btn-tab:hover { background: #a8481e; }
+    .btn-paper { background: var(--paper); color: var(--ink); }
+    .btn-ghost { background: transparent; color: var(--desk-ink); border: 1px solid #c8d2cb55; }
+    .hero {
+      background: var(--desk);
+      color: var(--desk-ink);
+      padding: 96px 0 72px;
+    }
+    .hero-grid {
+      display: grid;
+      grid-template-columns: 1.15fr 0.85fr;
+      gap: 48px;
+      align-items: center;
+    }
+    .eyebrow {
+      margin: 0 0 10px;
+      font-size: 11px;
+      letter-spacing: 0.16em;
+      text-transform: uppercase;
+      color: var(--tab);
+      font-weight: 600;
+    }
+    .hero h1 {
+      margin: 0 0 16px;
+      font-size: clamp(32px, 5vw, 48px);
+      color: #f4efe3;
+      max-width: 16ch;
+    }
+    .hero .lede {
+      margin: 0 0 28px;
+      max-width: 48ch;
+      font-size: 18px;
+      color: var(--desk-ink);
+    }
+    .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    .fine { margin: 14px 0 0; font-size: 12px; color: #9aa89f; }
+    .docket {
+      background: var(--paper);
+      color: var(--ink);
+      padding: 28px 28px 24px;
+      border-top: 8px solid var(--tab);
+      box-shadow: var(--shadow);
+    }
+    .docket h2 { margin: 0 0 12px; font-size: 22px; }
+    .docket ol { margin: 0; padding-left: 20px; }
+    .docket li { margin: 0 0 8px; }
+    .docket strong { color: var(--tab); }
+    section { padding: 72px 0; }
+    .sheet-head { margin: 0 0 28px; }
+    .sheet-head h2 { margin: 0 0 8px; font-size: 32px; }
+    .sheet-head p { margin: 0; color: var(--mute); max-width: 60ch; }
+    .feature-grid, .file-grid, .trust-grid, .req-grid {
+      display: grid;
+      gap: 20px;
+    }
+    .feature-grid { grid-template-columns: repeat(3, 1fr); }
+    .file-grid { grid-template-columns: repeat(2, 1fr); }
+    .trust-grid, .req-grid { grid-template-columns: repeat(3, 1fr); }
+    .card {
+      background: #fffdf8;
+      border: 1px solid var(--line);
+      padding: 20px 20px 18px;
+    }
+    .card .num {
+      display: block;
+      font-size: 11px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: var(--tab);
+      margin-bottom: 10px;
+      font-weight: 600;
+    }
+    .card h3 { margin: 0 0 8px; font-size: 20px; }
+    .card p, .card ul { margin: 0; color: var(--mute); font-size: 14px; }
+    .card ul { padding-left: 18px; }
+    .card li { margin: 0 0 4px; }
+    .steps { counter-reset: step; }
+    .steps li {
+      list-style: none;
+      position: relative;
+      padding: 16px 0 16px 56px;
+      border-bottom: 1px solid var(--line);
+    }
+    .steps { margin: 0; padding: 0; }
+    .steps li::before {
+      counter-increment: step;
+      content: counter(step);
+      position: absolute;
+      left: 0;
+      top: 16px;
+      width: 36px;
+      height: 36px;
+      background: var(--ink);
+      color: var(--paper);
+      display: grid;
+      place-items: center;
+      font-weight: 600;
+      font-size: 13px;
+    }
+    .steps strong { display: block; margin-bottom: 4px; }
+    .proof {
+      background: var(--desk);
+      color: var(--desk-ink);
+      padding: 40px 0;
+    }
+    .proof h2 {
+      margin: 0 0 18px;
+      font-size: 13px;
+      letter-spacing: 0.12em;
+      text-transform: uppercase;
+      color: #9aa89f;
+      font-family: "Segoe UI", system-ui, sans-serif;
+    }
+    .logos {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 12px 28px;
+      font-weight: 600;
+      color: #f4efe3;
+    }
+    .pricing { background: #fffdf8; border-top: 1px solid var(--line); border-bottom: 1px solid var(--line); }
+    .tiers { display: grid; grid-template-columns: repeat(3, 1fr); gap: 16px; }
+    .tier {
+      background: var(--paper);
+      border: 1px solid var(--line);
+      padding: 24px;
+    }
+    .tier.featured { border-top: 8px solid var(--tab); }
+    .tier h3 { margin: 0 0 6px; }
+    .price { font-size: 32px; margin: 0 0 8px; font-family: Cambria, Georgia, serif; }
+    .price small { font-size: 14px; color: var(--mute); font-weight: 400; }
+    .tier p { color: var(--mute); margin: 0 0 12px; }
+    .tier ul { margin: 0; padding-left: 18px; color: var(--mute); }
+    .note {
+      margin-top: 20px;
+      font-size: 13px;
+      color: var(--mute);
+    }
+    .closing {
+      background: var(--tab);
+      color: #fff8f4;
+      text-align: center;
+      padding: 72px 0;
+    }
+    .closing h2 { margin: 0 0 12px; font-size: 36px; color: #fff8f4; }
+    .closing p { margin: 0 0 24px; opacity: 0.92; }
+    footer.foot {
+      background: var(--desk);
+      color: #9aa89f;
+      padding: 28px 0;
+      font-size: 13px;
+    }
+    footer.foot .wrap { display: flex; justify-content: space-between; gap: 16px; flex-wrap: wrap; }
+    footer.foot a { color: var(--desk-ink); text-decoration: none; }
+    code { font-family: Consolas, "Segoe UI Mono", monospace; font-size: 0.92em; }
+    @media (max-width: 860px) {
+      .hero-grid, .feature-grid, .file-grid, .trust-grid, .req-grid, .tiers {
+        grid-template-columns: 1fr;
+      }
+      nav { display: none; }
+      .hero { padding: 48px 0 40px; }
+    }
+  </style>
+</head>
+<body>
+  <header class="top" data-od-id="topnav">
+    <div class="wrap">
+      <a class="brand" href="#top">
+        <img src="app-icon.png" alt="" width="36" height="36" />
+        Unpacker
+      </a>
+      <nav>
+        <a href="#how">How it works</a>
+        <a href="#files">Files it reads</a>
+        <a href="#trust">On this PC</a>
+        <a href="#pricing">Plans</a>
+        <a class="btn btn-tab" href="#download">Download for Windows</a>
+      </nav>
+    </div>
+  </header>
+
+  <section class="hero" id="top" data-od-id="hero">
+    <div class="wrap hero-grid">
+      <div>
+        <p class="eyebrow">Windows · local · for practising CAs</p>
+        <h1>Dump a client’s month. Get GST-ready Excels.</h1>
+        <p class="lede">Bank PDFs, purchase bills, GSTR JSON and Tally or Zoho exports go into one tray. The laptop classifies, extracts, checks the maths, and writes a pack. Nothing is uploaded.</p>
+        <div class="cta" id="download">
+          <a class="btn btn-tab" data-od-id="hero-cta" id="dl-hero" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
+          <a class="btn btn-ghost" href="#how">See the clicks</a>
+        </div>
+        <p class="fine">One file: <code>CAUnpacker-Setup.exe</code>. Double-click it — no zip, no Python, no Docker. Windows 10 or 11.</p>
+      </div>
+      <aside class="docket" data-od-id="hero-docket">
+        <p class="eyebrow">After Setup</p>
+        <h2>Eight clicks, then work.</h2>
+        <ol>
+          <li>Double-click <strong>CAUnpacker-Setup.exe</strong>.</li>
+          <li>Finish the wizard, then open <strong>CA Unpacker</strong>.</li>
+          <li>Type the firm name. Click <strong>Choose folder</strong>.</li>
+          <li>Click <strong>Open the desk</strong>.</li>
+          <li>Add a client, then a period (e.g. Aug 2026).</li>
+          <li>Click <strong>Add folder</strong> and dump the month.</li>
+          <li>Wait for the pack. Click <strong>Open in Excel</strong>.</li>
+        </ol>
+      </aside>
+    </div>
+  </section>
+
+  <div class="proof" data-od-id="proof">
+    <div class="wrap">
+      <h2>Specialist parsers, not one generic extractor</h2>
+      <div class="logos">
+        <span>HDFC / ICICI / SBI statements</span>
+        <span>GSTR-1 · 2B · 3B JSON</span>
+        <span>Tax invoices</span>
+        <span>Tally XML / zip</span>
+        <span>Zoho Books CSV</span>
+      </div>
+    </div>
+  </div>
+
+  <section id="how" data-od-id="how">
+    <div class="wrap">
+      <div class="sheet-head">
+        <p class="eyebrow">Workflow</p>
+        <h2>How a period runs</h2>
+        <p>Create a client, open a month, dump the mixed folder. The app copies files into a private library, labels them, and writes Excels to the folder you chose on first launch.</p>
+      </div>
+      <ol class="steps">
+        <li><strong>Install once.</strong> Double-click Setup. Start menu and optional desktop shortcut appear. No account.</li>
+        <li><strong>Name the firm and the Excel folder.</strong> Originals stay under <code>%LOCALAPPDATA%\CAUnpacker\</code>. Cleaned packs go where you point.</li>
+        <li><strong>Add client → add period.</strong> Dump belongs to a month, so twelve months can live side by side.</li>
+        <li><strong>Drop the mess.</strong> PDFs, JSON, zip, CSV, JPG, PNG. Do not pre-label. Unknown files sit in Needs review; you can override the type and re-run.</li>
+        <li><strong>Take the pack.</strong> Open in Excel, or click a debit/credit/GSTIN in the tray to see the crop from the original page.</li>
+      </ol>
+    </div>
+  </section>
+
+  <section id="files" data-od-id="features" style="padding-top:0">
+    <div class="wrap">
+      <div class="sheet-head">
+        <p class="eyebrow">What it unpacks</p>
+        <h2>Four specialist paths</h2>
+        <p>The classifier only chooses a parser. It never extracts amounts. Each parser owns its schema and flags. It does not silently “fix” GSTINs or balances.</p>
+      </div>
+      <div class="feature-grid">
+        <article class="card">
+          <span class="num">01 Bank</span>
+          <h3>Statement → checked Excel</h3>
+          <p>Digital HDFC, ICICI and SBI PDFs become <code>Bank_Statement_Cleaned.xlsx</code> with a balance-check sheet: stated close versus running total, match or mismatch. Source column carries the page.</p>
+        </article>
+        <article class="card">
+          <span class="num">02 Invoices</span>
+          <h3>Bills → purchase register</h3>
+          <p>Printed PDF or image tax invoices write <code>Purchase_Register_Extracted.xlsx</code>. GSTIN checksum, HSN length (4/6/8) and invoice arithmetic are flagged, never rewritten. Unreadable photos stay unknown.</p>
+        </article>
+        <article class="card">
+          <span class="num">03 GST portal</span>
+          <h3>Ugly JSON → readable sheets</h3>
+          <p>Official GSTR-1, GSTR-2B and GSTR-3B JSON downloads become formatted workbooks. No GST portal login. Match columns stay empty until the later reconciliation grid.</p>
+        </article>
+        <article class="card">
+          <span class="num">04 Books</span>
+          <h3>Tally / Zoho without opening them</h3>
+          <p>Tally XML or zip daybook, and Zoho Books CSV, become purchase and sales registers in the same field shape so a later 2B join can work. Live Tally ODBC is out of scope.</p>
+        </article>
+        <article class="card">
+          <span class="num">05 Trust</span>
+          <h3>Click a number, see the page</h3>
+          <p>Extracted rows keep page and region. Click a debit, GSTIN or amount in the app to see a crop from the original. Password PDFs prompt once; the password is not saved.</p>
+        </article>
+        <article class="card">
+          <span class="num">06 OCR</span>
+          <h3>Scans stay on the laptop</h3>
+          <p>Tesseract ships in the installer. Scanned statements and invoice photos never go to a cloud OCR vendor. Weak scans are flagged or left for review rather than invented.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="pack" data-od-id="pack">
+    <div class="wrap">
+      <div class="sheet-head">
+        <p class="eyebrow">The pack</p>
+        <h2>Same filenames every period</h2>
+        <p>Excel is the takeaway. The app is where you verify. Source pointers stay on the row.</p>
+      </div>
+      <div class="file-grid">
+        <article class="card">
+          <h3>Written when present</h3>
+          <ul>
+            <li><code>Bank_Statement_Cleaned.xlsx</code></li>
+            <li><code>Purchase_Register_Extracted.xlsx</code></li>
+            <li><code>Sales_Register_Extracted.xlsx</code></li>
+            <li><code>Books_Register_Extracted.xlsx</code></li>
+            <li><code>GSTR_1_Formatted.xlsx</code> · <code>GSTR_2B_Formatted.xlsx</code> · <code>GSTR_3B_Formatted.xlsx</code></li>
+          </ul>
+        </article>
+        <article class="card">
+          <h3>Not this build</h3>
+          <ul>
+            <li>Master 2B-vs-books grid (next stage)</li>
+            <li>Live GST portal login or e-filing</li>
+            <li>Live Tally company / write-back</li>
+            <li>ITR, 26AS, salary slips, contracts</li>
+            <li>Mobile app or cloud document store</li>
+          </ul>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="trust" data-od-id="trust" style="padding-top:0">
+    <div class="wrap">
+      <div class="sheet-head">
+        <p class="eyebrow">Privacy</p>
+        <h2>Client files never leave the PC</h2>
+        <p>Indian firms will not put a month of statements on someone else’s server. Local processing is the product.</p>
+      </div>
+      <div class="trust-grid">
+        <article class="card">
+          <h3>No upload</h3>
+          <p>PDFs, JSON, XML and images stay on disk. There is no cloud OCR and no portal scrape.</p>
+        </article>
+        <article class="card">
+          <h3>Validate, don’t edit</h3>
+          <p>Bad GSTIN, odd HSN, broken invoice maths, balance mismatch — flagged. Source numbers are not silently rewritten.</p>
+        </article>
+        <article class="card">
+          <h3>Needs review</h3>
+          <p>Unknown files are listed, not guessed. Recognised files that extract nothing show a reason in the tray.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section id="requirements" data-od-id="requirements">
+    <div class="wrap">
+      <div class="sheet-head">
+        <p class="eyebrow">Install</p>
+        <h2>What you need</h2>
+      </div>
+      <div class="req-grid">
+        <article class="card">
+          <h3>Windows 10 or 11</h3>
+          <p>64-bit. WebView2 is already on current Windows. Double-click Setup; no developer tools.</p>
+        </article>
+        <article class="card">
+          <h3>One Setup file</h3>
+          <p>Download <code>CAUnpacker-Setup.exe</code>. Run it. Engine, UI and Tesseract are inside. SmartScreen may warn because the build is not code-signed yet — More info → Run anyway on a machine you trust.</p>
+        </article>
+        <article class="card">
+          <h3>A folder for Excels</h3>
+          <p>On first launch, pick where cleaned workbooks should land. Prefer a local disk, not a syncing Desktop/OneDrive path, while you test.</p>
+        </article>
+      </div>
+    </div>
+  </section>
+
+  <section class="pricing" id="pricing" data-od-id="pricing">
+    <div class="wrap">
+      <div class="sheet-head">
+        <p class="eyebrow">Plans</p>
+        <h2>Intended pricing. This installer does not bill.</h2>
+        <p>Licence gates are not in this Windows build. Download and use it on the firm PC while we test with real dumps. The numbers below are the product plan, not a checkout.</p>
+      </div>
+      <div class="tiers">
+        <article class="tier">
+          <h3>Starter</h3>
+          <p class="price">₹999 <small>/ month</small></p>
+          <p>Planned 100 files / month, all four modules.</p>
+          <ul>
+            <li>Bank, invoices, GSTR JSON, Tally/Zoho</li>
+            <li>Hard stop at 100 files (when licensed)</li>
+          </ul>
+        </article>
+        <article class="tier featured">
+          <h3>Pro</h3>
+          <p class="price">₹2,500 <small>/ month</small></p>
+          <p>Planned unlimited files, same four modules.</p>
+          <ul>
+            <li>The pack a CA would actually open</li>
+            <li>Click-to-crop and local OCR</li>
+          </ul>
+        </article>
+        <article class="tier">
+          <h3>Suite</h3>
+          <p class="price">₹6,000 <small>/ month</small></p>
+          <p>Visible later: ITC engine and GSTR-9. Not in this installer.</p>
+          <ul>
+            <li>Master 2B vs books grid (next)</li>
+            <li>Not sold in this build</li>
+          </ul>
+        </article>
+      </div>
+      <p class="note">This landing’s Download button gives you the current Setup.exe. It does not charge a card.</p>
+    </div>
+  </section>
+
+  <section class="closing" data-od-id="footer-cta">
+    <div class="wrap">
+      <h2>Install it on the firm laptop.</h2>
+      <p>One file. Double-click. Then dump a real messy month and see what the pack got wrong.</p>
+      <a class="btn btn-paper" id="dl-foot" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
+    </div>
+  </section>
+
+  <footer class="foot">
+    <div class="wrap">
+      <span>CA Unpacker · Windows desktop · files stay on this PC</span>
+      <span>
+        <a href="https://github.com/Benjo600/ca-unpacker">Source</a>
+        ·
+        <a href="https://github.com/Benjo600/ca-unpacker/releases">Releases</a>
+      </span>
+    </div>
+  </footer>
+
+  <script>
+    (function () {
+      var href = (location.protocol === "file:")
+        ? "CAUnpacker-Setup.exe"
+        : "/CAUnpacker-Setup.exe";
+      ["dl-hero", "dl-foot"].forEach(function (id) {
+        var el = document.getElementById(id);
+        if (el) el.setAttribute("href", href);
+      });
+    })();
+  </script>
+</body>
+</html>

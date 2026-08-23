@@ -12,6 +12,7 @@ Thumbs.db
 
 # Test files and generated test data
 test-dump/
+designs/ca-unpacker-landing/*.exe
 make_test_dump.py
 make_complex_statements.py
 make_long_statements.py

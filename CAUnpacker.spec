@@ -82,6 +82,7 @@ exe = EXE(
     upx=False,
     console=False,
     disable_windowed_traceback=False,
+    icon=str(ROOT / "apps" / "ui" / "app-icon.ico"),
 )
 coll = COLLECT(
     exe,

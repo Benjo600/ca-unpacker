@@ -35,6 +35,15 @@ class OutputFolderTests(unittest.TestCase):
         self.assertTrue(dest.exists())
         self.assertEqual(dest.name, "Jul 2026")
 
+    def test_guide_dismissed_persists(self) -> None:
+        from apps.engine.settings import is_guide_dismissed, set_guide_dismissed
+
+        self.assertFalse(is_guide_dismissed())
+        set_guide_dismissed(True)
+        self.assertTrue(is_guide_dismissed())
+        set_guide_dismissed(False)
+        self.assertFalse(is_guide_dismissed())
+
 
 if __name__ == "__main__":
     unittest.main()

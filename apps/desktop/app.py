@@ -22,7 +22,12 @@ from apps.engine.dump import (
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.engine.library import get_library_path, init_library
-from apps.engine.settings import get_output_root, set_output_root
+from apps.engine.settings import (
+    get_output_root,
+    is_guide_dismissed,
+    set_guide_dismissed,
+    set_output_root,
+)
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
 from apps.engine.pdf_passwords import set_file_password as store_file_password
 from apps.engine.pipeline import (
@@ -57,6 +62,7 @@ class DesktopApi:
             "clients": list_clients(),
             "library_path": str(get_library_path()),
             "output_path": str(output) if output else "",
+            "guide_dismissed": is_guide_dismissed(),
         }
 
     def save_firm(self, name: str) -> dict:
@@ -65,6 +71,10 @@ class DesktopApi:
             return {"ok": True, "firm": firm, "clients": list_clients()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def set_guide_dismissed(self, dismissed: bool = True) -> dict:
+        set_guide_dismissed(bool(dismissed))
+        return {"ok": True, "guide_dismissed": is_guide_dismissed()}
 
     def create_client(self, name: str, gstin: str = "") -> dict:
         try:
@@ -276,6 +286,11 @@ def ui_index() -> str:
     return (_bundle_root() / "ui" / "index.html").as_uri()
 
 
+def app_icon_path() -> str | None:
+    path = _bundle_root() / "ui" / "app-icon.ico"
+    return str(path) if path.is_file() else None
+
+
 def _log_crash(message: str) -> None:
     log_path = get_library_path() / "app.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -357,7 +372,7 @@ def main() -> None:
             background_color="#2C3330",
         )
         _WINDOW.events.shown += lambda: _bind_explorer_drop(api)
-        webview.start()
+        webview.start(icon=app_icon_path())
     except Exception:
         _log_crash(traceback.format_exc())
         raise
