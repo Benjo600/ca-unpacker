@@ -65,6 +65,12 @@ def classify_path(path: Path) -> Classification:
         return _classify_zip(path, name)
     if suffix in TALLY_SUFFIXES:
         return _classify_tally_text(path, name)
+    if suffix == ".xls":
+        return Classification(
+            "unknown",
+            0.9,
+            "legacy .xls is not supported — export .xlsx or .csv",
+        )
     if suffix in SPREADSHEET_SUFFIXES:
         return _classify_spreadsheet(path, name)
     if suffix in IMAGE_SUFFIXES:
