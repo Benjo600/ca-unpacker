@@ -16,12 +16,15 @@ from apps.engine.pipeline import parse_period_banks
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
+TRUNCATION_WARNING = "This folder had more than 400 files. Only the first 400 were imported."
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
 
 
 def _file_dict(row: StoredFile) -> dict:
     kind = row.override_kind or row.detected_kind
     reason = row.classify_reason or ""
+    reason_l = reason.lower()
+    parse_failed = reason_l.startswith("could not parse") or "no rows extracted" in reason_l
     return {
         "id": row.id,
         "job_id": row.job_id,
@@ -37,7 +40,21 @@ def _file_dict(row: StoredFile) -> dict:
         "classify_reason": reason,
         "needs_review": kind == "unknown" and row.override_kind is None,
         "needs_password": "password" in reason.lower(),
+        "parse_failed": parse_failed,
     }
+
+
+def _warnings_from_files(file_dicts: list[dict], extra: list[str] | None = None) -> list[str]:
+    warnings = [
+        f"{item['original_name']}: {item['classify_reason']}"
+        for item in file_dicts
+        if item.get("parse_failed")
+    ]
+    if extra:
+        for message in extra:
+            if message and message not in warnings:
+                warnings.append(message)
+    return warnings
 
 
 def list_period_files(period_id: int) -> list[dict]:
@@ -66,20 +83,39 @@ def get_job(job_id: int) -> dict | None:
             .order_by(StoredFile.id.asc())
             .all()
         )
+        file_dicts = [_file_dict(row) for row in files]
+        extra = []
+        if (job.error_message or "") == TRUNCATION_WARNING:
+            extra.append(TRUNCATION_WARNING)
         return {
             "id": job.id,
             "period_id": job.period_id,
             "status": job.status,
             "error_message": job.error_message,
-            "files": [_file_dict(row) for row in files],
+            "files": file_dicts,
+            "warnings": _warnings_from_files(file_dicts, extra),
         }
     finally:
         session.close()
 
 
-def collect_paths(raw_paths: list[str]) -> list[Path]:
+def collect_inbox(raw_paths: list[str]) -> tuple[list[Path], bool]:
     collected: list[Path] = []
     seen: set[str] = set()
+    truncated = False
+
+    def take(file_path: Path) -> bool:
+        nonlocal truncated
+        key = str(file_path.resolve()).lower()
+        if key in seen:
+            return False
+        seen.add(key)
+        if len(collected) >= MAX_FOLDER_FILES:
+            truncated = True
+            return True
+        collected.append(file_path)
+        return False
+
     for raw in raw_paths:
         path = Path(raw)
         if not path.exists():
@@ -92,20 +128,16 @@ def collect_paths(raw_paths: list[str]) -> list[Path]:
                     continue
                 if "__macosx" in {part.lower() for part in child.parts}:
                     continue
-                key = str(child.resolve()).lower()
-                if key in seen:
-                    continue
-                seen.add(key)
-                collected.append(child)
-                if len(collected) >= MAX_FOLDER_FILES:
-                    return collected
+                if take(child):
+                    return collected, True
             continue
-        key = str(path.resolve()).lower()
-        if key in seen:
-            continue
-        seen.add(key)
-        collected.append(path)
-    return collected
+        if take(path):
+            return collected, True
+    return collected, truncated
+
+
+def collect_paths(raw_paths: list[str]) -> list[Path]:
+    return collect_inbox(raw_paths)[0]
 
 
 def _user_job_error(exc: BaseException) -> str:
@@ -185,7 +217,10 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         job.status = "routing"
         session.commit()
 
-        to_copy = collect_paths(paths)
+        to_copy, truncated = collect_inbox(paths)
+        if truncated:
+            job.error_message = TRUNCATION_WARNING
+            session.commit()
         dest_root = files_root() / str(period.client_id) / str(period.id)
         dest_root.mkdir(parents=True, exist_ok=True)
 
@@ -243,13 +278,31 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             outputs = (pack or {}).get("outputs") or []
             if not any(item.get("key") == "bank" for item in outputs):
                 fail_job(job_id, "Bank statement was found but no Excel pack was written.")
-                return get_job(job_id) or {"id": job_id, "status": "failed", "files": []}
+                payload = get_job(job_id) or {
+                    "id": job_id,
+                    "status": "failed",
+                    "files": [],
+                    "warnings": [],
+                }
+                if truncated:
+                    warnings = list(payload.get("warnings") or [])
+                    if TRUNCATION_WARNING not in warnings:
+                        warnings.append(TRUNCATION_WARNING)
+                    payload["warnings"] = warnings
+                return payload
         job = session.get(Job, job_id)
         if job is not None:
             job.status = "done"
             job.finished_at = utcnow()
+            if truncated:
+                job.error_message = TRUNCATION_WARNING
             session.commit()
-        return get_job(job_id) or {"id": job_id, "status": "done", "files": []}
+        return get_job(job_id) or {
+            "id": job_id,
+            "status": "done",
+            "files": [],
+            "warnings": [TRUNCATION_WARNING] if truncated else [],
+        }
     except Exception as exc:
         try:
             session.rollback()
@@ -299,7 +352,13 @@ def reparse_period(period_id: int, job_id: int | None = None) -> dict:
             job.status = "done"
             job.finished_at = utcnow()
             session.commit()
-        return get_job(job_id) or {"id": job_id, "period_id": period_id, "status": "done", "files": []}
+        return get_job(job_id) or {
+            "id": job_id,
+            "period_id": period_id,
+            "status": "done",
+            "files": [],
+            "warnings": [],
+        }
     except Exception as exc:
         try:
             session.rollback()

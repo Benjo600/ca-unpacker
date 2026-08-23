@@ -199,10 +199,18 @@ function fileNeedsPassword(file) {
 function appendFileRow(container, file, className) {
   const row = document.createElement("div");
   row.className = className;
+  const nameWrap = document.createElement("div");
   const name = document.createElement("span");
   name.className = "name";
   name.textContent = file.original_name;
   name.title = file.classify_reason || "";
+  nameWrap.append(name);
+  if (file.parse_failed || file.classify_reason) {
+    const reason = document.createElement("span");
+    reason.className = "file-reason";
+    reason.textContent = file.classify_reason || "";
+    nameWrap.append(reason);
+  }
   const actions = document.createElement("div");
   actions.className = "file-actions";
   if (fileNeedsPassword(file)) {
@@ -217,7 +225,7 @@ function appendFileRow(container, file, className) {
     actions.append(unlock);
   }
   actions.append(kindSelect(file, false));
-  row.append(name, actions);
+  row.append(nameWrap, actions);
   container.append(row);
 }
 
@@ -817,6 +825,9 @@ function pollJob(jobId) {
       showError(dumpErrorEl, jobError);
       const locked = lastFiles.find(fileNeedsPassword);
       if (locked) openUnlockModal(locked);
+    }
+    if (job.warnings && job.warnings.length) {
+      showError(dumpErrorEl, job.warnings.join(" · "));
     }
   }, 350);
 }
