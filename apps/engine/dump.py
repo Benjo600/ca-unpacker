@@ -17,6 +17,7 @@ from apps.engine.pipeline import parse_period_banks
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
 TRUNCATION_WARNING = "This folder had more than 400 files. Only the first 400 were imported."
+_SKIP_NAMES = {"readme.md", "readme.txt", "thumbs.db", "desktop.ini"}
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
 
 
@@ -135,6 +136,8 @@ def collect_inbox(raw_paths: list[str]) -> tuple[list[Path], bool]:
                 if not child.is_file():
                     continue
                 if child.name.startswith("."):
+                    continue
+                if child.name.lower() in _SKIP_NAMES:
                     continue
                 if "__macosx" in {part.lower() for part in child.parts}:
                     continue

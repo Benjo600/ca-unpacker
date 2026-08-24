@@ -1,0 +1,32 @@
+{
+  "gstin": "29ABCDE1234F1Z5",
+  "fp": "072026",
+  "b2b": [
+    {
+      "ctin": "27AAPFU0939F1ZV",
+      "inv": [
+        {
+          "inum": "BN/101",
+          "val": 5000,
+          "itms": [
+            {
+              "itm_det": {
+                "txval": 5000,
+                "camt": 450,
+                "samt": 450
+              }
+            }
+          ]
+        }
+      ]
+    }
+  ],
+  "hsn": {
+    "data": [
+      {
+        "hsn_sc": "9983",
+        "txval": 5000
+      }
+    ]
+  }
+}

@@ -10,37 +10,46 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
+from apps.engine.tests.dump_paths import (
+    ACME,
+    GSTR_1,
+    GSTR_2B,
+    GSTR_3B,
+    HDFC,
+    TALLY_XML,
+    TALLY_ZIP,
+    ZOHO_CSV,
+)
 
 
 class GstrTallyZohoTests(unittest.TestCase):
     def test_gstr2b(self) -> None:
         from apps.engine.parsers.gstr import parse_gstr_file
 
-        parsed = parse_gstr_file(DUMP / "GSTR-2B_July.json", "gstr_2b")
+        parsed = parse_gstr_file(GSTR_2B, "gstr_2b")
         self.assertEqual(len(parsed["rows"]), 1)
         self.assertEqual(parsed["rows"][0]["invoice_number"], "ACME/26-27/0142")
 
     def test_gstr1_and_3b(self) -> None:
         from apps.engine.parsers.gstr import parse_gstr_file
 
-        one = parse_gstr_file(DUMP / "GSTR1_July.json", "gstr_1")
-        three = parse_gstr_file(DUMP / "GSTR3B_July.json", "gstr_3b")
+        one = parse_gstr_file(GSTR_1, "gstr_1")
+        three = parse_gstr_file(GSTR_3B, "gstr_3b")
         self.assertGreaterEqual(len(one["rows"]), 1)
         self.assertGreaterEqual(len(three["rows"]), 1)
 
     def test_tally_xml_and_zip(self) -> None:
         from apps.engine.parsers.tally import parse_tally_file
 
-        xml = parse_tally_file(DUMP / "Tally_Daybook.xml")
-        zipped = parse_tally_file(DUMP / "Tally_Backup.zip")
+        xml = parse_tally_file(TALLY_XML)
+        zipped = parse_tally_file(TALLY_ZIP)
         self.assertEqual(xml["rows"][0]["voucher_number"], "PUR-88")
         self.assertEqual(zipped["rows"][0]["party_name"], "Acme Traders")
 
     def test_zoho_csv(self) -> None:
         from apps.engine.parsers.zoho import parse_zoho_file
 
-        parsed = parse_zoho_file(DUMP / "Zoho_Books_Invoices.csv")
+        parsed = parse_zoho_file(ZOHO_CSV)
         self.assertEqual(parsed["rows"][0]["invoice_number"], "INV-204")
 
     def test_invoice_pdf(self) -> None:
@@ -82,15 +91,7 @@ class MixedDumpPackTests(unittest.TestCase):
         client = create_client("Acme")
         period = create_period(client["id"], "Jul 2026")
         job = start_job(period["id"])
-        mixed = [
-            DUMP / "HDFC_Statement_Jul2026.pdf",
-            DUMP / "Tax_Invoice_Acme.pdf",
-            DUMP / "GSTR-2B_July.json",
-            DUMP / "GSTR1_July.json",
-            DUMP / "GSTR3B_July.json",
-            DUMP / "Tally_Daybook.xml",
-            DUMP / "Zoho_Books_Invoices.csv",
-        ]
+        mixed = [HDFC, ACME, GSTR_2B, GSTR_1, GSTR_3B, TALLY_XML, ZOHO_CSV]
         ingest_paths(job["id"], [str(path) for path in mixed])
         pack = get_period_pack(period["id"])
         self.assertIsNotNone(pack)

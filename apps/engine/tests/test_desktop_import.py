@@ -20,6 +20,8 @@ class DesktopImportTests(unittest.TestCase):
 
         self.assertTrue(callable(main))
         self.assertTrue(hasattr(DesktopApi, "start_dump"))
+        self.assertTrue(hasattr(DesktopApi, "pick_folder"))
+        self.assertTrue(hasattr(DesktopApi, "take_drop_paths"))
         self.assertTrue(hasattr(DesktopApi, "set_guide_dismissed"))
 
     def test_app_icon_files_exist(self) -> None:

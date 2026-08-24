@@ -1,0 +1,32 @@
+%PDF-1.4
+1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj
+2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj
+3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj
+4 0 obj<</Length 460>>stream
+BT /F1 11 Tf 40 760 Td 14 TL
+(State Bank of India Account Statement) Tj T*
+(Account Number 12345678901) '
+(IFSC SBIN0000456) '
+(Opening Balance 25000.00) '
+(04/07/2026 ATM Withdrawal Debit 2000.00 23000.00) '
+(11/07/2026 IMPS from client Credit 9000.00 32000.00) '
+(16/07/2026 UPI PhonePe store Debit 890.00 31110.00) '
+(22/07/2026 Cheque deposit Credit 5000.00 36110.00) '
+(29/07/2026 SMS alert charges Debit 15.00 36095.00) '
+(Closing Balance 36095.00) '
+ET
+endstream
+endobj
+5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj
+xref
+0 6
+0000000000 65535 f 
+0000000009 00000 n 
+0000000052 00000 n 
+0000000101 00000 n 
+0000000211 00000 n 
+0000000717 00000 n 
+trailer<</Size 6/Root 1 0 R>>
+startxref
+778
+%%EOF

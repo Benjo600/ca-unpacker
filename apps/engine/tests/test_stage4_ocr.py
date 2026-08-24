@@ -48,7 +48,9 @@ class DigitalExtractRegressionTests(unittest.TestCase):
         from apps.engine.parsers.bank.parser import parse_bank_pdf
         from apps.engine.pdf_extract import extract_pdf
 
-        fixture = ROOT / "test-dump" / "HDFC_Statement_Jul2026.pdf"
+        from apps.engine.tests.dump_paths import HDFC
+
+        fixture = HDFC
         with tempfile.TemporaryDirectory() as tmp:
             generated = write_hdfc(Path(tmp))
             sources = [generated]
@@ -77,7 +79,9 @@ class ScanOcrTests(unittest.TestCase):
         except ImportError:
             self.skipTest("pytesseract not installed; local OCR skipped")
 
-        fixture = ROOT / "test-dump" / "HDFC_Statement_Jul2026.pdf"
+        from apps.engine.tests.dump_paths import HDFC
+
+        fixture = HDFC
         with tempfile.TemporaryDirectory() as tmp:
             source = fixture if fixture.is_file() else write_hdfc(Path(tmp))
             scanned = Path(tmp) / "HDFC_Statement_scan.pdf"

@@ -129,8 +129,8 @@ class DesktopApi:
                 _dialog_open(),
                 allow_multiple=True,
                 file_types=(
-                    "Client documents (*.pdf;*.json;*.xml;*.zip;*.txt;*.csv;*.xlsx;*.jpg;*.jpeg;*.png)",
                     "All files (*.*)",
+                    "Client documents (*.pdf;*.json;*.xml;*.zip;*.txt;*.csv;*.xlsx;*.xls;*.jpg;*.jpeg;*.png;*.webp;*.tif;*.tiff;*.docx)",
                 ),
             )
         except Exception as exc:
@@ -163,14 +163,34 @@ class DesktopApi:
         if _WINDOW is None:
             return {"ok": False, "paths": [], "error": "Window is not ready."}
         try:
-            picked = _WINDOW.create_file_dialog(_dialog_folder())
+            picked = _WINDOW.create_file_dialog(_dialog_folder(), allow_multiple=True)
+        except TypeError:
+            try:
+                picked = _WINDOW.create_file_dialog(_dialog_folder())
+            except Exception as exc:
+                return {"ok": False, "paths": [], "error": str(exc)}
         except Exception as exc:
             return {"ok": False, "paths": [], "error": str(exc)}
         return {"ok": True, "paths": list(picked or [])}
 
+    def take_drop_paths(self) -> dict:
+        try:
+            from webview.dom import _dnd_state
+        except Exception:
+            return {"ok": True, "paths": []}
+        leftover = list(_dnd_state.get("paths") or [])
+        _dnd_state["paths"] = []
+        paths: list[str] = []
+        for item in leftover:
+            if isinstance(item, (list, tuple)) and len(item) >= 2:
+                paths.append(str(item[1]))
+            elif isinstance(item, str) and item:
+                paths.append(item)
+        return {"ok": True, "paths": paths}
+
     def start_dump(self, period_id: int, paths: list[str]) -> dict:
         if not paths:
-            return {"ok": False, "error": "No files were chosen."}
+            return {"ok": False, "error": "No files or folders were chosen."}
         try:
             job = start_job(int(period_id))
         except ValueError as exc:

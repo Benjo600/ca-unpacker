@@ -90,7 +90,9 @@ class ComplexStatementTests(unittest.TestCase):
         from apps.engine.parsers.bank.parser import parse_bank_pdf
         from apps.engine.validators.balance import check_balance
 
-        folder = ROOT / "test-dump" / "complex-statements"
+        from apps.engine.tests.dump_paths import BANKS_MESSY
+
+        folder = BANKS_MESSY
         files = list(folder.glob("*_complex.pdf"))
         self.assertGreaterEqual(len(files), 3)
         for path in files:
@@ -272,7 +274,9 @@ class LongStatementTests(unittest.TestCase):
         from apps.engine.parsers.bank.parser import parse_bank_pdf
         from apps.engine.validators.balance import check_balance
 
-        folder = ROOT / "test-dump" / "long-statements"
+        from apps.engine.tests.dump_paths import BANKS_MESSY
+
+        folder = BANKS_MESSY
         files = list(folder.glob("*_LONG.pdf"))
         if not files:
             self.skipTest("long statements not generated yet")

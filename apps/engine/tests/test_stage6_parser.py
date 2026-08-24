@@ -10,7 +10,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
+from apps.engine.tests.dump_paths import GSTR_1, GSTR_2B, GSTR_3B
 GSTR_PY = ROOT / "apps" / "engine" / "parsers" / "gstr.py"
 
 
@@ -18,7 +18,7 @@ class Stage6GstrParserTests(unittest.TestCase):
     def test_dump_gstr2b_july(self) -> None:
         from apps.engine.parsers.gstr import parse_gstr_file
 
-        parsed = parse_gstr_file(DUMP / "GSTR-2B_July.json", "gstr_2b")
+        parsed = parse_gstr_file(GSTR_2B, "gstr_2b")
         self.assertEqual(len(parsed["rows"]), 1)
         row = parsed["rows"][0]
         self.assertEqual(row["document_type"], "B2B")
@@ -90,7 +90,7 @@ class Stage6GstrParserTests(unittest.TestCase):
     def test_dump_gstr1_july(self) -> None:
         from apps.engine.parsers.gstr import parse_gstr_file
 
-        parsed = parse_gstr_file(DUMP / "GSTR1_July.json", "gstr_1")
+        parsed = parse_gstr_file(GSTR_1, "gstr_1")
         numbers = {row.get("invoice_number") for row in parsed["rows"]}
         self.assertIn("BN/101", numbers)
         hsn_rows = [
@@ -149,7 +149,7 @@ class Stage6GstrParserTests(unittest.TestCase):
     def test_dump_gstr3b_july(self) -> None:
         from apps.engine.parsers.gstr import parse_gstr_file
 
-        parsed = parse_gstr_file(DUMP / "GSTR3B_July.json", "gstr_3b")
+        parsed = parse_gstr_file(GSTR_3B, "gstr_3b")
         self.assertTrue(any(row.get("taxable") == 50000 for row in parsed["rows"]))
 
     def test_broken_json_returns_empty(self) -> None:

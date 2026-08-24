@@ -91,7 +91,9 @@ class ClassifierTests(unittest.TestCase):
     def test_digital_tax_invoice_pdf_is_invoice(self) -> None:
         from make_test_dump import pdf_with_text
 
-        fixture = ROOT / "test-dump" / "Tax_Invoice_Acme.pdf"
+        from apps.engine.tests.dump_paths import ACME
+
+        fixture = ACME
         with tempfile.TemporaryDirectory() as tmp:
             path = fixture if fixture.is_file() else Path(tmp) / "Tax_Invoice_Acme.pdf"
             if not fixture.is_file():
@@ -187,6 +189,18 @@ class DumpCopyTests(unittest.TestCase):
         (folder / ".hidden").write_bytes(b"x")
         paths = collect_paths([str(folder)])
         self.assertEqual([p.name for p in paths], ["a.pdf"])
+
+    def test_collect_nested_folders_and_skips_readme(self) -> None:
+        root = Path(self._tmp.name) / "client-month"
+        nested = root / "invoices" / "july"
+        nested.mkdir(parents=True)
+        (root / "HDFC.pdf").write_bytes(b"%PDF")
+        (nested / "bill.pdf").write_bytes(b"%PDF")
+        (nested / "README.md").write_text("# skip me", encoding="utf-8")
+        (root / "README.md").write_text("# skip me too", encoding="utf-8")
+        paths = collect_paths([str(root)])
+        names = sorted(p.name for p in paths)
+        self.assertEqual(names, ["HDFC.pdf", "bill.pdf"])
 
 
 def _render_invoice_png(dest: Path) -> None:

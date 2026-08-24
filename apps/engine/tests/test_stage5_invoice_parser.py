@@ -11,7 +11,7 @@ if str(ROOT) not in sys.path:
 
 from make_test_dump import PNG, pdf_with_text
 
-ACME = ROOT / "test-dump" / "Tax_Invoice_Acme.pdf"
+from apps.engine.tests.dump_paths import ACME
 VALID_GSTIN = "27AAPFU0939F1ZV"
 BAD_GSTIN = VALID_GSTIN[:-1] + ("W" if VALID_GSTIN[-1] != "W" else "X")
 

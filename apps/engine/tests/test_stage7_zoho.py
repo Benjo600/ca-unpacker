@@ -9,8 +9,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
-FIXTURE = DUMP / "Zoho_Books_Invoices.csv"
+from apps.engine.tests.dump_paths import ZOHO_CSV as FIXTURE
 VALID_GSTIN = "27AAPFU0939F1ZV"
 
 

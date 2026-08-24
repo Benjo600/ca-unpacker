@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.pipeline import LINE_COLS, PURCHASE_COLS, get_source_crop
 
-INVOICE_PDF = ROOT / "test-dump" / "Tax_Invoice_Acme.pdf"
+from apps.engine.tests.dump_paths import ACME as INVOICE_PDF
 
 
 def _fill_rgb(cell) -> str:

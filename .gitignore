@@ -10,8 +10,11 @@ apps/ui/node_modules/
 Thumbs.db
 *.spec.bak
 
-# Test files and generated test data
-test-dump/
+# Packs the app may write if someone dumps into the sample kit
+test-dump/**/pack_summary.json
+test-dump/**/*_Cleaned.xlsx
+test-dump/**/*_Formatted.xlsx
+test-dump/**/*_Extracted.xlsx
 designs/ca-unpacker-landing/*.exe
 make_test_dump.py
 make_complex_statements.py

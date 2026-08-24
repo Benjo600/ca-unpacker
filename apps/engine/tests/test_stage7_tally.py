@@ -11,7 +11,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
+from apps.engine.tests.dump_paths import TALLY_XML, TALLY_ZIP
 TALLY_PY = ROOT / "apps" / "engine" / "parsers" / "tally.py"
 
 SALES_XML = """<?xml version="1.0"?>
@@ -35,7 +35,7 @@ class Stage7TallyParserTests(unittest.TestCase):
     def test_daybook_pur88_purchase_register(self) -> None:
         from apps.engine.parsers.tally import parse_tally_file
 
-        parsed = parse_tally_file(DUMP / "Tally_Daybook.xml")
+        parsed = parse_tally_file(TALLY_XML)
         self.assertEqual(len(parsed["rows"]), 1)
         row = parsed["rows"][0]
         self.assertEqual(row["register"], "purchase")
@@ -62,7 +62,7 @@ class Stage7TallyParserTests(unittest.TestCase):
     def test_zip_still_works(self) -> None:
         from apps.engine.parsers.tally import parse_tally_file
 
-        parsed = parse_tally_file(DUMP / "Tally_Backup.zip")
+        parsed = parse_tally_file(TALLY_ZIP)
         self.assertGreaterEqual(len(parsed["rows"]), 1)
         row = parsed["rows"][0]
         self.assertEqual(row["invoice_number"], "PUR-88")

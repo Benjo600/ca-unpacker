@@ -14,7 +14,7 @@ if str(ROOT) not in sys.path:
 
 from apps.engine.pdf_render import crop_png, crop_png_bytes, page_size_pts, render_page_png
 
-HDFC = ROOT / "test-dump" / "HDFC_Statement_Jul2026.pdf"
+from apps.engine.tests.dump_paths import HDFC
 
 
 class PageSizeTests(unittest.TestCase):

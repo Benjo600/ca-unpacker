@@ -16,7 +16,7 @@ if str(ROOT) not in sys.path:
 from apps.engine.tests.fixtures_stage4 import make_image_only_pdf, make_password_pdf
 from apps.engine.tests.test_stage3_bank import write_hdfc
 
-HDFC_DIGITAL = ROOT / "test-dump" / "HDFC_Statement_Jul2026.pdf"
+from apps.engine.tests.dump_paths import HDFC as HDFC_DIGITAL
 STAGE4_PASSWORD = "CAUnpacker-Stage4-Pw-7f3a9c"
 OCR_PATH = ROOT / "apps" / "engine" / "ocr.py"
 

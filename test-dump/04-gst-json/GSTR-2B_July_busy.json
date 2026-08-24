@@ -1,0 +1,53 @@
+{
+  "gstin": "29ABCDE1234F1Z5",
+  "rtnprd": "072026",
+  "data": {
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "27AAPFU0939F1ZV",
+          "trdnm": "Acme Traders",
+          "inv": [
+            {
+              "inum": "ACME/26-27/0142",
+              "dt": "12-07-2026",
+              "val": 11800,
+              "txval": 10000,
+              "camt": 900,
+              "samt": 900
+            }
+          ]
+        },
+        {
+          "ctin": "29AABCU9603R1ZX",
+          "trdnm": "Lakshmi Printers",
+          "inv": [
+            {
+              "inum": "LP/778",
+              "dt": "08-07-2026",
+              "val": 4720,
+              "txval": 4000,
+              "iamt": 720
+            }
+          ]
+        }
+      ],
+      "cdnr": [
+        {
+          "ctin": "27AAPFU0939F1ZV",
+          "trdnm": "Acme Traders",
+          "nt": [
+            {
+              "ntnum": "CN/0142-A",
+              "dt": "20-07-2026",
+              "val": 1180,
+              "txval": 1000,
+              "camt": 90,
+              "samt": 90
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

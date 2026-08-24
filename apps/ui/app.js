@@ -790,10 +790,38 @@ function escapeHtml(value) {
     .replace(/>/g, "&gt;");
 }
 
+async function pathsFromDropEvent(event) {
+  const paths = [];
+  const seen = new Set();
+  const add = (path) => {
+    if (!path) return;
+    const key = String(path).toLowerCase();
+    if (seen.has(key)) return;
+    seen.add(key);
+    paths.push(path);
+  };
+  const files = (event.dataTransfer && event.dataTransfer.files) || [];
+  for (const file of files) {
+    add(file.pywebviewFullPath || file.path);
+  }
+  const api = window.pywebview && window.pywebview.api;
+  if (api && api.take_drop_paths) {
+    try {
+      const extra = await api.take_drop_paths();
+      if (extra && extra.ok) {
+        for (const path of extra.paths || []) add(path);
+      }
+    } catch {
+      /* native drop list is optional */
+    }
+  }
+  return paths;
+}
+
 async function startDump(paths) {
   if (!currentPeriod) return;
   if (!paths || !paths.length) {
-    showError(dumpErrorEl, "No files were chosen.");
+    showError(dumpErrorEl, "No files or folders were chosen.");
     return;
   }
   showError(dumpErrorEl, "");
@@ -954,8 +982,8 @@ function currentGuideCard() {
     return {
       kicker: "Step 4 of 5",
       title: "Dump this month’s files",
-      copy: "Click Add folder and pick the mixed folder. Bank PDFs, invoices, GSTR JSON and Tally/Zoho can go in together. You can also drop files onto the dashed box.",
-      items: ["Click Add folder (or drop files on the dashed box)."],
+      copy: "Click Add folder and pick the mixed folder, or drop that folder onto the dashed box. Nested files are included. Bank PDFs, invoices, GSTR JSON and Tally/Zoho can go in together.",
+      items: ["Click Add folder, or drop a folder on the dashed box."],
       highlight: "#add-folder",
     };
   }
@@ -1172,17 +1200,26 @@ dropZone.addEventListener("dragover", (event) => {
 dropZone.addEventListener("dragleave", (event) => {
   if (!dropZone.contains(event.relatedTarget)) dropZone.classList.remove("over");
 });
-dropZone.addEventListener("drop", async (event) => {
+async function handleDumpDrop(event) {
   event.preventDefault();
   dropZone.classList.remove("over");
-  const paths = [];
-  for (const file of event.dataTransfer.files) {
-    const path = file.pywebviewFullPath || file.path;
-    if (path) paths.push(path);
+  const paths = await pathsFromDropEvent(event);
+  if (!paths.length) {
+    showError(dumpErrorEl, "Drop files or a folder from File Explorer.");
+    return;
   }
-  if (!paths.length) return;
   await startDump(paths);
+}
+
+dropZone.addEventListener("drop", (event) => {
+  event.stopPropagation();
+  handleDumpDrop(event);
 });
+paneDump.addEventListener("dragover", (event) => {
+  event.preventDefault();
+  event.dataTransfer.dropEffect = "copy";
+});
+paneDump.addEventListener("drop", handleDumpDrop);
 
 const wipeModal = document.getElementById("wipe-modal");
 const wipeErrorEl = document.getElementById("wipe-error");

@@ -12,9 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
-TALLY_XML = DUMP / "Tally_Daybook.xml"
-ZOHO_CSV = DUMP / "Zoho_Books_Invoices.csv"
+from apps.engine.tests.dump_paths import TALLY_XML, ZOHO_CSV
 
 
 def _cell_texts(path: Path) -> list[str]:

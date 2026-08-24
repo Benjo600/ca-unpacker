@@ -13,11 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
-ZOHO_CSV = DUMP / "Zoho_Books_Invoices.csv"
-TALLY_XML = DUMP / "Tally_Daybook.xml"
-TALLY_ZIP = DUMP / "Tally_Backup.zip"
-RANDOM_JPG = DUMP / "random_scan.jpg"
+from apps.engine.tests.dump_paths import RANDOM_JPG, TALLY_XML, TALLY_ZIP, ZOHO_CSV
 
 TALLY_PY = ROOT / "apps" / "engine" / "parsers" / "tally.py"
 ZOHO_PY = ROOT / "apps" / "engine" / "parsers" / "zoho.py"

@@ -1,0 +1,25 @@
+{
+  "gstin": "29ABCDE1234F1Z5",
+  "rtnprd": "072026",
+  "data": {
+    "docdata": {
+      "b2b": [
+        {
+          "ctin": "27AAPFU0939F1ZV",
+          "trdnm": "Acme Traders",
+          "inv": [
+            {
+              "inum": "ACME/26-27/0142",
+              "dt": "12-07-2026",
+              "val": 11800,
+              "txval": 10000,
+              "iamt": 0,
+              "camt": 900,
+              "samt": 900
+            }
+          ]
+        }
+      ]
+    }
+  }
+}

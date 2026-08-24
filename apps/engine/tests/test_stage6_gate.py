@@ -12,10 +12,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-DUMP = ROOT / "test-dump"
-GSTR_2B_JSON = DUMP / "GSTR-2B_July.json"
-GSTR_1_JSON = DUMP / "GSTR1_July.json"
-GSTR_3B_JSON = DUMP / "GSTR3B_July.json"
+from apps.engine.tests.dump_paths import DUMP, GSTR_1 as GSTR_1_JSON, GSTR_2B as GSTR_2B_JSON, GSTR_3B as GSTR_3B_JSON
 
 GSTR_2B_XLSX = "GSTR_2B_Formatted.xlsx"
 GSTR_1_XLSX = "GSTR_1_Formatted.xlsx"
