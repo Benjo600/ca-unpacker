@@ -1,7 +1,7 @@
 # -*- mode: python ; coding: utf-8 -*-
 from pathlib import Path
 
-from PyInstaller.utils.hooks import collect_all
+from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = Path(SPECPATH)
 
@@ -39,6 +39,11 @@ hiddenimports = [
     "sqlalchemy",
 ]
 
+hiddenimports += collect_submodules(
+    "apps",
+    filter=lambda name: "tests" not in name.split("."),
+)
+
 for package in (
     "pdf_inspector",
     "webview",
@@ -58,7 +63,7 @@ for package in (
     hiddenimports += collected[2]
 
 a = Analysis(
-    [str(ROOT / "apps" / "desktop" / "__main__.py")],
+    [str(ROOT / "apps" / "desktop" / "frozen_entry.py")],
     pathex=[str(ROOT)],
     binaries=binaries,
     datas=datas,
@@ -69,6 +74,16 @@ a = Analysis(
     excludes=[],
     noarchive=False,
 )
+
+collected_modules = {entry[0] for entry in a.pure}
+required_modules = (
+    "apps.desktop.app",
+    "apps.engine.pipeline",
+    "apps.engine.dump",
+)
+missing = [name for name in required_modules if name not in collected_modules]
+if missing:
+    raise SystemExit("PyInstaller did not collect required modules: " + ", ".join(missing))
 pyz = PYZ(a.pure)
 exe = EXE(
     pyz,

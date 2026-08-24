@@ -6,6 +6,8 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 APP_PY = ROOT / "apps" / "desktop" / "app.py"
+FROZEN_ENTRY = ROOT / "apps" / "desktop" / "frozen_entry.py"
+SPEC = ROOT / "CAUnpacker.spec"
 
 
 class DesktopImportTests(unittest.TestCase):
@@ -31,3 +33,17 @@ class DesktopImportTests(unittest.TestCase):
         resolved = app_icon_path()
         self.assertIsNotNone(resolved)
         self.assertTrue(Path(resolved).is_file())
+
+    def test_frozen_entry_calls_desktop_main(self) -> None:
+        self.assertTrue(FROZEN_ENTRY.is_file(), FROZEN_ENTRY)
+        source = FROZEN_ENTRY.read_text(encoding="utf-8")
+        ast.parse(source, filename=str(FROZEN_ENTRY))
+        self.assertIn("from apps.desktop.app import main", source)
+        self.assertIn("main()", source)
+
+    def test_spec_does_not_freeze_package_main(self) -> None:
+        spec = SPEC.read_text(encoding="utf-8")
+        self.assertIn("frozen_entry.py", spec)
+        self.assertNotIn("__main__.py", spec)
+        self.assertIn("apps.desktop.app", spec)
+        self.assertIn("did not collect required modules", spec)
