@@ -43,6 +43,20 @@ class DesktopImportTests(unittest.TestCase):
         self.assertIn("from apps.desktop.app import main", source)
         self.assertIn("main()", source)
 
+    def test_landing_test_files_zip_has_scenarios(self) -> None:
+        import zipfile
+
+        from apps.engine.tests.dump_paths import LANDING_ZIP, ensure_sample_dump
+
+        ensure_sample_dump()
+        self.assertTrue(LANDING_ZIP.is_file(), LANDING_ZIP)
+        with zipfile.ZipFile(LANDING_ZIP) as archive:
+            names = archive.namelist()
+        blob = " ".join(names)
+        self.assertIn("01-banks-digital", blob)
+        self.assertIn("07-mixed-client-month", blob)
+        self.assertIn("README.md", blob)
+
     def test_spec_does_not_freeze_package_main(self) -> None:
         spec = SPEC.read_text(encoding="utf-8")
         self.assertIn("frozen_entry.py", spec)

@@ -17,6 +17,7 @@ from apps.engine.tests.dump_paths import (
     BANKS_MESSY,
     BOOKS,
     DUMP,
+    LANDING_ZIP,
     GSTR_1,
     GSTR_2B,
     GSTR_3B,
@@ -558,7 +559,9 @@ Each numbered folder is one scenario. In CA Unpacker: add a client and a period,
 
 Do not dump `Darshan` or other **output** folders back in. Cleaned Excels belong in the folder you chose at first launch.
 
-Rebuild this tree:
+Unzip this kit, then in CA Unpacker add a client and a period, then **Add folder** and pick **one** numbered folder.
+
+Rebuild this tree and the landing-page zip:
 
 ```bat
 .venv\\Scripts\\python.exe build_test_dump.py
@@ -566,7 +569,20 @@ Rebuild this tree:
 """,
         encoding="utf-8",
     )
+    _write_landing_zip()
     print(f"Wrote sample dump kit at {DUMP}")
+    print(f"Wrote {LANDING_ZIP}")
+
+
+def _write_landing_zip() -> None:
+    LANDING_ZIP.parent.mkdir(parents=True, exist_ok=True)
+    prefix = "CAUnpacker-Test-Files"
+    with zipfile.ZipFile(LANDING_ZIP, "w", zipfile.ZIP_DEFLATED) as archive:
+        for path in DUMP.rglob("*"):
+            if not path.is_file():
+                continue
+            rel = path.relative_to(DUMP).as_posix()
+            archive.write(path, f"{prefix}/{rel}")
 
 
 if __name__ == "__main__":

@@ -266,9 +266,10 @@
         <p class="lede">Bank PDFs, purchase bills, GSTR JSON and Tally or Zoho exports go into one tray. The laptop classifies, extracts, checks the maths, and writes a pack. Nothing is uploaded.</p>
         <div class="cta" id="download">
           <a class="btn btn-tab" data-od-id="hero-cta" id="dl-hero" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
+          <a class="btn btn-ghost" id="dl-samples" href="/CAUnpacker-Test-Files.zip" download="CAUnpacker-Test-Files.zip">Download test files</a>
           <a class="btn btn-ghost" href="#how">See the clicks</a>
         </div>
-        <p class="fine">One file: <code>CAUnpacker-Setup.exe</code>. Double-click it — no zip, no Python, no Docker. Windows 10 or 11.</p>
+        <p class="fine">Setup is one file: <code>CAUnpacker-Setup.exe</code>. Test files are a zip — unzip, then Add folder on one numbered folder. Windows 10 or 11. No Python, no Docker.</p>
       </div>
       <aside class="docket" data-od-id="hero-docket">
         <p class="eyebrow">After Setup</p>
@@ -279,7 +280,7 @@
           <li>Type the firm name. Click <strong>Choose folder</strong>.</li>
           <li>Click <strong>Open the desk</strong>.</li>
           <li>Add a client, then a period (e.g. Aug 2026).</li>
-          <li>Click <strong>Add folder</strong> and dump the month.</li>
+          <li>Click <strong>Download test files</strong>, unzip, then <strong>Add folder</strong> on one numbered folder — or dump a real month.</li>
           <li>Wait for the pack. Click <strong>Open in Excel</strong>.</li>
         </ol>
       </aside>
@@ -480,8 +481,11 @@
   <section class="closing" data-od-id="footer-cta">
     <div class="wrap">
       <h2>Install it on the firm laptop.</h2>
-      <p>One file. Double-click. Then dump a real messy month and see what the pack got wrong.</p>
-      <a class="btn btn-paper" id="dl-foot" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
+      <p>One Setup file. Double-click. Download the test zip if you want a sample month first.</p>
+      <div class="cta">
+        <a class="btn btn-paper" id="dl-foot" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
+        <a class="btn btn-ghost" id="dl-samples-foot" href="/CAUnpacker-Test-Files.zip" download="CAUnpacker-Test-Files.zip">Download test files</a>
+      </div>
     </div>
   </section>
 
@@ -498,12 +502,15 @@
 
   <script>
     (function () {
-      var href = (location.protocol === "file:")
-        ? "CAUnpacker-Setup.exe"
-        : "/CAUnpacker-Setup.exe";
-      ["dl-hero", "dl-foot"].forEach(function (id) {
-        var el = document.getElementById(id);
-        if (el) el.setAttribute("href", href);
+      var local = location.protocol === "file:";
+      [
+        ["dl-hero", local ? "CAUnpacker-Setup.exe" : "/CAUnpacker-Setup.exe"],
+        ["dl-foot", local ? "CAUnpacker-Setup.exe" : "/CAUnpacker-Setup.exe"],
+        ["dl-samples", local ? "CAUnpacker-Test-Files.zip" : "/CAUnpacker-Test-Files.zip"],
+        ["dl-samples-foot", local ? "CAUnpacker-Test-Files.zip" : "/CAUnpacker-Test-Files.zip"]
+      ].forEach(function (pair) {
+        var el = document.getElementById(pair[0]);
+        if (el) el.setAttribute("href", pair[1]);
       });
     })();
   </script>

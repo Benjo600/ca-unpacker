@@ -10,11 +10,8 @@ apps/ui/node_modules/
 Thumbs.db
 *.spec.bak
 
-# Packs the app may write if someone dumps into the sample kit
-test-dump/**/pack_summary.json
-test-dump/**/*_Cleaned.xlsx
-test-dump/**/*_Formatted.xlsx
-test-dump/**/*_Extracted.xlsx
+# Generated locally; public copy is designs/ca-unpacker-landing/CAUnpacker-Test-Files.zip
+test-dump/
 designs/ca-unpacker-landing/*.exe
 make_test_dump.py
 make_complex_statements.py

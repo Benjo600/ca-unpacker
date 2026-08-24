@@ -2,6 +2,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parents[3]
 DUMP = ROOT / "test-dump"
+LANDING_ZIP = ROOT / "designs" / "ca-unpacker-landing" / "CAUnpacker-Test-Files.zip"
 
 BANKS = DUMP / "01-banks-digital"
 BANKS_MESSY = DUMP / "02-banks-messy"
@@ -28,3 +29,14 @@ ZOHO_CSV = BOOKS / "Zoho_Books_Invoices.csv"
 RANDOM_JPG = JUNK / "random_scan.jpg"
 INVOICE_PHOTO = JUNK / "invoice_photo.png"
 MEETING_NOTES = JUNK / "meeting_notes.docx"
+
+
+def ensure_sample_dump() -> None:
+    if HDFC.is_file():
+        return
+    from build_test_dump import build
+
+    build()
+
+
+ensure_sample_dump()
