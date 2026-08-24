@@ -187,9 +187,12 @@ function fileCountLabel(count) {
   return `${count} files`;
 }
 
+function reviewFiles(files) {
+  return (files || []).filter((file) => file.needs_review);
+}
+
 function updateReviewNote() {
-  const unknown = lastFiles.some((file) => file.kind === "unknown" || file.needs_review);
-  const show = unknown && !packVisible;
+  const show = reviewFiles(lastFiles).length > 0;
   if (reviewPackNoteEl) reviewPackNoteEl.hidden = !show;
 }
 
@@ -310,7 +313,16 @@ async function openPeriod(periodId) {
   renderFiles(result.files || []);
   renderPack(result.pack);
   renderPreview(result.preview);
-  dumpStatusEl.textContent = `${(result.files || []).length} files`;
+  const files = result.files || [];
+  const pending = reviewFiles(files).length;
+  if (pending) {
+    const converted = files.length - pending;
+    dumpStatusEl.textContent = converted
+      ? `Pack written · ${pending} files still need review`
+      : `Nothing converted · ${pending} files need review`;
+  } else {
+    dumpStatusEl.textContent = `${files.length} files`;
+  }
   showPane("dump");
   refreshTesseractNote();
   syncGuide();
@@ -951,7 +963,7 @@ function currentGuideCard() {
     return {
       kicker: "Step 4 of 5",
       title: "Wait for the pack",
-      copy: "The app is sorting files on this PC. Unknown files stay in Needs review — set a type if you know it.",
+      copy: "The app is sorting files on this PC. Unknown or unreadable files stay in Needs review until they convert.",
       items: ["Wait until an Excel pack appears below.", "If a file is Unknown, set its type."],
       highlight: "#drop-zone",
     };

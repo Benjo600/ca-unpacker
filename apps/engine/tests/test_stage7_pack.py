@@ -92,7 +92,11 @@ class Stage7BooksPackTests(unittest.TestCase):
         job = start_job(period["id"])
         ingest_paths(job["id"], [str(garbage)])
         pack = get_period_pack(period["id"])
-        self.assertTrue(pack is None or not pack.get("outputs"))
+        outputs = (pack or {}).get("outputs") or []
+        keys = {item.get("key") for item in outputs}
+        self.assertNotIn("purchase", keys)
+        self.assertNotIn("sales", keys)
+        self.assertNotIn("books", keys)
 
 
 if __name__ == "__main__":

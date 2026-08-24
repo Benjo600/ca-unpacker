@@ -7,13 +7,13 @@ import json
 from pathlib import Path
 
 from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session
-from apps.engine.kinds import IMAGE_SUFFIXES
+from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
 from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.pdf_passwords import get_file_password
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
 from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3b
-from apps.engine.pack.table_xlsx import write_table
+from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.parsers.bank.parser import parse_bank_pdf
 from apps.engine.parsers.gstr import parse_gstr_file
 from apps.engine.parsers.invoice import parse_invoice_file
@@ -72,6 +72,23 @@ GSTR_3B_COLS = [
     ("Cess", "cess"),
     ("Source", "source"),
 ]
+LINE_COLS = [
+    ("Invoice no", "invoice_number"),
+    ("Description", "description"),
+    ("HSN", "hsn"),
+    ("Qty", "qty"),
+    ("Rate", "rate"),
+    ("Taxable", "taxable"),
+    ("Tax", "tax"),
+    ("Amount", "amount"),
+    ("Source", "source"),
+]
+REVIEW_COLS = [
+    ("File", "file"),
+    ("Detected type", "kind_label"),
+    ("Status", "status"),
+    ("Reason", "reason"),
+]
 BOOKS_COLS = [
     ("Type", "voucher_type"),
     ("Number", "voucher_number"),
@@ -108,6 +125,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
         bank_files: list[dict] = []
         purchase_rows: list[dict] = []
+        line_item_rows: list[dict] = []
         sales_rows: list[dict] = []
         books_rows: list[dict] = []
         gstr_1: list[dict] = []
@@ -127,9 +145,35 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 stored.classify_reason = f"could not parse: {_redact_secret(str(exc), stored.id)[:200]}"
                 session.commit()
                 continue
+            if kind == "invoice":
+                items = extra.get("line_items") or []
+                if extra.get("unreadable") or not rows or not items:
+                    reason = stored.classify_reason or ""
+                    if "password" not in reason.lower():
+                        if extra.get("unreadable") or not items:
+                            stored.classify_reason = "recognised as invoice but no line items"
+                        else:
+                            stored.classify_reason = "recognised as invoice but no rows extracted"
+                        session.commit()
+                    rows = []
+                    items = []
+                else:
+                    line_item_rows.extend(items)
+                    for item in items:
+                        session.add(
+                            ExtractedRow(
+                                file_id=stored.id,
+                                period_id=period_id,
+                                kind="invoice",
+                                payload_json=json.dumps(item),
+                                source_page=int(item.get("source_page") or 1),
+                                source_bbox=item.get("source_bbox"),
+                                validation_flags=json.dumps(item.get("flags") or []),
+                            )
+                        )
             if (
                 not rows
-                and kind in {"bank", "invoice", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho"}
+                and kind in {"bank", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho"}
                 and "password" not in (stored.classify_reason or "").lower()
             ):
                 stored.classify_reason = f"recognised as {kind} but no rows extracted"
@@ -206,10 +250,20 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 }
             )
 
-        if purchase_rows:
+        if purchase_rows and line_item_rows:
+            dest = dest_dir / "Purchase_Register_Extracted.xlsx"
+            write_purchase_workbook(dest, purchase_rows, line_item_rows, PURCHASE_COLS, LINE_COLS)
+            outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
+        elif purchase_rows:
             dest = dest_dir / "Purchase_Register_Extracted.xlsx"
             write_table(dest, "Purchase register", purchase_rows, PURCHASE_COLS)
             outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
+
+        review_rows = _review_rows(files)
+        if review_rows:
+            dest = dest_dir / "Needs_Review.xlsx"
+            write_table(dest, "Needs review", review_rows, REVIEW_COLS)
+            outputs.append(_simple_out("needs_review", dest.name, dest, len(review_rows)))
 
         if sales_rows:
             dest = dest_dir / "Sales_Register_Extracted.xlsx"
@@ -297,6 +351,38 @@ def _as_register_row(row: dict) -> dict:
     if mapped.get("taxable_value") is None and mapped.get("taxable") is not None:
         mapped["taxable_value"] = mapped.get("taxable")
     return mapped
+
+
+def _review_status(stored: StoredFile) -> str | None:
+    kind = file_kind(stored)
+    reason = (stored.classify_reason or "").lower()
+    if "password" in reason:
+        return "password"
+    if kind == "unknown" and not stored.override_kind:
+        return "unknown"
+    if "unreadable" in reason or "no line items" in reason:
+        return "unreadable"
+    if reason.startswith("could not parse") or "no rows extracted" in reason:
+        return "no rows"
+    return None
+
+
+def _review_rows(files: list[StoredFile]) -> list[dict]:
+    rows: list[dict] = []
+    for stored in files:
+        status = _review_status(stored)
+        if not status:
+            continue
+        kind = file_kind(stored)
+        rows.append(
+            {
+                "file": stored.original_name,
+                "kind_label": KIND_LABELS.get(kind, kind),
+                "status": status,
+                "reason": stored.classify_reason or "",
+            }
+        )
+    return rows
 
 
 def _simple_out(key: str, label: str, dest: Path, rows: int) -> dict:

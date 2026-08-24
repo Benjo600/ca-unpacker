@@ -7,7 +7,7 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 MONEY_FORMAT = "#,##0.00"
-MONEY_KEYS = {"taxable", "tax", "invoice_value", "taxable_value", "amount"}
+MONEY_KEYS = {"taxable", "tax", "invoice_value", "taxable_value", "amount", "rate"}
 FLAG_MARKERS = ("gstin_checksum", "hsn_length", "invoice_math")
 RED_FILL = PatternFill("solid", fgColor="FFCDD2")
 
@@ -16,6 +16,29 @@ def write_table(path: Path, sheet_name: str, rows: list[dict], columns: list[tup
     path.parent.mkdir(parents=True, exist_ok=True)
     book = Workbook()
     sheet = book.active
+    _fill_sheet(sheet, sheet_name, rows, columns)
+    book.save(path)
+    return path
+
+
+def write_purchase_workbook(
+    path: Path,
+    invoices: list[dict],
+    line_items: list[dict],
+    invoice_cols: list[tuple[str, str]],
+    line_cols: list[tuple[str, str]],
+) -> Path:
+    path.parent.mkdir(parents=True, exist_ok=True)
+    book = Workbook()
+    invoices_sheet = book.active
+    _fill_sheet(invoices_sheet, "Invoices", invoices, invoice_cols)
+    items_sheet = book.create_sheet("Line items")
+    _fill_sheet(items_sheet, "Line items", line_items, line_cols)
+    book.save(path)
+    return path
+
+
+def _fill_sheet(sheet, sheet_name: str, rows: list[dict], columns: list[tuple[str, str]]) -> None:
     sheet.title = sheet_name[:31]
     sheet.append([title for title, _key in columns])
     for cell in sheet[1]:
@@ -48,8 +71,6 @@ def write_table(path: Path, sheet_name: str, rows: list[dict], columns: list[tup
     last_row = max(sheet.max_row, 1)
     sheet.auto_filter.ref = f"A1:{last_col}{last_row}"
     sheet.freeze_panes = "A2"
-    book.save(path)
-    return path
 
 
 def _cell(value):

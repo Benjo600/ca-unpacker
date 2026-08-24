@@ -24,7 +24,12 @@ def _file_dict(row: StoredFile) -> dict:
     kind = row.override_kind or row.detected_kind
     reason = row.classify_reason or ""
     reason_l = reason.lower()
-    parse_failed = reason_l.startswith("could not parse") or "no rows extracted" in reason_l
+    parse_failed = (
+        reason_l.startswith("could not parse")
+        or "no rows extracted" in reason_l
+        or "no line items" in reason_l
+        or "unreadable" in reason_l
+    )
     return {
         "id": row.id,
         "job_id": row.job_id,
@@ -38,7 +43,12 @@ def _file_dict(row: StoredFile) -> dict:
         "kind_label": KIND_LABELS.get(kind, kind),
         "confidence": row.confidence,
         "classify_reason": reason,
-        "needs_review": kind == "unknown" and row.override_kind is None,
+        "needs_review": (
+            (kind == "unknown" and row.override_kind is None)
+            or parse_failed
+            or "unreadable" in reason_l
+            or "no line items" in reason_l
+        ),
         "needs_password": "password" in reason.lower(),
         "parse_failed": parse_failed,
     }
@@ -152,6 +162,19 @@ def _user_job_error(exc: BaseException) -> str:
         else:
             text = raw.splitlines()[0]
     return redact_known_passwords(text)[:500]
+
+
+def _finalize_job(session, job_id: int, period_id: int, truncated: bool = False) -> None:
+    job = session.get(Job, job_id)
+    if job is None:
+        return
+    files = session.query(StoredFile).filter(StoredFile.period_id == period_id).all()
+    review = any(_file_dict(row)["needs_review"] for row in files)
+    job.status = "needs_review" if review else "done"
+    job.finished_at = utcnow()
+    if truncated:
+        job.error_message = TRUNCATION_WARNING
+    session.commit()
 
 
 def fail_job(job_id: int, message: str) -> None:
@@ -271,6 +294,7 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             for stored in session.query(StoredFile).filter(StoredFile.job_id == job_id)
         )
         parse_period_banks(period_id, job_id)
+        session.expire_all()
         if had_bank:
             from apps.engine.pipeline import get_period_pack
 
@@ -290,19 +314,14 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
                         warnings.append(TRUNCATION_WARNING)
                     payload["warnings"] = warnings
                 return payload
-        job = session.get(Job, job_id)
-        if job is not None:
-            job.status = "done"
-            job.finished_at = utcnow()
-            if truncated:
-                job.error_message = TRUNCATION_WARNING
-            session.commit()
-        return get_job(job_id) or {
+        _finalize_job(session, job_id, period_id, truncated=truncated)
+        payload = get_job(job_id) or {
             "id": job_id,
-            "status": "done",
+            "status": "needs_review" if truncated else "done",
             "files": [],
             "warnings": [TRUNCATION_WARNING] if truncated else [],
         }
+        return payload
     except Exception as exc:
         try:
             session.rollback()
@@ -347,11 +366,8 @@ def reparse_period(period_id: int, job_id: int | None = None) -> dict:
         job.status = "parsing"
         session.commit()
         parse_period_banks(period_id, job_id)
-        job = session.get(Job, job_id)
-        if job is not None:
-            job.status = "done"
-            job.finished_at = utcnow()
-            session.commit()
+        session.expire_all()
+        _finalize_job(session, job_id, period_id)
         return get_job(job_id) or {
             "id": job_id,
             "period_id": period_id,

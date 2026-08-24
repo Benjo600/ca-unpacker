@@ -26,16 +26,34 @@ _IMAGE_SUFFIXES = {".jpg", ".jpeg", ".png", ".webp", ".tif", ".tiff", ".bmp"}
 _NAME_BLOCK = re.compile(r"^(gstin|hsn|sac|invoice|tax|total|cgst|sgst|igst)\b", re.I)
 
 
+_ITEM_HEADER_RE = re.compile(r"\b(hsn|sac)\b", re.I)
+_ITEM_COL_RE = re.compile(r"\b(qty|quantity|rate|amount|taxable)\b", re.I)
+_ITEM_FOOTER_RE = re.compile(
+    r"^(?:taxable\s+value|invoice\s+value|grand\s+total|total\s+amount|invoice\s+total)\b",
+    re.I,
+)
+_HSN_TOKEN_RE = re.compile(r"^\d{4,8}$")
+
+
 def parse_invoice_file(path: Path, filename: str | None = None) -> dict:
     path = Path(path)
     extracted = _extract(path)
     text = _joined_text(extracted)
     source = filename or path.name
-    row = _build_row(text, extracted.lines, source)
-    if row is None:
-        return {"rows": [], "engine": extracted.engine, "unreadable": True}
+    items = _line_items(extracted.lines, source)
+    row = _build_row(text, extracted.lines, source, items)
+    if row is None or not items:
+        return {
+            "rows": [],
+            "line_items": [],
+            "engine": extracted.engine,
+            "unreadable": True,
+        }
+    for item in items:
+        item["invoice_number"] = row.get("invoice_number")
     return {
         "rows": [row],
+        "line_items": items,
         "engine": extracted.engine,
         "unreadable": "unreadable" in row["flags"],
     }
@@ -54,7 +72,12 @@ def _joined_text(extracted: ExtractedPdf) -> str:
     return "\n".join(line.text for line in extracted.lines if (line.text or "").strip())
 
 
-def _build_row(text: str, lines: list[LineBox], source: str) -> dict | None:
+def _build_row(
+    text: str,
+    lines: list[LineBox],
+    source: str,
+    items: list[dict] | None = None,
+) -> dict | None:
     gstin = _supplier_gstin(text)
     inv_match = INV_RE.search(text)
     invoice_number = inv_match.group(1).strip() if inv_match else None
@@ -67,16 +90,25 @@ def _build_row(text: str, lines: list[LineBox], source: str) -> dict | None:
     hsn = hsn_match.group(1) if hsn_match else None
     taxable = _amount_after(TAXABLE_RE, text)
     total = _amount_after(TOTAL_RE, text)
+    items = items or []
+    if taxable is None:
+        taxable_parts = [item.get("taxable") for item in items if item.get("taxable") is not None]
+        if taxable_parts:
+            taxable = sum((Decimal(str(value)) for value in taxable_parts), Decimal("0"))
     if total is None:
-        amounts = [parse_amount(match.group(1)) for match in AMOUNT_RE.finditer(text)]
-        amounts = [amount for amount in amounts if amount is not None]
-        total = amounts[-1] if amounts else None
+        amount_parts = [item.get("amount") for item in items if item.get("amount") is not None]
+        if amount_parts:
+            total = sum((Decimal(str(value)) for value in amount_parts), Decimal("0"))
     tax, cgst, sgst, igst = _tax_amounts(text)
 
     flags = list(gstin_flags(gstin))
     flags.extend(hsn_flags(hsn))
     if taxable is not None and tax is not None and total is not None:
         if abs((taxable + tax) - total) > Decimal("1.00"):
+            flags.append("invoice_math")
+    line_sum = [item.get("amount") for item in items if item.get("amount") is not None]
+    if total is not None and line_sum and "invoice_math" not in flags:
+        if abs(sum((Decimal(str(value)) for value in line_sum), Decimal("0")) - total) > Decimal("1.00"):
             flags.append("invoice_math")
 
     fields, field_lines = _locate_fields(
@@ -115,6 +147,72 @@ def _build_row(text: str, lines: list[LineBox], source: str) -> dict | None:
         "fields": fields,
         "flags": flags,
         "raw_excerpt": " ".join(text.split())[:240],
+    }
+
+
+def _line_items(lines: list[LineBox], source: str) -> list[dict]:
+    items: list[dict] = []
+    in_table = False
+    for line in lines:
+        text = " ".join((line.text or "").split())
+        if not text:
+            continue
+        if _is_item_header(text):
+            in_table = True
+            continue
+        if not in_table:
+            continue
+        if _ITEM_FOOTER_RE.search(text):
+            break
+        if re.match(r"^(cgst|sgst|igst)\b", text, re.I) and not _ITEM_HEADER_RE.search(text):
+            break
+        parsed = _parse_item_line(text, source, line)
+        if parsed:
+            items.append(parsed)
+    return items
+
+
+def _is_item_header(text: str) -> bool:
+    return bool(_ITEM_HEADER_RE.search(text) and _ITEM_COL_RE.search(text))
+
+
+def _parse_item_line(text: str, source: str, line: LineBox) -> dict | None:
+    tokens = text.split()
+    hsn_index = next((index for index, token in enumerate(tokens) if _HSN_TOKEN_RE.match(token)), None)
+    if hsn_index is None:
+        return None
+    hsn = tokens[hsn_index]
+    qty = None
+    amounts: list[Decimal] = []
+    for index, token in enumerate(tokens):
+        if index == hsn_index:
+            continue
+        if qty is None and re.fullmatch(r"\d{1,4}", token) and not _HSN_TOKEN_RE.match(token):
+            qty = float(token)
+            continue
+        parsed = parse_amount(token)
+        if parsed is None:
+            continue
+        if "." in token or "," in token or parsed >= 1:
+            amounts.append(parsed)
+    if not amounts:
+        return None
+    line_amount = amounts[-1]
+    taxable = amounts[-2] if len(amounts) >= 2 else amounts[0]
+    rate = amounts[-3] if len(amounts) >= 3 else (amounts[0] if qty == 1 else None)
+    description = " ".join(tokens[:hsn_index]).strip() or None
+    return {
+        "invoice_number": None,
+        "description": description,
+        "hsn": hsn,
+        "qty": qty,
+        "rate": _f(rate),
+        "taxable": _f(taxable),
+        "tax": None,
+        "amount": _f(line_amount),
+        "source": source,
+        "source_page": int(line.page),
+        "source_bbox": _bbox(line),
     }
 
 

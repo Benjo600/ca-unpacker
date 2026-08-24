@@ -45,11 +45,16 @@ class GstrTallyZohoTests(unittest.TestCase):
 
     def test_invoice_pdf(self) -> None:
         from apps.engine.parsers.invoice import parse_invoice_file
+        from apps.engine.tests.fixtures_stage5 import invoice_lines, write_invoice_pdf
 
-        parsed = parse_invoice_file(DUMP / "Tax_Invoice_Acme.pdf")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = write_invoice_pdf(Path(tmp) / "Tax_Invoice_Acme.pdf", invoice_lines(invoice_no="ACME/26-27/0142"))
+            parsed = parse_invoice_file(path)
+        self.assertFalse(parsed["unreadable"])
         row = parsed["rows"][0]
         self.assertTrue(row["supplier_gstin"])
         self.assertTrue(row["invoice_number"])
+        self.assertGreaterEqual(len(parsed.get("line_items") or []), 1)
 
 
 class MixedDumpPackTests(unittest.TestCase):

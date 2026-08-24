@@ -36,7 +36,7 @@ class VisibleParseFailureTests(unittest.TestCase):
         job = start_job(self.period["id"])
         with patch("apps.engine.pipeline.parse_gstr_file", side_effect=RuntimeError("boom")):
             result = ingest_paths(job["id"], [str(bad)])
-        self.assertEqual(result.get("status"), "done")
+        self.assertEqual(result.get("status"), "needs_review")
         files = list_period_files(self.period["id"])
         self.assertTrue(files)
         self.assertTrue(files[0].get("parse_failed"))
@@ -59,6 +59,44 @@ class VisibleParseFailureTests(unittest.TestCase):
             files[0],
         )
         self.assertTrue(result.get("warnings"), result)
+        self.assertEqual(result.get("status"), "needs_review")
+
+    def test_mixed_dump_keeps_bank_and_blocks_done(self) -> None:
+        from make_test_dump import pdf_with_text
+        from apps.engine.pipeline import get_period_pack
+        from openpyxl import load_workbook
+
+        inbox = Path(self._tmp.name) / "inbox"
+        inbox.mkdir()
+        (inbox / "HDFC_Statement.pdf").write_bytes(
+            pdf_with_text(
+                [
+                    "HDFC Bank Account Statement",
+                    "Account Number 50100123456789",
+                    "Opening Balance 150000.00",
+                    "01/07/2026 UPI merchant Withdrawal 2500.00 147500.00",
+                    "Closing Balance 147500.00",
+                ]
+            )
+        )
+        (inbox / "meeting_notes.docx").write_bytes(b"PK notes")
+        (inbox / "GSTR-2B_July.json").write_text("{", encoding="utf-8")
+        job = start_job(self.period["id"])
+        result = ingest_paths(job["id"], [str(inbox)])
+        self.assertEqual(result.get("status"), "needs_review", result)
+        pack = get_period_pack(self.period["id"])
+        self.assertIsNotNone(pack)
+        outputs = {item.get("key"): item for item in (pack.get("outputs") or [])}
+        self.assertIn("bank", outputs)
+        self.assertIn("needs_review", outputs)
+        review_path = Path(outputs["needs_review"]["path"])
+        self.assertTrue(review_path.is_file(), review_path)
+        names = []
+        for row in load_workbook(review_path).active.iter_rows(min_row=2, values_only=True):
+            names.append(str(row[0] or ""))
+        blob = " ".join(names).lower()
+        self.assertIn("meeting_notes", blob)
+        self.assertIn("gstr", blob)
 
     def test_over_cap_sets_truncation_warning(self) -> None:
         from apps.engine.dump import MAX_FOLDER_FILES, collect_inbox

@@ -13,8 +13,8 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
-from apps.engine.pack.table_xlsx import write_table
-from apps.engine.pipeline import PURCHASE_COLS, get_source_crop
+from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
+from apps.engine.pipeline import LINE_COLS, PURCHASE_COLS, get_source_crop
 
 INVOICE_PDF = ROOT / "test-dump" / "Tax_Invoice_Acme.pdf"
 
@@ -91,6 +91,57 @@ class PurchaseTableTests(unittest.TestCase):
             self.assertFalse(any("FFCDD2" in value for value in clean), clean)
             tax_col = [cell.value for cell in sheet[1]].index("Taxable") + 1
             self.assertEqual(sheet.cell(2, tax_col).number_format, "#,##0.00")
+
+    def test_purchase_workbook_has_invoice_and_line_item_sheets(self) -> None:
+        invoices = [
+            {
+                "supplier_name": "Acme Widgets",
+                "supplier_gstin": "27AAPFU0939F1ZV",
+                "invoice_number": "ACME/26-27/0142",
+                "invoice_date": "2026-07-12",
+                "taxable_value": 10000.0,
+                "tax": 1800.0,
+                "invoice_value": 11800.0,
+                "hsn": "998314",
+                "flags": [],
+                "source": "Tax_Invoice_Acme.pdf",
+            }
+        ]
+        items = [
+            {
+                "invoice_number": "ACME/26-27/0142",
+                "description": "Consulting",
+                "hsn": "998314",
+                "qty": 1,
+                "rate": 7000.0,
+                "taxable": 7000.0,
+                "tax": None,
+                "amount": 8260.0,
+                "source": "Tax_Invoice_Acme.pdf",
+            },
+            {
+                "invoice_number": "ACME/26-27/0142",
+                "description": "Software",
+                "hsn": "997331",
+                "qty": 1,
+                "rate": 3000.0,
+                "taxable": 3000.0,
+                "tax": None,
+                "amount": 3540.0,
+                "source": "Tax_Invoice_Acme.pdf",
+            },
+        ]
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Purchase_Register_Extracted.xlsx"
+            write_purchase_workbook(path, invoices, items, PURCHASE_COLS, LINE_COLS)
+            book = load_workbook(path)
+            titles = [sheet.title for sheet in book.worksheets]
+            self.assertIn("Invoices", titles)
+            self.assertIn("Line items", titles)
+            lines = book["Line items"]
+            headers = [cell.value for cell in lines[1]]
+            self.assertIn("HSN", headers)
+            self.assertEqual(lines.max_row, 3)
 
 
 class InvoiceCropTests(unittest.TestCase):

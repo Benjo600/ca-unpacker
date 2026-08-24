@@ -1,10 +1,6 @@
 from __future__ import annotations
 
-import shutil
 from pathlib import Path
-
-ROOT = Path(__file__).resolve().parents[3]
-ACME_PDF = ROOT / "test-dump" / "Tax_Invoice_Acme.pdf"
 
 GOOD_GSTIN = "27AAPFU0939F1ZV"
 # Valid shape, last character flipped. Prefer 27AAPFU0939F1ZZ when that checksum fails.
@@ -45,6 +41,8 @@ def invoice_lines(
         f"Supplier GSTIN {gstin}",
         "Place of Supply 27-Maharashtra",
         f"HSN {hsn}",
+        "HSN Qty Rate Taxable Amount",
+        f"Professional fees {hsn} 1 {taxable} {taxable} {total}",
         f"Taxable value {taxable}",
         f"CGST {cgst}  SGST {sgst}",
         f"Invoice value {total}",
@@ -60,10 +58,6 @@ def write_invoice_pdf(dest: Path, lines: list[str]) -> Path:
 
 def copy_acme_invoice(folder: Path) -> Path:
     dest = Path(folder) / "Tax_Invoice_Acme.pdf"
-    dest.parent.mkdir(parents=True, exist_ok=True)
-    if ACME_PDF.is_file():
-        shutil.copy2(ACME_PDF, dest)
-        return dest
     return write_invoice_pdf(
         dest,
         invoice_lines(
