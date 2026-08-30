@@ -136,6 +136,20 @@
         </div>
       </section>
 
+      <section id="recon-block" class="recon hidden">
+        <p class="eyebrow">Books vs 2B</p>
+        <h2>Reconciliation</h2>
+        <p id="recon-counts"></p>
+        <div id="recon-filters" class="drop-actions recon-filters">
+          <button type="button" data-recon-filter="all">All</button>
+          <button type="button" class="ghost" data-recon-filter="matched">Matched</button>
+          <button type="button" class="ghost" data-recon-filter="unmatched">Unmatched</button>
+          <button type="button" class="ghost" data-recon-filter="amount_mismatch">Amount mismatch</button>
+          <button type="button" class="ghost" data-recon-filter="likely">Likely</button>
+        </div>
+        <div id="recon-table"></div>
+      </section>
+
       <section id="preview-block" class="preview hidden">
         <h2>Spot-check</h2>
         <p>First and last lines from each statement. Click an amount to see it on the page. Open Excel for the full list.</p>
@@ -215,6 +229,7 @@
   </div>
 
   <script src="status-summary.js"></script>
+  <script src="recon-summary.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

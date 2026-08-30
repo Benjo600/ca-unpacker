@@ -37,6 +37,7 @@ SUMMARY_MONEY_COLS = (2, 3, 4, 5, 6)
 
 CDN_TYPES = {"CDN", "CDNR", "CDNA", "CDNRA"}
 MATCH_NOTE = "Match columns are empty until reconciliation."
+MATCH_FILLED_NOTE = "Match columns filled from the master reconciliation grid."
 
 
 def write_gstr_2b(path: Path, rows: list[dict], meta: dict | None = None) -> Path:
@@ -55,7 +56,7 @@ def write_gstr_2b(path: Path, rows: list[dict], meta: dict | None = None) -> Pat
             ("Flagged rows", len(flagged)),
             ("Total rows", len(rows)),
         ],
-        note=MATCH_NOTE,
+        note=_match_note(rows),
     )
     _write_b2b_sheet(book.create_sheet("B2B"), b2b, default_type="B2B")
     if cdn:
@@ -199,6 +200,13 @@ def _write_flags_sheet(sheet, rows: list[dict]) -> None:
     _finish_table(sheet, len(B2B_HEADERS), [14, 28, 20, 14, 14, 14, 12, 12, 12, 12, 12, 10, 22, 28, 14, 16])
 
 
+def _match_note(rows: list[dict]) -> str:
+    for row in rows:
+        if str(row.get("match_status") or "").strip():
+            return MATCH_FILLED_NOTE
+    return MATCH_NOTE
+
+
 def _write_header(sheet, headers: list[str]) -> None:
     sheet.append(headers)
     for cell in sheet[1]:
@@ -235,8 +243,8 @@ def _b2b_values(row: dict, doc_type: str) -> list:
         doc_type,
         _flag_text(row.get("flags")),
         row.get("source"),
-        None,
-        None,
+        row.get("match_status") or None,
+        row.get("books_ref") or None,
     ]
 
 

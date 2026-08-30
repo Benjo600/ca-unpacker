@@ -4,7 +4,7 @@ Companion to `BUILD-PLAN.md`. That file is the product map. This file is the **o
 
 **Rule:** do not start Stage N+1 until Stage N’s gate is checked. A half-working stage is not a pass. If a later stage needs a fix in an earlier one, go back, pass that gate again, then continue.
 
-**Current stage:** Stage 7 Tally/Zoho passed on fixtures. Next is Stage 8 (master reconciliation grid).
+**Current stage:** Stage 8 master grid passed on fixtures. Next is Stage 9 (license).
 
 ---
 
@@ -221,11 +221,11 @@ Stages 8–10 stay closed until Stage 7 passes. Stages after 10 (ITC engine, GST
 
 **Success gate**
 
-- [ ] One dump that includes bills or Tally + 2B produces a master grid
-- [ ] A known matching invoice appears as matched
-- [ ] A known 2B-only invoice appears unmatched
-- [ ] A known amount clash appears as amount-mismatch
-- [ ] A CA can open the grid in Excel and continue work from there
+- [x] One dump that includes bills or Tally + 2B produces a master grid
+- [x] A known matching invoice appears as matched
+- [x] A known 2B-only invoice appears unmatched
+- [x] A known amount clash appears as amount-mismatch
+- [x] A CA can open the grid in Excel and continue work from there
 
 **Not this stage:** full ITC product, GSTR-9, billing.
 
@@ -304,6 +304,6 @@ Record the date a stage passed. Empty means not passed. Do not start the next st
 | 5 Invoices | 2026-08-15 | Digital + rendered PNG invoices; GSTIN/HSN/math flags; 1x1 photo stays unknown; field crops. 75 tests OK. |
 | 6 GST portal files | 2026-08-15 | 2B B2B + 1 outward + 3B summary Excel; Match/Books ref empty; offline JSON only. 92 tests OK. |
 | 7 Tally / Zoho | 2026-08-15 | Canonical invoice fields; purchase+sales Excels; garbage zip safe. 110 tests OK. |
-| 8 Master grid | | |
+| 8 Master grid | 2026-08-30 | ACME+2B matched; extra 2B portal_only; amount off ₹50 mismatch; GSTR-only still no master. |
 | 9 License | | |
 | 10 Firm-ready | | |

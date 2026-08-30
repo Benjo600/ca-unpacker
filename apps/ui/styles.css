@@ -521,6 +521,37 @@ button.ghost:disabled:hover { background: transparent; }
   flex-wrap: wrap;
 }
 
+.recon {
+  margin: 0 0 20px;
+  padding: 16px 18px;
+  background: var(--paper);
+  border: 1px solid var(--line);
+}
+
+.recon h2 {
+  margin: 0 0 4px;
+  font-size: 16px;
+  font-family: Cambria, "Palatino Linotype", serif;
+}
+
+.recon #recon-counts {
+  margin: 0 0 10px;
+  color: var(--mute);
+  font-size: 13px;
+}
+
+.recon-filters {
+  margin: 0 0 10px;
+}
+
+.recon-filters button {
+  margin-top: 0;
+}
+
+#recon-table .preview-table {
+  margin: 8px 0 0;
+}
+
 .preview {
   margin: 0 0 20px;
 }

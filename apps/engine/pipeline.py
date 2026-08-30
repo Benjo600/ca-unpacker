@@ -18,7 +18,9 @@ from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
 from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3b
+from apps.engine.pack.recon_xlsx import write_master_grid
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
+from apps.engine.recon import reconcile
 from apps.engine.parsers.bank.parser import parse_bank_pdf
 from apps.engine.parsers.gstr import parse_gstr_file
 from apps.engine.parsers.invoice import parse_invoice_file
@@ -269,6 +271,13 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             period.label if period else f"period-{period_id}",
         )
         outputs: list[dict] = []
+        recon_result = None
+        if gstr_2b and purchase_rows:
+            bank_txns: list[dict] = []
+            for item in bank_files:
+                bank_txns.extend(item.get("rows") or [])
+            recon_result = reconcile(purchase_rows, gstr_2b, bank_txns)
+            _apply_gstr_2b_matches(gstr_2b, recon_result)
 
         if bank_files:
             dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
@@ -339,9 +348,21 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             write_table(dest, "Books", books_rows, BOOKS_COLS)
             outputs.append(_simple_out("books", dest.name, dest, len(books_rows)))
 
+        if recon_result is not None:
+            dest = dest_dir / "Master_Reconciliation_Grid.xlsx"
+            write_master_grid(dest, recon_result)
+            outputs.append(
+                _simple_out("master", dest.name, dest, len(recon_result.get("rows") or []))
+            )
+
         total_rows = sum(item["rows"] for item in outputs)
         bank_status = next((item["status"] for item in outputs if item["key"] == "bank"), None)
         summary = {"outputs": outputs, "total_rows": total_rows, "folder": str(dest_dir)}
+        if recon_result is not None:
+            summary["recon"] = {
+                "counts": recon_result.get("counts") or {},
+                "rows": recon_result.get("rows") or [],
+            }
         (dest_dir / "pack_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
         session.query(DataPack).filter(DataPack.period_id == period_id).delete()
@@ -704,7 +725,7 @@ def get_period_pack(period_id: int) -> dict | None:
         if not outputs and pack is None:
             return None
         if pack is None:
-            return {
+            payload = {
                 "id": None,
                 "period_id": period_id,
                 "path": str(summary_path.parent),
@@ -714,6 +735,9 @@ def get_period_pack(period_id: int) -> dict | None:
                 "files": [],
                 "balance_status": None,
             }
+            if summary and summary.get("recon") is not None:
+                payload["recon"] = summary["recon"]
+            return payload
         return pack_dict(pack, summary_path, summary)
     finally:
         session.close()
@@ -776,7 +800,7 @@ def get_period_preview(period_id: int, limit: int = 8) -> dict:
 def pack_dict(pack: DataPack, path: Path, summary: dict | None = None) -> dict:
     outputs = (summary or {}).get("outputs") or []
     bank = next((item for item in outputs if item["key"] == "bank"), None)
-    return {
+    payload = {
         "id": pack.id,
         "period_id": pack.period_id,
         "bank_xlsx_key": pack.bank_xlsx_key,
@@ -788,6 +812,23 @@ def pack_dict(pack: DataPack, path: Path, summary: dict | None = None) -> dict:
         "outputs": outputs,
         "all_match": bank["status"] == "match" if bank else None,
     }
+    if summary and summary.get("recon") is not None:
+        payload["recon"] = summary["recon"]
+    return payload
+
+
+def _apply_gstr_2b_matches(gstr_2b: list[dict], result: dict) -> None:
+    by_source: dict[str, dict] = {}
+    for row in result.get("rows") or []:
+        source = str(row.get("source_2b") or "")
+        if source:
+            by_source[source] = row
+    for item in gstr_2b:
+        rec = by_source.get(str(item.get("source") or ""))
+        if rec is None:
+            continue
+        item["match_status"] = rec.get("status") or ""
+        item["books_ref"] = rec.get("invoice_books") or ""
 
 
 def open_pack_path(period_id: int, key: str | None = None) -> str:

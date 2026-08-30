@@ -29,7 +29,7 @@ class GstrWorkbookWriteTests(unittest.TestCase):
         from apps.engine.parsers.gstr import parse_gstr_file
 
         parsed = parse_gstr_file(GSTR_2B_JSON, "gstr_2b")
-        rows = [dict(row, match_status="matched", books_ref="PUR-88") for row in parsed["rows"]]
+        rows = list(parsed["rows"])
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "GSTR_2B_Formatted.xlsx"
             write_gstr_2b(

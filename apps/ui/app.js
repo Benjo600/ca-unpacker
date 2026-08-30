@@ -37,6 +37,10 @@ const reviewPackNoteEl = document.getElementById("review-pack-note");
 const packBlock = document.getElementById("pack-block");
 const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
+const reconBlock = document.getElementById("recon-block");
+const reconCountsEl = document.getElementById("recon-counts");
+const reconTableEl = document.getElementById("recon-table");
+const reconFiltersEl = document.getElementById("recon-filters");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
 const scanNoteEl = document.getElementById("scan-note");
@@ -59,6 +63,8 @@ let lastPreviewFiles = [];
 let packVisible = false;
 let packHasBank = false;
 let packOpenKey = "";
+let lastPack = null;
+let reconFilter = "all";
 let unlockFile = null;
 let tesseractChecked = false;
 let tesseractFound = true;
@@ -429,6 +435,64 @@ function renderPack(pack) {
     packFilesEl.append(line);
   }
   updateReviewNote();
+  renderRecon(pack);
+}
+
+function reconStatusPill(status) {
+  const chip = document.createElement("span");
+  chip.className = "pill";
+  if (status === "matched") chip.classList.add("match");
+  else if (status === "likely") chip.classList.add("mute");
+  else chip.classList.add("mismatch");
+  chip.textContent = window.CAReconSummary.reconStatusLabel(status);
+  return chip;
+}
+
+function renderRecon(pack) {
+  lastPack = pack;
+  if (!reconBlock) return;
+  const api = window.CAReconSummary;
+  if (!api || !api.hasRecon(pack)) {
+    reconBlock.classList.add("hidden");
+    if (reconTableEl) reconTableEl.innerHTML = "";
+    return;
+  }
+  reconBlock.classList.remove("hidden");
+  if (reconCountsEl) reconCountsEl.textContent = api.reconCountsText(pack.recon.counts);
+  if (reconFiltersEl) {
+    for (const btn of reconFiltersEl.querySelectorAll("[data-recon-filter]")) {
+      const active = btn.getAttribute("data-recon-filter") === reconFilter;
+      btn.classList.toggle("ghost", !active);
+    }
+  }
+  if (!reconTableEl) return;
+  reconTableEl.innerHTML = "";
+  const table = document.createElement("table");
+  table.className = "preview-table";
+  table.innerHTML =
+    "<thead><tr><th>Status</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th></tr></thead>";
+  const body = document.createElement("tbody");
+  const rows = api.filterReconRows(pack.recon.rows || [], reconFilter);
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    const statusTd = document.createElement("td");
+    statusTd.append(reconStatusPill(row.status));
+    const gstinTd = document.createElement("td");
+    gstinTd.className = "gstin";
+    gstinTd.textContent = dash(row.gstin);
+    tr.append(
+      statusTd,
+      textCell(row.party),
+      gstinTd,
+      textCell(api.reconInvoiceDisplay(row)),
+      moneyCell(row.amount_2b),
+      moneyCell(row.amount_books),
+      textCell(row.bank_hint)
+    );
+    body.append(tr);
+  }
+  table.append(body);
+  reconTableEl.append(table);
 }
 
 function looksLikeGstin(value) {
@@ -652,7 +716,7 @@ function renderPreview(preview) {
     if (isGstrInv || isGstr3b) {
       const note = document.createElement("p");
       note.className = "preview-note";
-      note.textContent = "Open the GSTR Excel for the full register. Match columns stay empty until reconciliation.";
+      note.textContent = window.CAReconSummary.gstrPreviewNote(window.CAReconSummary.hasRecon(lastPack));
       previewListEl.append(note);
     }
     if (isBooks) {
@@ -1240,6 +1304,15 @@ paneDump.addEventListener("drop", handleDumpDrop);
 
 const wipeModal = document.getElementById("wipe-modal");
 const wipeErrorEl = document.getElementById("wipe-error");
+
+if (reconFiltersEl) {
+  reconFiltersEl.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-recon-filter]");
+    if (!btn) return;
+    reconFilter = btn.getAttribute("data-recon-filter") || "all";
+    renderRecon(lastPack);
+  });
+}
 
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
 document.getElementById("guide-open").addEventListener("click", reopenGuide);
