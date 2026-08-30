@@ -1,5 +1,5 @@
 #define AppName "CA Unpacker"
-#define AppVersion "0.7.0"
+#define AppVersion "0.8.0"
 #define AppPublisher "CA Unpacker"
 #define AppExeName "CAUnpacker.exe"
 
