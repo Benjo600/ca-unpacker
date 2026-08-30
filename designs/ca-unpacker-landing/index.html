@@ -338,12 +338,12 @@
         <article class="card">
           <span class="num">03 GST portal</span>
           <h3>Ugly JSON → readable sheets</h3>
-          <p>Official GSTR-1, GSTR-2B and GSTR-3B JSON downloads become formatted workbooks. No GST portal login. Match columns stay empty until the later reconciliation grid.</p>
+          <p>Official GSTR-1, GSTR-2B and GSTR-3B JSON downloads become formatted workbooks. No GST portal login. When books or invoices are in the same period, the master grid fills match status.</p>
         </article>
         <article class="card">
           <span class="num">04 Books</span>
           <h3>Tally / Zoho without opening them</h3>
-          <p>Tally XML or zip daybook, and Zoho Books CSV, become purchase and sales registers in the same field shape so a later 2B join can work. Live Tally ODBC is out of scope.</p>
+          <p>Tally XML or zip daybook, and Zoho Books CSV, become purchase and sales registers in the same field shape as invoices so the 2B join can match them. Live Tally ODBC is out of scope.</p>
         </article>
         <article class="card">
           <span class="num">05 Trust</span>
@@ -375,12 +375,12 @@
             <li><code>Sales_Register_Extracted.xlsx</code></li>
             <li><code>Books_Register_Extracted.xlsx</code></li>
             <li><code>GSTR_1_Formatted.xlsx</code> · <code>GSTR_2B_Formatted.xlsx</code> · <code>GSTR_3B_Formatted.xlsx</code></li>
+            <li><code>Master_Reconciliation_Grid.xlsx</code></li>
           </ul>
         </article>
         <article class="card">
           <h3>Not this build</h3>
           <ul>
-            <li>Master 2B-vs-books grid (next stage)</li>
             <li>Live GST portal login or e-filing</li>
             <li>Live Tally company / write-back</li>
             <li>ITR, 26AS, salary slips, contracts</li>
@@ -442,8 +442,8 @@
     <div class="wrap">
       <div class="sheet-head">
         <p class="eyebrow">Plans</p>
-        <h2>Intended pricing. This installer does not bill.</h2>
-        <p>Licence gates are not in this Windows build. Download and use it on the firm PC while we test with real dumps. The numbers below are the product plan, not a checkout.</p>
+        <h2>Intended pricing. This installer does not take a card.</h2>
+        <p>Starter and Pro file quotas can be gated with a licence key on this PC. Nothing in the dump is sent to activate. The rupee figures below are the product plan, not a checkout.</p>
       </div>
       <div class="tiers">
         <article class="tier">
@@ -469,8 +469,8 @@
           <p class="price">₹6,000 <small>/ month</small></p>
           <p>Visible later: ITC engine and GSTR-9. Not in this installer.</p>
           <ul>
-            <li>Master 2B vs books grid (next)</li>
-            <li>Not sold in this build</li>
+            <li>Master 2B vs books grid is in this build</li>
+            <li>ITC and GSTR-9 are not sold yet</li>
           </ul>
         </article>
       </div>
