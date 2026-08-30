@@ -7,3 +7,4 @@ Owner: Benny
 3. Persist the firm name, folder name, and client name after they are entered, so reopening the app does not require entering them again.
 4. Improve processing for scanned PDFs and PDFs with different layouts and formats.
 5. Modernize the UI: it currently feels dated and overwhelming, especially because all post-processing results are dumped on the user at once. Present results progressively in a clearer workflow.
+6. Ask for and save a separate profile for each client of the firm; the app is currently not collecting this information.
