@@ -1,0 +1,11 @@
+18-Aug-26 10:29:42.16 launch 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\Admin\OneDrive\Desktop\CA idea\apps\desktop\__main__.py", line 1, in <module>
+    from apps.desktop.app import main
+  File "C:\Users\Admin\OneDrive\Desktop\CA idea\apps\desktop\app.py", line 324
+    def _prevent(_event) -> None:
+    ^^^
+IndentationError: expected an indented block after function definition on line 320
+23-Aug-26 19:50:50.27 launch 
