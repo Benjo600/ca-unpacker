@@ -115,7 +115,7 @@
 
       <div id="drop-zone" class="drop-zone">
         <p class="drop-title">Drop files or whole folders here</p>
-        <p class="drop-copy">Add files, Add folder, or drag a client month from Explorer. Nested folders are unpacked. No need to label files first.</p>
+        <p class="drop-copy">Add files, Add folder, or drag a client month from Explorer. Nested folders are unpacked. Bank PDFs, invoices, GSTR JSON and Tally exports can go in together. For spreadsheets, use .xlsx or .csv.</p>
         <div class="drop-actions">
           <button type="button" id="add-files">Add files</button>
           <button type="button" class="ghost" id="add-folder">Add folder</button>
@@ -145,7 +145,7 @@
 
       <section id="review-block" class="review hidden">
         <h2>Needs review</h2>
-        <p>These are not converted. Set a type if you know it — they are not in an Excel yet.</p>
+        <p>These files need attention before their results can be relied on. The reason is shown with each file. They are not in an Excel yet.</p>
         <p id="review-pack-note" hidden>These files are not in an Excel yet.</p>
         <div id="review-list"></div>
       </section>
@@ -214,6 +214,7 @@
     </div>
   </div>
 
+  <script src="status-summary.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

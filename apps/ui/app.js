@@ -183,8 +183,12 @@ function setDumpBusy(busy) {
   addFolderBtn.disabled = busy;
 }
 
-function fileCountLabel(count) {
-  return `${count} files`;
+function setDumpStatus(summary) {
+  dumpStatusEl.textContent = summary.text;
+  dumpStatusEl.classList.remove("status-success", "status-warning", "status-failure");
+  if (summary.tone === "success") dumpStatusEl.classList.add("status-success");
+  if (summary.tone === "warning") dumpStatusEl.classList.add("status-warning");
+  if (summary.tone === "failure") dumpStatusEl.classList.add("status-failure");
 }
 
 function reviewFiles(files) {
@@ -192,7 +196,10 @@ function reviewFiles(files) {
 }
 
 function updateReviewNote() {
-  const show = reviewFiles(lastFiles).length > 0;
+  const hasUnclassifiedFile = lastFiles.some((file) =>
+    file.parse_outcome === "unclassified" || file.kind === "unknown"
+  );
+  const show = (hasUnclassifiedFile && !packVisible) || reviewFiles(lastFiles).length > 0;
   if (reviewPackNoteEl) reviewPackNoteEl.hidden = !show;
 }
 
@@ -205,18 +212,29 @@ function fileNeedsPassword(file) {
 function appendFileRow(container, file, className) {
   const row = document.createElement("div");
   row.className = className;
-  const nameWrap = document.createElement("div");
+  const details = document.createElement("div");
+  details.className = "file-details";
   const name = document.createElement("span");
   name.className = "name";
   name.textContent = file.original_name;
-  name.title = file.classify_reason || "";
-  nameWrap.append(name);
-  if (file.parse_failed || file.classify_reason) {
-    const reason = document.createElement("span");
-    reason.className = "file-reason";
-    reason.textContent = file.classify_reason || "";
-    nameWrap.append(reason);
+  name.title = file.parse_reason_message || file.classify_reason || "";
+  const outcome = document.createElement("span");
+  const outcomeName = window.CAStatusSummary.outcomeLabel(file.parse_outcome);
+  outcome.className = `pill outcome-${file.parse_outcome || "unclassified"}`;
+  outcome.textContent = outcomeName;
+  outcome.setAttribute("aria-label", `Outcome: ${outcomeName}`);
+  details.append(name, outcome);
+  if (file.parse_outcome === "processed" && Number.isFinite(Number(file.parse_row_count))) {
+    const rows = document.createElement("span");
+    const count = Number(file.parse_row_count);
+    rows.className = "file-meta";
+    rows.textContent = `${count} ${count === 1 ? "row" : "rows"}`;
+    details.append(rows);
   }
+  const reasonLine = document.createElement("p");
+  reasonLine.className = "file-reason";
+  reasonLine.textContent = file.parse_reason_message || file.classify_reason || "";
+  if (reasonLine.textContent) details.append(reasonLine);
   const actions = document.createElement("div");
   actions.className = "file-actions";
   if (fileNeedsPassword(file)) {
@@ -231,15 +249,19 @@ function appendFileRow(container, file, className) {
     actions.append(unlock);
   }
   actions.append(kindSelect(file, false));
-  row.append(nameWrap, actions);
+  row.append(details, actions);
   container.append(row);
 }
 
 function renderFiles(files) {
   lastFiles = files || [];
   lastFileCount = lastFiles.length;
-  const review = lastFiles.filter((file) => file.needs_review);
-  const rest = lastFiles.filter((file) => !file.needs_review);
+  const review = lastFiles.filter((file) =>
+    window.CAStatusSummary.isReviewOutcome(file.parse_outcome)
+  );
+  const rest = lastFiles.filter((file) =>
+    !window.CAStatusSummary.isReviewOutcome(file.parse_outcome)
+  );
   reviewBlock.classList.toggle("hidden", review.length === 0);
   updateReviewNote();
   reviewListEl.innerHTML = "";
@@ -313,16 +335,7 @@ async function openPeriod(periodId) {
   renderFiles(result.files || []);
   renderPack(result.pack);
   renderPreview(result.preview);
-  const files = result.files || [];
-  const pending = reviewFiles(files).length;
-  if (pending) {
-    const converted = files.length - pending;
-    dumpStatusEl.textContent = converted
-      ? `Pack written · ${pending} files still need review`
-      : `Nothing converted · ${pending} files need review`;
-  } else {
-    dumpStatusEl.textContent = `${files.length} files`;
-  }
+  setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
   showPane("dump");
   refreshTesseractNote();
   syncGuide();
@@ -825,14 +838,14 @@ async function startDump(paths) {
     return;
   }
   showError(dumpErrorEl, "");
-  dumpStatusEl.textContent = "Sorting…";
+  setDumpStatus({ tone: "progress", text: "Sorting…" });
   setDumpBusy(true);
   const result = await window.pywebview.api.start_dump(currentPeriod.id, paths);
   if (!result.ok) {
     showError(dumpErrorEl, result.error);
     activeJobId = null;
     setDumpBusy(false);
-    dumpStatusEl.textContent = fileCountLabel(lastFileCount);
+    setDumpStatus(window.CAStatusSummary.summarizeFiles(lastFiles));
     return;
   }
   activeJobId = result.job_id;
@@ -849,9 +862,12 @@ function pollJob(jobId) {
     const job = result.job;
     if (job.status === "routing" || job.status === "queued" || job.status === "parsing") {
       renderFiles(job.files || []);
-      dumpStatusEl.textContent = job.status === "parsing"
-        ? "Reading bank PDF…"
-        : `Sorting ${(job.files || []).length}…`;
+      setDumpStatus({
+        tone: "progress",
+        text: job.status === "parsing"
+          ? "Reading bank PDF…"
+          : `Sorting ${(job.files || []).length}…`,
+      });
       return;
     }
     clearInterval(pollTimer);
@@ -868,6 +884,7 @@ function pollJob(jobId) {
     const dumpVisible = !paneDump.classList.contains("hidden");
     if (dumpVisible && currentPeriod && currentPeriod.id === job.period_id) {
       await openPeriod(currentPeriod.id);
+      setDumpStatus(window.CAStatusSummary.summarizeJobStatus(job));
     }
     if (passwordFail) {
       showError(dumpErrorEl, jobError);
