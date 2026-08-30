@@ -5,7 +5,7 @@ from datetime import datetime, timezone
 from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, create_engine, text
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
-from apps.engine.library import get_db_path, init_library
+from apps.engine.library import acquire_library_lock, get_db_path, init_library, release_library_lock
 
 
 class Base(DeclarativeBase):
@@ -131,12 +131,14 @@ def reset_engine() -> None:
         _engine.dispose()
     _engine = None
     SessionLocal = None
+    release_library_lock()
 
 
 def get_engine():
     global _engine, SessionLocal
     if _engine is None:
         init_library()
+        acquire_library_lock()
         _engine = create_engine(
             f"sqlite:///{get_db_path()}",
             echo=False,
@@ -149,6 +151,7 @@ def get_engine():
         except BaseException:
             _engine.dispose()
             _engine = None
+            release_library_lock()
             raise
         SessionLocal = sessionmaker(bind=_engine, expire_on_commit=False)
     return _engine

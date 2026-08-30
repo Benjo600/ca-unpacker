@@ -8,7 +8,7 @@ from pathlib import Path
 
 import webview
 
-from apps.engine.clients import create_client, get_client, list_clients
+from apps.engine.clients import create_client, delete_client, get_client, list_clients
 from apps.engine.db import get_engine
 from apps.engine.dump import (
     fail_job,
@@ -16,15 +16,18 @@ from apps.engine.dump import (
     ingest_paths,
     list_period_files,
     override_kind,
+    preflight_paths,
     reparse_period,
     start_job,
 )
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
+from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import (
     get_output_root,
     is_guide_dismissed,
+    path_sync_warnings,
     set_guide_dismissed,
     set_output_root,
 )
@@ -57,18 +60,28 @@ class DesktopApi:
     def get_state(self) -> dict:
         init_library()
         output = get_output_root()
+        library = get_library_path()
         return {
             "firm": get_firm(),
             "clients": list_clients(),
-            "library_path": str(get_library_path()),
+            "library_path": str(library),
             "output_path": str(output) if output else "",
             "guide_dismissed": is_guide_dismissed(),
+            "license": get_license_status(),
+            "path_warnings": path_sync_warnings(
+                str(library), str(output) if output else ""
+            ),
         }
 
     def save_firm(self, name: str) -> dict:
         try:
             firm = save_firm(name)
-            return {"ok": True, "firm": firm, "clients": list_clients()}
+            return {
+                "ok": True,
+                "firm": firm,
+                "clients": list_clients(),
+                "license": get_license_status(),
+            }
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -80,6 +93,20 @@ class DesktopApi:
         try:
             client = create_client(name, gstin)
             return {"ok": True, "client": client, "clients": list_clients()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def delete_client_desk(self, client_id: int) -> dict:
+        try:
+            delete_client(int(client_id))
+            return {"ok": True, "clients": list_clients()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def activate_license(self, key: str) -> dict:
+        try:
+            license_state = activate_key(str(key or ""))
+            return {"ok": True, "license": license_state}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -150,12 +177,20 @@ class DesktopApi:
             path = set_output_root(picked[0])
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
-        return {"ok": True, "output_path": str(path)}
+        return {
+            "ok": True,
+            "output_path": str(path),
+            "path_warnings": path_sync_warnings(str(path)),
+        }
 
     def set_output_folder(self, path: str) -> dict:
         try:
             dest = set_output_root(path)
-            return {"ok": True, "output_path": str(dest)}
+            return {
+                "ok": True,
+                "output_path": str(dest),
+                "path_warnings": path_sync_warnings(str(dest)),
+            }
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -192,6 +227,8 @@ class DesktopApi:
         if not paths:
             return {"ok": False, "error": "No files or folders were chosen."}
         try:
+            preflight = preflight_paths(list(paths))
+            assert_can_ingest(preflight.accepted_count)
             job = start_job(int(period_id))
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}

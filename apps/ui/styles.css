@@ -255,6 +255,29 @@ nav { display: flex; flex-direction: column; gap: 10px; }
 
 .rail-link:hover { background: none; color: #f4efe3; text-decoration: underline; }
 
+.path-warn {
+  color: #8a4b2a;
+  font-size: 13px;
+  line-height: 1.4;
+  margin: 8px 0 0;
+}
+
+.rail-warn {
+  color: #e0c8a8;
+  font-size: 11px;
+  margin: 8px 0 0;
+}
+
+.row-delete {
+  padding: 4px 0;
+  background: none;
+  color: #8a4b2a;
+  font-size: 12px;
+  font-weight: 600;
+}
+
+.row-delete:hover { background: none; text-decoration: underline; }
+
 .danger-link {
   margin-top: 12px;
   padding: 0;
@@ -403,7 +426,7 @@ button.source-amt:hover {
 .ledger-head,
 .client-row {
   display: grid;
-  grid-template-columns: 1fr 200px;
+  grid-template-columns: 1fr 160px 72px;
   gap: 16px;
   padding: 10px 4px;
 }

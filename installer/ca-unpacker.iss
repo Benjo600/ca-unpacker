@@ -1,5 +1,5 @@
 #define AppName "CA Unpacker"
-#define AppVersion "0.8.0"
+#define AppVersion "0.10.0"
 #define AppPublisher "CA Unpacker"
 #define AppExeName "CAUnpacker.exe"
 
@@ -13,6 +13,7 @@ DefaultGroupName={#AppName}
 DisableProgramGroupPage=yes
 OutputDir=..\dist
 OutputBaseFilename=CAUnpacker-Setup
+; Engine + UI + bundled Tesseract live in dist\CAUnpacker (PyInstaller). No Python on PATH.
 Compression=lzma
 SolidCompression=yes
 WizardStyle=modern

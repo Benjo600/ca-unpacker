@@ -109,7 +109,15 @@ function renderClients(clients) {
     const gstin = document.createElement("span");
     gstin.className = "gstin";
     gstin.textContent = client.gstin || "—";
-    row.append(name, gstin);
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "row-delete";
+    del.textContent = "Delete";
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deleteClientRow(client);
+    });
+    row.append(name, gstin, del);
     row.addEventListener("click", () => openClient(client.id));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openClient(client.id);
@@ -290,11 +298,42 @@ function setOutputLabel(path) {
   if (label) label.textContent = path ? path : "No output folder";
 }
 
+function setPathWarnings(warnings) {
+  const text = (warnings || []).join(" ");
+  for (const id of ["path-warnings", "desk-path-warnings"]) {
+    const node = document.getElementById(id);
+    if (!node) continue;
+    node.textContent = text;
+    node.hidden = !text;
+  }
+}
+
+function renderLicense(license) {
+  const el = document.getElementById("license-label");
+  if (!el) return;
+  if (!license) {
+    el.textContent = "";
+    return;
+  }
+  if (license.file_limit == null) {
+    el.textContent = `${license.plan_label} · unlimited files`;
+  } else {
+    el.textContent = `${license.plan_label} · ${license.files_used}/${license.file_limit} files this month`;
+  }
+  const copy = document.getElementById("license-copy");
+  if (copy) {
+    copy.textContent =
+      "Starter is ₹999 for 100 files a month. Pro is ₹2,500 unlimited. All four modules. Suite (₹6,000) is coming. Client files never leave this PC.";
+  }
+}
+
 function showDesk(state) {
   setupEl.classList.add("hidden");
   deskEl.classList.remove("hidden");
   firmLabelEl.textContent = state.firm ? state.firm.name : "";
   setOutputLabel(state.output_path || "");
+  setPathWarnings(state.path_warnings || []);
+  renderLicense(state.license);
   renderClients(state.clients || []);
   showPane("clients");
   syncGuide();
@@ -306,6 +345,8 @@ function showSetup(state) {
   const lib = document.getElementById("library-path");
   if (lib) lib.textContent = state.library_path || "";
   setOutputLabel(state.output_path || "");
+  setPathWarnings(state.path_warnings || []);
+  renderLicense(state.license);
   if (state.firm && state.firm.name) firmNameEl.value = state.firm.name;
   firmNameEl.focus();
   syncGuide();
@@ -972,6 +1013,7 @@ async function chooseOutputFolder() {
     return "";
   }
   setOutputLabel(picked.output_path);
+  setPathWarnings(picked.path_warnings || []);
   syncGuide();
   return picked.output_path;
 }
@@ -1147,6 +1189,25 @@ async function reopenGuide() {
   syncGuide();
 }
 
+async function deleteClientRow(client) {
+  if (!window.confirm(`Delete ${client.name} and every file dumped for them on this PC?`)) {
+    return;
+  }
+  showError(deskErrorEl, "");
+  const result = await window.pywebview.api.delete_client_desk(client.id);
+  if (!result.ok) {
+    showError(deskErrorEl, result.error);
+    return;
+  }
+  if (currentClient && currentClient.id === client.id) {
+    currentClient = null;
+    currentPeriod = null;
+    showPane("clients");
+  }
+  renderClients(result.clients || []);
+  syncGuide();
+}
+
 async function boot() {
   const state = await window.pywebview.api.get_state();
   guideDismissed = Boolean(state.guide_dismissed);
@@ -1178,6 +1239,8 @@ saveFirmBtn.addEventListener("click", async () => {
     firm: result.firm,
     clients: result.clients,
     output_path: savedOut.output_path,
+    path_warnings: savedOut.path_warnings || [],
+    license: result.license,
   });
 });
 
@@ -1318,6 +1381,27 @@ if (reconFiltersEl) {
 
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
 document.getElementById("guide-open").addEventListener("click", reopenGuide);
+document.getElementById("license-open").addEventListener("click", () => {
+  showError(document.getElementById("license-error"), "");
+  document.getElementById("license-modal").classList.remove("hidden");
+});
+document.getElementById("license-cancel").addEventListener("click", () => {
+  document.getElementById("license-modal").classList.add("hidden");
+});
+document.getElementById("license-form").addEventListener("submit", async (event) => {
+  event.preventDefault();
+  const errorEl = document.getElementById("license-error");
+  showError(errorEl, "");
+  const result = await window.pywebview.api.activate_license(
+    document.getElementById("license-key").value
+  );
+  if (!result.ok) {
+    showError(errorEl, result.error);
+    return;
+  }
+  renderLicense(result.license);
+  document.getElementById("license-modal").classList.add("hidden");
+});
 
 document.getElementById("wipe-open").addEventListener("click", () => {
   showError(wipeErrorEl, "");

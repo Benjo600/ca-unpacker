@@ -6,8 +6,9 @@ Do this next:
 
 2. Type your firm name.
 
-3. Click Choose folder and pick where cleaned Excels should go
-   (Desktop or Documents is fine).
+3. Click Choose folder and pick where cleaned Excels should go.
+   Prefer a local Documents folder. OneDrive and Desktop folders
+   will show a warning (they often sync and can clash on a second PC).
 
 4. Click Open the desk.
 

@@ -8,7 +8,7 @@ from apps.engine.library import get_library_path, init_library
 
 
 def settings_path() -> Path:
-    return init_library() / "settings.json"
+    return get_library_path() / "settings.json"
 
 
 def load_settings() -> dict:
@@ -45,6 +45,27 @@ def is_guide_dismissed() -> bool:
 
 def set_guide_dismissed(dismissed: bool = True) -> None:
     save_settings({"guide_dismissed": bool(dismissed)})
+
+
+def path_sync_warnings(*raw_paths: str) -> list[str]:
+    """Warn when a library or output folder sits on OneDrive or Desktop sync."""
+    notes: list[str] = []
+    for raw in raw_paths:
+        text = str(raw or "").strip()
+        if not text:
+            continue
+        lowered = text.replace("/", "\\").lower()
+        if "onedrive" in lowered and not any("onedrive" in n.lower() for n in notes):
+            notes.append(
+                "This folder is in OneDrive. Packs can sync or clash if two PCs write at once. "
+                "Prefer a local folder, or keep only one writer."
+            )
+        desktopish = "\\desktop\\" in lowered or lowered.endswith("\\desktop")
+        if desktopish and not any("desktop" in n.lower() for n in notes):
+            notes.append(
+                "Desktop is often OneDrive-backed. A local Documents folder is safer for this firm."
+            )
+    return notes
 
 
 def set_output_root(raw: str) -> Path:

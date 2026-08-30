@@ -10,6 +10,7 @@ from pathlib import Path
 
 from apps.engine.classifier import classify_path
 from apps.engine.db import Job, Period, StoredFile, get_session, utcnow
+from apps.engine.license import assert_can_ingest, record_ingested
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.engine.library import files_root
 from apps.engine.outcomes import derive_job_status, failed_file_outcome, persist_file_outcome
@@ -319,6 +320,7 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
 
         preflight = preflight_paths(paths)
         to_copy = preflight.paths
+        assert_can_ingest(preflight.accepted_count)
         job.status = "routing"
         job.intake_discovered_count = preflight.discovered_count
         job.intake_accepted_count = preflight.accepted_count
@@ -409,6 +411,7 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             )
             job.finished_at = utcnow()
             session.commit()
+        record_ingested(preflight.accepted_count)
         return get_job(job_id) or {"id": job_id, "status": "done", "files": []}
     except Exception as exc:
         try:

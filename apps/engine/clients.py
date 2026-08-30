@@ -1,9 +1,12 @@
 from __future__ import annotations
 
 import re
+import shutil
 
-from apps.engine.db import Client, get_session
+from apps.engine.db import Client, DataPack, ExtractedRow, Job, Period, StoredFile, get_session
 from apps.engine.firm import get_firm, save_firm
+from apps.engine.library import get_library_path
+from apps.engine.settings import get_output_root, safe_folder_name
 
 GSTIN_RE = re.compile(r"^[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]$")
 
@@ -78,3 +81,36 @@ def create_client(name: str, gstin: str | None = None) -> dict:
         return {"id": row.id, "name": row.name, "gstin": row.gstin}
     finally:
         session.close()
+
+
+def delete_client(client_id: int) -> None:
+    session = get_session()
+    try:
+        client = session.get(Client, client_id)
+        if client is None:
+            raise ValueError("Client was not found.")
+        name = client.name
+        cid = client.id
+        period_ids = [
+            row.id
+            for row in session.query(Period).filter(Period.client_id == cid).all()
+        ]
+        for period_id in period_ids:
+            session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
+            session.query(DataPack).filter(DataPack.period_id == period_id).delete()
+            session.query(StoredFile).filter(StoredFile.period_id == period_id).delete()
+            session.query(Job).filter(Job.period_id == period_id).delete()
+        session.query(Period).filter(Period.client_id == cid).delete()
+        session.delete(client)
+        session.commit()
+    finally:
+        session.close()
+
+    disk = get_library_path() / "files" / str(cid)
+    if disk.exists():
+        shutil.rmtree(disk, ignore_errors=True)
+    root = get_output_root()
+    if root is not None:
+        dest = root / safe_folder_name(name)
+        if dest.exists():
+            shutil.rmtree(dest, ignore_errors=True)

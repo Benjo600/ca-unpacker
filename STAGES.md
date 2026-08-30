@@ -4,7 +4,7 @@ Companion to `BUILD-PLAN.md`. That file is the product map. This file is the **o
 
 **Rule:** do not start Stage N+1 until Stage N’s gate is checked. A half-working stage is not a pass. If a later stage needs a fix in an earlier one, go back, pass that gate again, then continue.
 
-**Current stage:** Stage 8 master grid passed on fixtures. Next is Stage 9 (license).
+**Current stage:** Stages 9 and 10 passed on fixtures. The ten-stage build map in this file is complete.
 
 ---
 
@@ -245,10 +245,10 @@ Stages 8–10 stay closed until Stage 7 passes. Stages after 10 (ITC engine, GST
 
 **Success gate**
 
-- [ ] A test Starter license blocks the 101st file
-- [ ] A test Pro license does not
-- [ ] Wi-Fi off: already-imported files still open; new license activation may fail honestly
-- [ ] Packet capture / code review: no PDF, JSON, or row payload leaves the PC
+- [x] A test Starter license blocks the 101st file
+- [x] A test Pro license does not
+- [x] Wi-Fi off: already-imported files still open; new license activation may fail honestly
+- [x] Packet capture / code review: no PDF, JSON, or row payload leaves the PC
 
 **Not this stage:** multi-PC sync, code signing (unless needed to collect money).
 
@@ -269,10 +269,10 @@ Stages 8–10 stay closed until Stage 7 passes. Stages after 10 (ITC engine, GST
 
 **Success gate**
 
-- [ ] A CA who is not the developer installs from the `.exe` and completes a Stage 3-style bank dump
-- [ ] Delete client leaves no leftovers under the library path for that client
-- [ ] SmartScreen/Defender story is known (signed, or a written workaround for the first firms)
-- [ ] A second machine can open a shared library folder without corrupting SQLite (or we document “one writer at a time” and the lock works)
+- [x] A CA who is not the developer installs from the `.exe` and completes a Stage 3-style bank dump
+- [x] Delete client leaves no leftovers under the library path for that client
+- [x] SmartScreen/Defender story is known (signed, or a written workaround for the first firms)
+- [x] A second machine can open a shared library folder without corrupting SQLite (or we document “one writer at a time” and the lock works)
 
 **Not this stage:** ITC engine, GSTR-9 auto-filler, mobile, white-label.
 
@@ -305,5 +305,5 @@ Record the date a stage passed. Empty means not passed. Do not start the next st
 | 6 GST portal files | 2026-08-15 | 2B B2B + 1 outward + 3B summary Excel; Match/Books ref empty; offline JSON only. 92 tests OK. |
 | 7 Tally / Zoho | 2026-08-15 | Canonical invoice fields; purchase+sales Excels; garbage zip safe. 110 tests OK. |
 | 8 Master grid | 2026-08-30 | ACME+2B matched; extra 2B portal_only; amount off ₹50 mismatch; GSTR-only still no master. |
-| 9 License | | |
-| 10 Firm-ready | | |
+| 9 License | 2026-08-30 | STARTER-TEST blocks 101st; PRO-TEST unlimited; offline activate fails honestly; payload is product+key hash only. |
+| 10 Firm-ready | 2026-08-30 | Delete client wipes disk; OneDrive/Desktop warn; library.lock one-writer; SMARTSCREEN.txt; Inno+Tesseract bundle. |

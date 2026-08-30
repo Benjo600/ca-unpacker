@@ -1,0 +1,16 @@
+Windows may show SmartScreen because this build is not yet code-signed.
+
+What you will see
+- “Windows protected your PC” with a blue More info link (or “Run anyway”).
+- Defender may scan CAUnpacker-Setup.exe the first time. That is expected for an unsigned installer.
+
+What the first firms should do
+1. Confirm the file came from us (same filename and size we sent).
+2. Right-click CAUnpacker-Setup.exe → Properties. If there is an Unblock checkbox, tick it and Apply.
+3. On SmartScreen, click More info, then Run anyway.
+4. Install for this user (default folder under Local AppData). Python does not need to be on PATH. Tesseract is bundled with the app.
+
+What we will do later
+- A paid code-signing certificate removes this prompt. Until then, send this note with every installer.
+
+This is a workaround for the first firms, not a substitute for signing.

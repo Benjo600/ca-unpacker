@@ -26,6 +26,7 @@
         <button type="button" class="ghost" id="pick-output">Choose folder</button>
       </div>
       <p class="path-note">The app will create a subfolder per client and period. Originals stay in a private library on this PC.</p>
+      <p id="path-warnings" class="path-warn" hidden></p>
       <p id="setup-error" class="error" hidden></p>
       <button type="button" id="save-firm">Open the desk</button>
     </div>
@@ -40,7 +41,10 @@
         <span class="nav-later">Packs later</span>
       </nav>
       <p class="rail-foot" id="output-label">No output folder</p>
+      <p class="rail-foot" id="license-label"></p>
+      <p id="desk-path-warnings" class="path-warn rail-warn" hidden></p>
       <button type="button" class="rail-link" id="guide-open">How to use</button>
+      <button type="button" class="rail-link" id="license-open">Licence</button>
       <button type="button" class="danger-link" id="change-output">Change output folder</button>
       <button type="button" class="danger-link" id="wipe-open">Delete library</button>
     </aside>
@@ -71,6 +75,7 @@
         <div class="ledger-head">
           <span>Client</span>
           <span>GSTIN</span>
+          <span></span>
         </div>
         <div id="client-list"></div>
         <p id="empty" class="empty hidden">No clients yet. Add the first name above.</p>
@@ -185,6 +190,23 @@
       <button type="button" class="ghost" id="guide-skip">Skip for now</button>
     </div>
   </aside>
+
+  <div id="license-modal" class="modal hidden">
+    <div class="modal-card">
+      <p class="eyebrow">Licence</p>
+      <h1>Starter, Pro, or Suite</h1>
+      <p class="lede" id="license-copy">Starter is ₹999 for 100 files a month. Pro is ₹2,500 unlimited. All four modules. Suite (₹6,000) is coming. Client files never leave this PC.</p>
+      <form id="license-form" autocomplete="off">
+        <label for="license-key">Licence key</label>
+        <input id="license-key" type="text" maxlength="80" placeholder="Paste the key we sent" />
+        <p id="license-error" class="error" hidden></p>
+        <div class="drop-actions">
+          <button type="submit">Activate</button>
+          <button type="button" class="ghost" id="license-cancel">Close</button>
+        </div>
+      </form>
+    </div>
+  </div>
 
   <div id="wipe-modal" class="modal hidden">
     <div class="modal-card">
