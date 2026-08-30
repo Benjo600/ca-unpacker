@@ -127,8 +127,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             .order_by(StoredFile.id.asc())
             .all()
         )
-        session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
-        session.commit()
+        pending_extracted: list[dict] = []
 
         bank_files: list[dict] = []
         purchase_rows: list[dict] = []
@@ -198,16 +197,16 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 else:
                     line_item_rows.extend(items)
                     for item in items:
-                        session.add(
-                            ExtractedRow(
-                                file_id=stored.id,
-                                period_id=period_id,
-                                kind="invoice",
-                                payload_json=json.dumps(item),
-                                source_page=int(item.get("source_page") or 1),
-                                source_bbox=item.get("source_bbox"),
-                                validation_flags=json.dumps(item.get("flags") or []),
-                            )
+                        pending_extracted.append(
+                            {
+                                "file_id": stored.id,
+                                "period_id": period_id,
+                                "kind": "invoice",
+                                "payload_json": json.dumps(item),
+                                "source_page": int(item.get("source_page") or 1),
+                                "source_bbox": item.get("source_bbox"),
+                                "validation_flags": json.dumps(item.get("flags") or []),
+                            }
                         )
             if (
                 not rows
@@ -225,16 +224,16 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 ),
             )
             for row in rows:
-                session.add(
-                    ExtractedRow(
-                        file_id=stored.id,
-                        period_id=period_id,
-                        kind=kind,
-                        payload_json=json.dumps(row),
-                        source_page=int(row.get("source_page") or 1),
-                        source_bbox=row.get("source_bbox"),
-                        validation_flags=json.dumps(row.get("flags") or row.get("validation_flags") or []),
-                    )
+                pending_extracted.append(
+                    {
+                        "file_id": stored.id,
+                        "period_id": period_id,
+                        "kind": kind,
+                        "payload_json": json.dumps(row),
+                        "source_page": int(row.get("source_page") or 1),
+                        "source_bbox": row.get("source_bbox"),
+                        "validation_flags": json.dumps(row.get("flags") or row.get("validation_flags") or []),
+                    }
                 )
             if kind == "bank" and extra.get("check") is not None:
                 bank_files.append(
@@ -282,14 +281,20 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         if bank_files:
             dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
             write_bank_workbook(dest, bank_files)
-            all_match = all(item["check"].get("match") for item in bank_files)
+            all_match = all(item["check"].get("status") == "match" for item in bank_files)
+            if any(item["check"].get("status") == "mismatch" for item in bank_files):
+                bank_pack_status = "mismatch"
+            elif any(item["check"].get("status") == "unverified" for item in bank_files):
+                bank_pack_status = "unverified"
+            else:
+                bank_pack_status = "match" if all_match else "mismatch"
             outputs.append(
                 {
                     "key": "bank",
                     "label": "Bank_Statement_Cleaned.xlsx",
                     "path": str(dest),
                     "rows": sum(item["check"]["row_count"] for item in bank_files),
-                    "status": "match" if all_match else "mismatch",
+                    "status": bank_pack_status,
                     "files": [
                         {
                             "filename": item["meta"]["filename"],
@@ -364,6 +369,10 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 "rows": recon_result.get("rows") or [],
             }
         (dest_dir / "pack_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+        session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
+        for spec in pending_extracted:
+            session.add(ExtractedRow(**spec))
 
         session.query(DataPack).filter(DataPack.period_id == period_id).delete()
         if not outputs:
@@ -678,6 +687,13 @@ def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
         check = check_balance(
             parsed["rows"], parsed.get("opening_balance"), parsed.get("stated_closing")
         )
+        dropped = int(parsed.get("dropped_count") or 0)
+        if dropped:
+            flags = list(check.get("flags") or [])
+            flags.append(f"dropped_lines:{dropped}")
+            check["flags"] = flags
+        check["candidate_count"] = parsed.get("candidate_count")
+        check["dropped_count"] = dropped
         meta = {
             "filename": filename,
             "profile_label": parsed.get("profile_label"),

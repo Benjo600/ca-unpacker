@@ -103,7 +103,7 @@ def _write_rows(sheet, rows: list[dict]) -> None:
         sheet.cell(excel_row, 1).number_format = DATE_FORMAT
         for col in (4, 5, 6):
             sheet.cell(excel_row, col).number_format = MONEY_FORMAT
-        if "balance_mismatch" in _flag_tokens(flags):
+        if "balance_mismatch" in _flag_tokens(flags) or "running_balance_break" in _flag_tokens(flags):
             for col in range(1, len(HEADERS) + 1):
                 sheet.cell(excel_row, col).fill = RED_FILL
     last_col = get_column_letter(len(HEADERS))
@@ -137,8 +137,17 @@ def _cover_multi(sheet, files: list[dict], names: list[str]) -> None:
     for item, title in zip(files, names):
         check = item["check"]
         meta = item["meta"]
-        status = "MATCH" if check.get("match") else "MISMATCH"
         inferred = bool(check.get("opening_inferred"))
+        status = str(check.get("status") or "")
+        if status == "match":
+            label = "MATCH"
+            fill = GREEN_FILL
+        elif status == "unverified":
+            label = "COULD NOT VERIFY"
+            fill = None
+        else:
+            label = "MISMATCH"
+            fill = RED_FILL
         sheet.append(
             [
                 meta.get("filename"),
@@ -150,15 +159,15 @@ def _cover_multi(sheet, files: list[dict], names: list[str]) -> None:
                 check.get("opening_balance"),
                 check.get("stated_closing"),
                 check.get("computed_closing"),
-                status,
+                label,
                 check.get("broken_at_row"),
                 _flag_text(check.get("flags")),
             ]
         )
-        fill = GREEN_FILL if check.get("match") else RED_FILL
         excel_row = sheet.max_row
-        for col in range(1, len(COVER_HEADERS) + 1):
-            sheet.cell(excel_row, col).fill = fill
+        if fill is not None:
+            for col in range(1, len(COVER_HEADERS) + 1):
+                sheet.cell(excel_row, col).fill = fill
         sheet.cell(excel_row, 7).number_format = MONEY_INFERRED_FORMAT if inferred else MONEY_FORMAT
         sheet.cell(excel_row, 8).number_format = MONEY_FORMAT
         sheet.cell(excel_row, 9).number_format = MONEY_FORMAT

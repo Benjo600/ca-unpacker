@@ -55,12 +55,28 @@ def check_balance(rows: list[dict], opening: float | None, stated_closing: float
         _stamp(row, *extra)
 
     last = _d(rows[-1].get("balance")) if rows else computed
-    stated_close = _d(stated_closing) if stated_closing is not None else last
-    match = (last - stated_close).copy_abs() <= Decimal("1.00") and "balance_mismatch" not in flags
-    if stated_closing is not None and not match:
+    printed_open = opening is not None
+    printed_close = stated_closing is not None
+    stated_close = _d(stated_closing) if printed_close else None
+    close_ok = (
+        printed_close
+        and stated_close is not None
+        and (last - stated_close).copy_abs() <= Decimal("1.00")
+    )
+    if printed_close and not close_ok:
         flags.append("closing_mismatch")
         if rows:
             _stamp(rows[-1], "closing_mismatch")
+    if not printed_open or not printed_close:
+        match = False
+        status = "unverified"
+        flags.append("could_not_verify")
+    elif "balance_mismatch" in flags or not close_ok:
+        match = False
+        status = "mismatch"
+    else:
+        match = True
+        status = "match"
 
     def money(value: Decimal | None) -> float | None:
         if value is None:
@@ -70,10 +86,10 @@ def check_balance(rows: list[dict], opening: float | None, stated_closing: float
     return {
         "opening_balance": money(running) if opening is not None or rows else None,
         "opening_inferred": opening_inferred,
-        "stated_closing": money(stated_close) if stated_closing is not None else None,
+        "stated_closing": money(stated_close) if printed_close else None,
         "computed_closing": money(last),
         "match": match,
-        "status": "match" if match else "mismatch",
+        "status": status,
         "broken_at_row": broken_at,
         "flags": list(dict.fromkeys(flags)),
         "row_count": len(rows),

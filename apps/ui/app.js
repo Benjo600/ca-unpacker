@@ -425,6 +425,8 @@ function renderPack(pack) {
     } else if (file.status === "mismatch") {
       chip.classList.add("mismatch");
       chip.textContent = "MISMATCH";
+    } else if (file.status === "unverified") {
+      chip.textContent = "COULD NOT VERIFY";
     } else {
       chip.textContent = "Balance not checked";
     }

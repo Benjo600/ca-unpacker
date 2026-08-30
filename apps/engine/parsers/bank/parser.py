@@ -31,9 +31,12 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
     ifsc = _search(header.upper(), IFSC_RE)
 
     rows: list[dict] = []
+    candidate_count = 0
     running = opening
     for line in extracted.lines:
         text = " ".join(line.text.split())
+        if _looks_like_txn(text):
+            candidate_count += 1
         if rows and not DATE_RE.search(text) and _is_continuation(text):
             extra = text.strip()
             if extra:
@@ -44,11 +47,6 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
         if row is None:
             continue
         row = _align_to_running(row, running)
-        if row is None:
-            if rows and _is_continuation(text):
-                rows[-1]["description"] = f"{rows[-1]['description']} {text}".strip()
-                rows[-1]["raw_text"] = f"{rows[-1]['raw_text']} | {text}"
-            continue
         row["account_number"] = account
         row["ifsc"] = ifsc
         row["account_name"] = profile.label
@@ -66,6 +64,8 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
         "stated_closing": _dec(closing),
         "account_number": account,
         "ifsc": ifsc,
+        "candidate_count": candidate_count,
+        "dropped_count": max(candidate_count - len(rows), 0),
         "rows": rows,
     }
 
@@ -107,13 +107,26 @@ def _is_continuation(text: str) -> bool:
     return True
 
 
-def _align_to_running(row: dict, running: Decimal | None) -> dict | None:
+def _looks_like_txn(text: str) -> bool:
+    if len(text) < 8 or SKIP_LINE.search(text):
+        return False
+    if OPENING_RE.search(text) or CLOSING_RE.search(text):
+        return False
+    if not DATE_RE.search(text):
+        return False
+    return len(amounts_in(text)) >= 2
+
+
+def _align_to_running(row: dict, running: Decimal | None) -> dict:
+    flags = list(row.get("flags") or row.get("validation_flags") or [])
     if running is None or row.get("balance") is None:
+        row["flags"] = flags
         return row
     stated = Decimal(str(row["balance"]))
     debit = Decimal(str(row["debit"])) if row.get("debit") else Decimal("0")
     credit = Decimal(str(row["credit"])) if row.get("credit") else Decimal("0")
     if (running - debit + credit - stated).copy_abs() <= Decimal("1.00"):
+        row["flags"] = flags
         return row
 
     txn = debit if debit else credit
@@ -121,12 +134,18 @@ def _align_to_running(row: dict, running: Decimal | None) -> dict | None:
         if (running - txn - stated).copy_abs() <= Decimal("1.00"):
             row["debit"] = float(txn)
             row["credit"] = None
+            row["flags"] = flags
             return row
         if (running + txn - stated).copy_abs() <= Decimal("1.00"):
             row["credit"] = float(txn)
             row["debit"] = None
+            row["flags"] = flags
             return row
-    return None
+    if "running_balance_break" not in flags:
+        flags.append("running_balance_break")
+    row["flags"] = flags
+    row["validation_flags"] = flags
+    return row
 
 
 def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | None:
@@ -197,6 +216,7 @@ def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | N
         "source_bbox": bbox,
         "source": f"{filename}#p{line.page}" + (f"@{bbox}" if bbox else ""),
         "raw_text": text,
+        "flags": [],
     }
 
 
