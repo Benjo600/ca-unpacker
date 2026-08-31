@@ -1,3 +1,5 @@
+const loginEl = document.getElementById("login");
+const welcomeEl = document.getElementById("welcome");
 const setupEl = document.getElementById("setup");
 const deskEl = document.getElementById("desk");
 const firmNameEl = document.getElementById("firm-name");
@@ -71,6 +73,11 @@ let tesseractFound = true;
 let guideDismissed = false;
 let lastGuideHighlight = null;
 let lastPeriodCount = 0;
+let lastAppState = null;
+let uiSessionActive = false;
+
+const UI_SESSION_KEY = "caUnpackerUiSession";
+const UI_REMEMBER_KEY = "caUnpackerRememberUser";
 
 function desktopApi() {
   return (window.pywebview && window.pywebview.api) || null;
@@ -93,6 +100,97 @@ function showPane(name) {
   if (name === "clients") navLabelEl.textContent = "Clients";
   if (name === "periods") navLabelEl.textContent = "Periods";
   if (name === "dump") navLabelEl.textContent = "Dump tray";
+}
+
+function showScreen(name) {
+  if (loginEl) loginEl.classList.toggle("hidden", name !== "login");
+  setupEl.classList.toggle("hidden", name !== "setup");
+  if (welcomeEl) welcomeEl.classList.toggle("hidden", name !== "welcome");
+  deskEl.classList.toggle("hidden", name !== "desk");
+}
+
+function firmIsConfigured(state) {
+  return Boolean(state && state.firm && state.output_path);
+}
+
+function setUiSession() {
+  uiSessionActive = true;
+  try {
+    sessionStorage.setItem(UI_SESSION_KEY, "1");
+  } catch {
+    /* sessionStorage is optional in this host */
+  }
+}
+
+function restoreLoginForm() {
+  const userEl = document.getElementById("login-user");
+  const rememberEl = document.getElementById("login-remember");
+  if (!userEl) return;
+  try {
+    const saved = localStorage.getItem(UI_REMEMBER_KEY) || "";
+    if (saved) {
+      userEl.value = saved;
+      if (rememberEl) rememberEl.checked = true;
+    }
+  } catch {
+    /* localStorage is optional in this host */
+  }
+}
+
+function persistRememberedUser() {
+  const userEl = document.getElementById("login-user");
+  const rememberEl = document.getElementById("login-remember");
+  try {
+    if (rememberEl && rememberEl.checked && userEl && userEl.value) {
+      localStorage.setItem(UI_REMEMBER_KEY, userEl.value);
+    } else {
+      localStorage.removeItem(UI_REMEMBER_KEY);
+    }
+  } catch {
+    /* localStorage is optional in this host */
+  }
+}
+
+function fillWelcome(state) {
+  const firmEl = document.getElementById("welcome-firm");
+  if (firmEl) {
+    firmEl.textContent = (state && state.firm && state.firm.name) || "CA Unpacker";
+  }
+
+  const licenseRow = document.getElementById("welcome-license-row");
+  const licenseEl = document.getElementById("welcome-license");
+  const license = state && state.license;
+  if (licenseRow && licenseEl) {
+    let text = "";
+    if (license && license.plan_label) {
+      if (license.file_limit == null) {
+        text = `${license.plan_label} · unlimited files`;
+      } else {
+        text = `${license.plan_label} · ${license.files_used}/${license.file_limit} files this month`;
+      }
+    }
+    licenseEl.textContent = text;
+    licenseRow.hidden = !text;
+  }
+
+  const outputRow = document.getElementById("welcome-output-row");
+  const outputEl = document.getElementById("welcome-output");
+  const outputPath = (state && state.output_path) || "";
+  if (outputRow && outputEl) {
+    outputEl.textContent = outputPath;
+    outputRow.hidden = !outputPath;
+  }
+}
+
+function routeAfterLogin(state) {
+  lastAppState = state;
+  if (firmIsConfigured(state)) {
+    fillWelcome(state);
+    showScreen("welcome");
+    syncGuide();
+    return;
+  }
+  showSetup(state);
 }
 
 function renderClients(clients) {
@@ -328,8 +426,8 @@ function renderLicense(license) {
 }
 
 function showDesk(state) {
-  setupEl.classList.add("hidden");
-  deskEl.classList.remove("hidden");
+  lastAppState = state;
+  showScreen("desk");
   firmLabelEl.textContent = state.firm ? state.firm.name : "";
   setOutputLabel(state.output_path || "");
   setPathWarnings(state.path_warnings || []);
@@ -340,8 +438,8 @@ function showDesk(state) {
 }
 
 function showSetup(state) {
-  deskEl.classList.add("hidden");
-  setupEl.classList.remove("hidden");
+  lastAppState = state;
+  showScreen("setup");
   const lib = document.getElementById("library-path");
   if (lib) lib.textContent = state.library_path || "";
   setOutputLabel(state.output_path || "");
@@ -1144,11 +1242,15 @@ function renderGuideList(items) {
   }
 }
 
+function deskIsVisible() {
+  return deskEl && !deskEl.classList.contains("hidden");
+}
+
 function syncGuide() {
   const card = document.getElementById("guide");
   if (!card) return;
   const onSetup = guideOnSetup();
-  if (onSetup || guideDismissed) {
+  if (onSetup || guideDismissed || !deskIsVisible()) {
     card.classList.add("hidden");
     clearGuideHighlight();
     if (onSetup) {
@@ -1210,12 +1312,66 @@ async function deleteClientRow(client) {
 
 async function boot() {
   const state = await window.pywebview.api.get_state();
+  lastAppState = state;
   guideDismissed = Boolean(state.guide_dismissed);
-  if (state.firm && state.output_path) {
-    showDesk(state);
-  } else {
-    showSetup(state);
-  }
+  restoreLoginForm();
+  showScreen("login");
+  syncGuide();
+}
+
+const loginForm = document.getElementById("login-form");
+if (loginForm) {
+  loginForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const errorEl = document.getElementById("login-error");
+    if (errorEl) showError(errorEl, "");
+    persistRememberedUser();
+    setUiSession();
+    const api = desktopApi();
+    let state = lastAppState;
+    if (api && api.get_state) {
+      try {
+        state = await api.get_state();
+      } catch {
+        state = lastAppState;
+      }
+    }
+    routeAfterLogin(state || {});
+  });
+}
+
+const loginShowBtn = document.getElementById("login-show-password");
+const loginPasswordEl = document.getElementById("login-password");
+if (loginShowBtn && loginPasswordEl) {
+  loginShowBtn.addEventListener("click", () => {
+    const show = loginPasswordEl.type === "password";
+    loginPasswordEl.type = show ? "text" : "password";
+    loginShowBtn.textContent = show ? "Hide" : "Show";
+    loginShowBtn.setAttribute("aria-pressed", show ? "true" : "false");
+  });
+}
+
+const loginForgot = document.getElementById("login-forgot");
+if (loginForgot) {
+  loginForgot.addEventListener("click", (event) => {
+    event.preventDefault();
+  });
+}
+
+const welcomeContinue = document.getElementById("welcome-continue");
+if (welcomeContinue) {
+  welcomeContinue.addEventListener("click", async () => {
+    const api = desktopApi();
+    let state = lastAppState;
+    if (api && api.get_state) {
+      try {
+        state = await api.get_state();
+      } catch {
+        state = lastAppState;
+      }
+    }
+    if (state) showDesk(state);
+  });
 }
 
 saveFirmBtn.addEventListener("click", async () => {
