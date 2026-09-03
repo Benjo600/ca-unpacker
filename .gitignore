@@ -17,3 +17,4 @@ designs/ca-unpacker-landing/*.exe
 
 .env
 supabase/.branches
+apps/web/.netlify/
