@@ -1,0 +1,4 @@
+-- Seed admin allowlist after replacing placeholders with real founder emails.
+-- insert into public.admin_users (email) values
+--   ('founder@example.com'),
+--   ('admin@example.com');

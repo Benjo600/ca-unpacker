@@ -14,3 +14,6 @@ Thumbs.db
 # Generated locally; public copy is designs/ca-unpacker-landing/CAUnpacker-Test-Files.zip
 test-dump/
 designs/ca-unpacker-landing/*.exe
+
+.env
+supabase/.branches
