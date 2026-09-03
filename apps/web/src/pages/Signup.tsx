@@ -1,5 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import AuthShell from "../components/AuthShell";
+import { Alert, FieldLabel, PrimaryButton, TextInput } from "../components/ui";
 import { redirectToDesktop } from "../lib/admin";
 import { supabase } from "../lib/supabase";
 
@@ -38,75 +40,69 @@ export default function Signup() {
     }
 
     if (data.session) {
-      const next = searchParams.get("next");
-      navigate(next || "/admin", { replace: true });
+      navigate(searchParams.get("next") || "/admin", { replace: true });
       return;
     }
 
-    setMessage("Check your email to confirm your account, then log in.");
+    setMessage("Check your email to confirm, then log in.");
   }
 
   return (
-    <div className="center-page">
-      <header className="top">
-        <div className="wrap">
-          <Link to="/" className="brand">
-            CA Unpacker
+    <AuthShell
+      title="Create your account"
+      subtitle="Starter plan — 100 files per month. Upgrade anytime from the operator console."
+      footer={
+        <>
+          Already registered?{" "}
+          <Link to="/login" className="font-semibold text-accent no-underline hover:text-accent-hover">
+            Log in
           </Link>
+        </>
+      }
+    >
+      <form className="space-y-5" onSubmit={handleSubmit}>
+        <div>
+          <FieldLabel htmlFor="firmName">Firm name</FieldLabel>
+          <TextInput
+            id="firmName"
+            type="text"
+            required
+            autoComplete="organization"
+            placeholder="Sharma & Associates"
+            value={firmName}
+            onChange={(e) => setFirmName(e.target.value)}
+          />
         </div>
-      </header>
-      <main>
-        <div className="docket">
-          <h1>Create account</h1>
-          <p className="muted">
-            Start with Starter plan — 100 files per month. Processing stays on
-            your PC.
-          </p>
-          <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="new-password"
-                required
-                minLength={8}
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="firmName">Firm name</label>
-              <input
-                id="firmName"
-                type="text"
-                required
-                value={firmName}
-                onChange={(e) => setFirmName(e.target.value)}
-              />
-            </div>
-            {error && <p className="error">{error}</p>}
-            {message && <p className="success">{message}</p>}
-            <button type="submit" className="btn btn-ink" disabled={loading}>
-              {loading ? "Creating…" : "Sign up"}
-            </button>
-          </form>
-          <p className="muted" style={{ marginTop: 20 }}>
-            Already have an account? <Link to="/login">Log in</Link>
-          </p>
+        <div>
+          <FieldLabel htmlFor="email">Work email</FieldLabel>
+          <TextInput
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </div>
-      </main>
-    </div>
+        <div>
+          <FieldLabel htmlFor="password">Password</FieldLabel>
+          <TextInput
+            id="password"
+            type="password"
+            autoComplete="new-password"
+            required
+            minLength={8}
+            placeholder="Minimum 8 characters"
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
+        </div>
+        {error ? <Alert variant="error">{error}</Alert> : null}
+        {message ? <Alert variant="success">{message}</Alert> : null}
+        <PrimaryButton type="submit" disabled={loading}>
+          {loading ? "Creating account…" : "Create account"}
+        </PrimaryButton>
+      </form>
+    </AuthShell>
   );
 }

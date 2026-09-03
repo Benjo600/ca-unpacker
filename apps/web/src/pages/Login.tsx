@@ -1,5 +1,7 @@
 import { FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
+import AuthShell from "../components/AuthShell";
+import { Alert, FieldLabel, PrimaryButton, TextInput } from "../components/ui";
 import { redirectToDesktop } from "../lib/admin";
 import { supabase } from "../lib/supabase";
 
@@ -17,10 +19,7 @@ export default function Login() {
     setLoading(true);
 
     const { data, error: signInError } =
-      await supabase.auth.signInWithPassword({
-        email,
-        password,
-      });
+      await supabase.auth.signInWithPassword({ email, password });
 
     setLoading(false);
 
@@ -34,56 +33,50 @@ export default function Login() {
       return;
     }
 
-    const next = searchParams.get("next") || "/admin";
-    navigate(next, { replace: true });
+    navigate(searchParams.get("next") || "/admin", { replace: true });
   }
 
   return (
-    <div className="center-page">
-      <header className="top">
-        <div className="wrap">
-          <Link to="/" className="brand">
-            CA Unpacker
+    <AuthShell
+      title="Welcome back"
+      subtitle="Sign in to your firm account or the operator console."
+      footer={
+        <>
+          New firm?{" "}
+          <Link to="/signup" className="font-semibold text-accent no-underline hover:text-accent-hover">
+            Create account
           </Link>
+        </>
+      }
+    >
+      <form className="space-y-5" onSubmit={handleSubmit}>
+        <div>
+          <FieldLabel htmlFor="email">Email</FieldLabel>
+          <TextInput
+            id="email"
+            type="email"
+            autoComplete="email"
+            required
+            value={email}
+            onChange={(e) => setEmail(e.target.value)}
+          />
         </div>
-      </header>
-      <main>
-        <div className="docket">
-          <h1>Log in</h1>
-          <p className="muted">Sign in to your CA Unpacker account.</p>
-          <form onSubmit={handleSubmit}>
-            <div className="field">
-              <label htmlFor="email">Email</label>
-              <input
-                id="email"
-                type="email"
-                autoComplete="email"
-                required
-                value={email}
-                onChange={(e) => setEmail(e.target.value)}
-              />
-            </div>
-            <div className="field">
-              <label htmlFor="password">Password</label>
-              <input
-                id="password"
-                type="password"
-                autoComplete="current-password"
-                required
-                value={password}
-                onChange={(e) => setPassword(e.target.value)}
-              />
-            </div>
-            {error && <p className="error">{error}</p>}
-            <button type="submit" className="btn btn-ink" disabled={loading}>
-              {loading ? "Signing in…" : "Log in"}
-            </button>
-          </form>
-          <p className="muted" style={{ marginTop: 20 }}>
-            New firm? <Link to="/signup">Create account</Link>
-          </p>
+        <div>
+          <FieldLabel htmlFor="password">Password</FieldLabel>
+          <TextInput
+            id="password"
+            type="password"
+            autoComplete="current-password"
+            required
+            value={password}
+            onChange={(e) => setPassword(e.target.value)}
+          />
         </div>
-      </main>
-    </div>
+        {error ? <Alert variant="error">{error}</Alert> : null}
+        <PrimaryButton type="submit" disabled={loading}>
+          {loading ? "Signing in…" : "Continue"}
+        </PrimaryButton>
+      </form>
+    </AuthShell>
   );
 }

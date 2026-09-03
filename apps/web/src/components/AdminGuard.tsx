@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
+import AuthShell from "./AuthShell";
+import { Alert } from "./ui";
 import { AdminForbiddenError, fetchAdminOrgs } from "../lib/admin";
 import { supabase } from "../lib/supabase";
 
@@ -30,17 +32,12 @@ export default function AdminGuard({ children }: AdminGuardProps) {
         await fetchAdminOrgs();
         if (!cancelled) setStatus("ok");
       } catch (err) {
-        if (err instanceof AdminForbiddenError) {
-          if (!cancelled) setStatus("forbidden");
-          return;
-        }
-        console.error(err);
         if (!cancelled) setStatus("forbidden");
+        if (!(err instanceof AdminForbiddenError)) console.error(err);
       }
     }
 
     verify();
-
     return () => {
       cancelled = true;
     };
@@ -48,16 +45,11 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
   if (status === "loading") {
     return (
-      <div className="center-page">
-        <header className="top">
-          <div className="wrap">
-            <span className="brand">CA Unpacker</span>
-          </div>
-        </header>
-        <main>
-          <p className="muted">Checking access…</p>
-        </main>
-      </div>
+      <AuthShell title="Verifying access" subtitle="Checking operator credentials…">
+        <div className="flex justify-center py-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-accent" />
+        </div>
+      </AuthShell>
     );
   }
 
@@ -68,22 +60,19 @@ export default function AdminGuard({ children }: AdminGuardProps) {
 
   if (status === "forbidden") {
     return (
-      <div className="center-page">
-        <header className="top">
-          <div className="wrap">
-            <span className="brand">CA Unpacker</span>
-          </div>
-        </header>
-        <main>
-          <div className="docket">
-            <h1>Not an admin</h1>
-            <p className="muted">
-              This dashboard is restricted to operator accounts. Contact support
-              if you believe this is an error.
-            </p>
-          </div>
-        </main>
-      </div>
+      <AuthShell
+        title="Access denied"
+        subtitle="This console is restricted to CA Unpacker operators."
+        footer={
+          <Link to="/login" className="font-semibold text-accent no-underline">
+            Return to login
+          </Link>
+        }
+      >
+        <Alert variant="error">
+          Your email is not on the operator allowlist.
+        </Alert>
+      </AuthShell>
     );
   }
 
