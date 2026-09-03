@@ -8,6 +8,25 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-card">
+      <p class="eyebrow">Sign in</p>
+      <h1>Sign in to use CA Unpacker.</h1>
+      <p class="lede">Your client files stay on this PC. We only sync account and usage metadata.</p>
+      <div class="drop-actions">
+        <button type="button" id="auth-signup">Sign up</button>
+        <button type="button" class="ghost" id="auth-login">Log in</button>
+      </div>
+      <p id="auth-error" class="error" hidden></p>
+    </div>
+  </div>
+
+  <div id="quota-banner" class="quota-banner hidden">
+    <span id="quota-text"></span>
+    <span class="privacy">Financial data transmitted: NONE</span>
+    <button type="button" class="ghost quota-logout" id="auth-logout">Log out</button>
+  </div>
+
   <div id="setup" class="screen hidden">
     <div class="docket">
       <p class="eyebrow">First launch</p>
@@ -44,7 +63,7 @@
       <p class="rail-foot" id="license-label"></p>
       <p id="desk-path-warnings" class="path-warn rail-warn" hidden></p>
       <button type="button" class="rail-link" id="guide-open">How to use</button>
-      <button type="button" class="rail-link" id="license-open">Licence</button>
+      <button type="button" class="rail-link dev-only hidden" id="license-open">Licence</button>
       <button type="button" class="danger-link" id="change-output">Change output folder</button>
       <button type="button" class="danger-link" id="wipe-open">Delete library</button>
     </aside>
@@ -191,7 +210,7 @@
     </div>
   </aside>
 
-  <div id="license-modal" class="modal hidden">
+  <div id="license-modal" class="modal hidden dev-only">
     <div class="modal-card">
       <p class="eyebrow">Licence</p>
       <h1>Starter, Pro, or Suite</h1>

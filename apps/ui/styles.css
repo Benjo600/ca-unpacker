@@ -26,6 +26,66 @@ html, body {
 
 .hidden { display: none !important; }
 
+.auth-gate {
+  position: fixed;
+  inset: 0;
+  z-index: 40;
+  display: grid;
+  place-items: center;
+  padding: 32px;
+  background: #2c3330f0;
+}
+
+.auth-card {
+  width: min(480px, 100%);
+  background: var(--paper);
+  padding: 36px 36px 32px;
+  box-shadow: 0 18px 40px #00000040;
+  border-top: 8px solid var(--tab);
+}
+
+.quota-banner {
+  position: fixed;
+  top: 0;
+  left: 0;
+  right: 0;
+  z-index: 20;
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  flex-wrap: wrap;
+  padding: 10px 18px;
+  background: #1b3028;
+  color: var(--desk-ink);
+  font-size: 13px;
+  box-shadow: 0 2px 10px #00000030;
+}
+
+.quota-banner .privacy {
+  color: #9eb5a8;
+  font-size: 12px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.quota-banner .quota-logout {
+  margin-left: auto;
+  color: var(--desk-ink);
+  border-color: #ffffff30;
+}
+
+body.auth-signed-in #desk,
+body.auth-signed-in #setup {
+  padding-top: 44px;
+}
+
+body.auth-locked #desk,
+body.auth-locked #setup {
+  pointer-events: none;
+  user-select: none;
+  filter: grayscale(0.15);
+}
+
 .screen { height: 100%; }
 
 #setup {
@@ -471,6 +531,11 @@ button.source-amt:hover {
 .drop-zone.over {
   border-color: var(--tab);
   background: #fff6ee;
+}
+
+.drop-zone.disabled {
+  opacity: 0.45;
+  pointer-events: none;
 }
 
 .drop-title {

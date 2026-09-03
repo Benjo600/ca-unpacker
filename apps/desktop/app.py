@@ -4,7 +4,9 @@ import os
 import subprocess
 import sys
 import threading
+import webbrowser
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import webview
 
@@ -22,6 +24,8 @@ from apps.engine.dump import (
 )
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
+from apps.engine import auth
+from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import (
@@ -57,6 +61,39 @@ class DesktopApi:
     def __init__(self) -> None:
         self._current_period_id: int | None = None
 
+    def get_auth_state(self) -> dict:
+        return auth.get_auth_state()
+
+    def open_signup(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/signup?redirect=desktop")
+        return {"ok": True}
+
+    def open_login(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
+        return {"ok": True}
+
+    def logout(self) -> dict:
+        auth.logout()
+        return {"ok": True, **auth.get_auth_state()}
+
+    def handle_auth_callback(self, url: str) -> dict:
+        parsed = urlparse(str(url or ""))
+        fragment = parsed.fragment or parsed.query
+        params = parse_qs(fragment)
+        access = (params.get("access_token") or [None])[0]
+        refresh = (params.get("refresh_token") or [None])[0]
+        if not access or not refresh:
+            return {"ok": False, "error": "Sign-in callback did not include tokens."}
+        try:
+            auth.login_via_tokens(str(access), str(refresh))
+            try:
+                auth.fetch_quota()
+            except Exception:
+                pass
+            return {"ok": True, **auth.get_auth_state()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
     def get_state(self) -> dict:
         init_library()
         output = get_output_root()
@@ -68,6 +105,7 @@ class DesktopApi:
             "output_path": str(output) if output else "",
             "guide_dismissed": is_guide_dismissed(),
             "license": get_license_status(),
+            "auth": auth.get_auth_state(),
             "path_warnings": path_sync_warnings(
                 str(library), str(output) if output else ""
             ),
@@ -411,12 +449,21 @@ def _bind_explorer_drop(api: DesktopApi) -> None:
         pass
 
 
+def _startup_auth_sync() -> None:
+    try:
+        auth.refresh_session()
+        auth.fetch_quota()
+    except Exception:
+        pass
+
+
 def main() -> None:
     import traceback
 
     try:
         init_library()
         get_engine()
+        _startup_auth_sync()
         global _WINDOW
         api = DesktopApi()
         _WINDOW = webview.create_window(

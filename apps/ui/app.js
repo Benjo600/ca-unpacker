@@ -51,6 +51,10 @@ const unlockModal = document.getElementById("unlock-modal");
 const unlockFilenameEl = document.getElementById("unlock-filename");
 const unlockPasswordEl = document.getElementById("unlock-password");
 const unlockErrorEl = document.getElementById("unlock-error");
+const authGateEl = document.getElementById("auth-gate");
+const quotaBannerEl = document.getElementById("quota-banner");
+const quotaTextEl = document.getElementById("quota-text");
+const authErrorEl = document.getElementById("auth-error");
 
 let currentClient = null;
 let currentPeriod = null;
@@ -71,6 +75,8 @@ let tesseractFound = true;
 let guideDismissed = false;
 let lastGuideHighlight = null;
 let lastPeriodCount = 0;
+let authState = null;
+let devMode = false;
 
 function desktopApi() {
   return (window.pywebview && window.pywebview.api) || null;
@@ -193,8 +199,9 @@ function kindSelect(file, compact) {
 }
 
 function setDumpBusy(busy) {
-  addFilesBtn.disabled = busy;
-  addFolderBtn.disabled = busy;
+  const authLocked = !devMode && authState && !authState.signed_in;
+  addFilesBtn.disabled = busy || authLocked;
+  addFolderBtn.disabled = busy || authLocked;
 }
 
 function setDumpStatus(summary) {
@@ -327,13 +334,61 @@ function renderLicense(license) {
   }
 }
 
+function renderQuotaBanner(state) {
+  if (!quotaBannerEl || !quotaTextEl) return;
+  const auth = state || authState;
+  if (!auth || !auth.signed_in) {
+    quotaBannerEl.classList.add("hidden");
+    document.body.classList.remove("auth-signed-in");
+    return;
+  }
+  document.body.classList.add("auth-signed-in");
+  quotaBannerEl.classList.remove("hidden");
+  const offline = auth.offline ? " · offline" : "";
+  if (auth.file_limit == null) {
+    quotaTextEl.textContent = `${auth.plan || "pro"} · unlimited files this month${offline}`;
+  } else {
+    quotaTextEl.textContent = `${auth.files_used || 0}/${auth.file_limit} files this month${offline}`;
+  }
+}
+
+function setAuthLocked(locked) {
+  document.body.classList.toggle("auth-locked", Boolean(locked));
+  if (authGateEl) authGateEl.classList.toggle("hidden", !locked);
+  if (dropZone) dropZone.classList.toggle("disabled", Boolean(locked));
+  setDumpBusy(Boolean(activeJobId));
+}
+
+function applyDevMode(license) {
+  devMode = Boolean(license && license.auth_mode === "dev");
+  for (const node of document.querySelectorAll(".dev-only")) {
+    node.classList.toggle("hidden", !devMode);
+  }
+}
+
+async function refreshAuthState() {
+  const api = desktopApi();
+  if (!api || !api.get_auth_state) return null;
+  try {
+    authState = await api.get_auth_state();
+  } catch {
+    authState = { signed_in: false };
+  }
+  const locked = !devMode && authState && !authState.signed_in;
+  setAuthLocked(locked);
+  renderQuotaBanner(authState);
+  return authState;
+}
+
 function showDesk(state) {
   setupEl.classList.add("hidden");
   deskEl.classList.remove("hidden");
   firmLabelEl.textContent = state.firm ? state.firm.name : "";
   setOutputLabel(state.output_path || "");
   setPathWarnings(state.path_warnings || []);
+  applyDevMode(state.license);
   renderLicense(state.license);
+  renderQuotaBanner(state.auth || authState);
   renderClients(state.clients || []);
   showPane("clients");
   syncGuide();
@@ -346,7 +401,9 @@ function showSetup(state) {
   if (lib) lib.textContent = state.library_path || "";
   setOutputLabel(state.output_path || "");
   setPathWarnings(state.path_warnings || []);
+  applyDevMode(state.license);
   renderLicense(state.license);
+  renderQuotaBanner(state.auth || authState);
   if (state.firm && state.firm.name) firmNameEl.value = state.firm.name;
   firmNameEl.focus();
   syncGuide();
@@ -940,6 +997,10 @@ async function pathsFromDropEvent(event) {
 
 async function startDump(paths) {
   if (!currentPeriod) return;
+  if (!devMode && authState && !authState.signed_in) {
+    showError(dumpErrorEl, "Sign in to process files.");
+    return;
+  }
   if (!paths || !paths.length) {
     showError(dumpErrorEl, "No files or folders were chosen.");
     return;
@@ -1211,6 +1272,9 @@ async function deleteClientRow(client) {
 async function boot() {
   const state = await window.pywebview.api.get_state();
   guideDismissed = Boolean(state.guide_dismissed);
+  authState = state.auth || null;
+  applyDevMode(state.license);
+  await refreshAuthState();
   if (state.firm && state.output_path) {
     showDesk(state);
   } else {
@@ -1381,6 +1445,40 @@ if (reconFiltersEl) {
 
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
 document.getElementById("guide-open").addEventListener("click", reopenGuide);
+
+const authSignupBtn = document.getElementById("auth-signup");
+if (authSignupBtn) {
+  authSignupBtn.addEventListener("click", async () => {
+    showError(authErrorEl, "");
+    const api = desktopApi();
+    if (!api || !api.open_signup) return;
+    const result = await api.open_signup();
+    if (!result.ok) showError(authErrorEl, result.error || "Could not open sign-up page.");
+  });
+}
+const authLoginBtn = document.getElementById("auth-login");
+if (authLoginBtn) {
+  authLoginBtn.addEventListener("click", async () => {
+    showError(authErrorEl, "");
+    const api = desktopApi();
+    if (!api || !api.open_login) return;
+    const result = await api.open_login();
+    if (!result.ok) showError(authErrorEl, result.error || "Could not open login page.");
+  });
+}
+const authLogoutBtn = document.getElementById("auth-logout");
+if (authLogoutBtn) {
+  authLogoutBtn.addEventListener("click", async () => {
+    const api = desktopApi();
+    if (!api || !api.logout) return;
+    await api.logout();
+    await refreshAuthState();
+    const state = await api.get_state();
+    if (state.firm && state.output_path) showDesk(state);
+    else showSetup(state);
+  });
+}
+
 document.getElementById("license-open").addEventListener("click", () => {
   showError(document.getElementById("license-error"), "");
   document.getElementById("license-modal").classList.remove("hidden");
