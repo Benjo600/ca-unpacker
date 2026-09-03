@@ -79,3 +79,19 @@ class DesktopAuthApiContractTests(unittest.TestCase):
         result = api.logout()
         self.assertTrue(result["ok"])
         self.assertFalse(api.get_auth_state()["signed_in"])
+
+    def test_extract_deep_link_url_from_argv(self) -> None:
+        from apps.desktop.app import extract_deep_link_url
+
+        url = (
+            "caunpacker://auth/callback"
+            "#access_token=access.abc&refresh_token=refresh.xyz"
+        )
+        self.assertEqual(
+            extract_deep_link_url(["CAUnpacker.exe", url]),
+            url,
+        )
+        self.assertIsNone(extract_deep_link_url(["CAUnpacker.exe"]))
+        self.assertIsNone(
+            extract_deep_link_url(["CAUnpacker.exe", "https://example.com"])
+        )

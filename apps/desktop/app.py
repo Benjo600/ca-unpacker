@@ -1,9 +1,11 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import threading
+import time
 import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
@@ -47,6 +49,19 @@ from apps.engine.pipeline import (
 from apps.engine.wipe import wipe_all
 
 _WINDOW: webview.Window | None = None
+_PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
+_SINGLE_INSTANCE_MUTEX_NAME = "Global\\CAUnpackerSingleInstance"
+_startup_deep_link: str | None = None
+_mutex_handle: int | None = None
+
+
+def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
+    args = argv if argv is not None else sys.argv
+    for arg in args[1:]:
+        text = str(arg)
+        if text.startswith("caunpacker://"):
+            return text
+    return None
 
 
 def _dialog_open():
@@ -457,8 +472,89 @@ def _startup_auth_sync() -> None:
         pass
 
 
+def _pending_deep_link_path() -> Path:
+    return get_library_path() / _PENDING_AUTH_CALLBACK_FILE
+
+
+def _acquire_single_instance_mutex() -> bool:
+    """Return True when this process is the primary desktop instance."""
+    global _mutex_handle
+    if sys.platform != "win32":
+        return True
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    _mutex_handle = kernel32.CreateMutexW(None, True, _SINGLE_INSTANCE_MUTEX_NAME)
+    return kernel32.GetLastError() != 183
+
+
+def _delegate_deep_link_to_running_instance(url: str) -> None:
+    path = _pending_deep_link_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(url, encoding="utf-8")
+
+
+def _read_pending_deep_link() -> str | None:
+    path = _pending_deep_link_path()
+    if not path.is_file():
+        return None
+    try:
+        url = path.read_text(encoding="utf-8").strip()
+        path.unlink(missing_ok=True)
+    except OSError:
+        return None
+    return url if url.startswith("caunpacker://") else None
+
+
+def _notify_auth_ui_refresh(result: dict) -> None:
+    if _WINDOW is None:
+        return
+    try:
+        if result.get("ok"):
+            _WINDOW.evaluate_js("refreshAuthState().catch(() => {})")
+        elif result.get("error"):
+            message = json.dumps(str(result["error"]))
+            _WINDOW.evaluate_js(
+                f"showError(document.getElementById('auth-error'), {message})"
+            )
+    except Exception:
+        pass
+
+
+def _process_deep_link(api: DesktopApi, url: str) -> dict:
+    result = api.handle_auth_callback(url)
+    _notify_auth_ui_refresh(result)
+    return result
+
+
+def _start_deep_link_poller(api: DesktopApi) -> None:
+    def poll() -> None:
+        while True:
+            time.sleep(1.5)
+            pending = _read_pending_deep_link()
+            if pending:
+                _process_deep_link(api, pending)
+
+    threading.Thread(target=poll, daemon=True).start()
+
+
+def _on_window_shown(api: DesktopApi) -> None:
+    _bind_explorer_drop(api)
+    if _startup_deep_link:
+        _process_deep_link(api, _startup_deep_link)
+    _start_deep_link_poller(api)
+
+
 def main() -> None:
     import traceback
+
+    global _startup_deep_link
+    deep_link = extract_deep_link_url()
+    is_primary = _acquire_single_instance_mutex()
+    if deep_link and not is_primary:
+        _delegate_deep_link_to_running_instance(deep_link)
+        return
+    _startup_deep_link = deep_link
 
     try:
         init_library()
@@ -475,7 +571,7 @@ def main() -> None:
             min_size=(880, 580),
             background_color="#2C3330",
         )
-        _WINDOW.events.shown += lambda: _bind_explorer_drop(api)
+        _WINDOW.events.shown += lambda: _on_window_shown(api)
         webview.start(icon=app_icon_path())
     except Exception:
         _log_crash(traceback.format_exc())
