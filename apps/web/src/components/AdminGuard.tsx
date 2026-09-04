@@ -11,19 +11,16 @@ interface AdminGuardProps {
 
 export default function AdminGuard({ children }: AdminGuardProps) {
   const location = useLocation();
-  const [status, setStatus] = useState<"loading" | "ok" | "forbidden" | "anon">(
-    "loading",
-  );
+  const [status, setStatus] = useState<
+    "loading" | "ok" | "forbidden" | "anon" | "error"
+  >("loading");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function verify() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
+    async function verify(sessionExists: boolean) {
+      if (!sessionExists) {
         if (!cancelled) setStatus("anon");
         return;
       }
@@ -32,14 +29,26 @@ export default function AdminGuard({ children }: AdminGuardProps) {
         await fetchAdminOrgs();
         if (!cancelled) setStatus("ok");
       } catch (err) {
-        if (!cancelled) setStatus("forbidden");
-        if (!(err instanceof AdminForbiddenError)) console.error(err);
+        if (cancelled) return;
+        if (err instanceof AdminForbiddenError) {
+          setStatus("forbidden");
+          return;
+        }
+        setError(err instanceof Error ? err.message : "Could not verify admin access.");
+        setStatus("error");
+        console.error(err);
       }
     }
 
-    verify();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void verify(Boolean(session));
+    });
+
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 
@@ -56,6 +65,22 @@ export default function AdminGuard({ children }: AdminGuardProps) {
   if (status === "anon") {
     const next = encodeURIComponent(location.pathname);
     return <Navigate to={`/login?next=${next}`} replace />;
+  }
+
+  if (status === "error") {
+    return (
+      <AuthShell
+        title="Could not reach the console"
+        subtitle="Your session is valid, but the admin API did not respond."
+        footer={
+          <Link to="/login" className="font-semibold text-accent no-underline">
+            Try signing in again
+          </Link>
+        }
+      >
+        <Alert variant="error">{error}</Alert>
+      </AuthShell>
+    );
   }
 
   if (status === "forbidden") {

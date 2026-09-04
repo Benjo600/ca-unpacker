@@ -10,21 +10,28 @@ export default function HomeRedirect() {
   useEffect(() => {
     let cancelled = false;
 
-    async function resolve() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-      if (!session) {
+    async function resolve(hasSession: boolean) {
+      if (!hasSession) {
         if (!cancelled) setTo("/login");
         return;
       }
-      const path = await defaultSignedInPath();
-      if (!cancelled) setTo(path);
+      try {
+        const path = await defaultSignedInPath();
+        if (!cancelled) setTo(path);
+      } catch {
+        if (!cancelled) setTo("/app");
+      }
     }
 
-    resolve();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void resolve(Boolean(session));
+    });
+
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 

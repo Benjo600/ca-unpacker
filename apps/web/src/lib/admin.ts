@@ -38,6 +38,7 @@ async function authHeaders(): Promise<HeadersInit> {
 
   return {
     Authorization: `Bearer ${session.access_token}`,
+    apikey: import.meta.env.VITE_SUPABASE_ANON_KEY ?? "",
     "Content-Type": "application/json",
   };
 }
@@ -131,7 +132,7 @@ export async function probeIsAdmin(): Promise<boolean> {
   } catch (err) {
     if (err instanceof AdminForbiddenError) return false;
     if (err instanceof Error && err.message === "Not signed in") return false;
-    return false;
+    throw err;
   }
 }
 
@@ -145,7 +146,11 @@ export function isSafeNextPath(value: string | null): value is string {
 }
 
 export async function defaultSignedInPath(): Promise<string> {
-  return (await probeIsAdmin()) ? "/admin" : "/app";
+  try {
+    return (await probeIsAdmin()) ? "/admin" : "/app";
+  } catch {
+    return "/app";
+  }
 }
 
 export const PLAN_LIMITS: Record<PlanType, number | null> = {
