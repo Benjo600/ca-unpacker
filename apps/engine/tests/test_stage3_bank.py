@@ -48,6 +48,322 @@ class BankParserTests(unittest.TestCase):
             self.assertTrue(check["match"], check)
 
 
+class MonthNameDateTests(unittest.TestCase):
+    def test_kotak_style_dates_parse_and_balance(self) -> None:
+        from apps.engine.parsers.bank.money import normalize_date
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+        from apps.engine.validators.balance import check_balance
+
+        self.assertEqual(normalize_date("05 Jul 2026"), "2026-07-05")
+        self.assertEqual(normalize_date("14 Jul2026"), "2026-07-14")
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "Kotak_Statement_Jul2026.pdf"
+            path.write_bytes(
+                pdf_with_text(
+                    [
+                        "Kotak Mahindra Bank Account Statement",
+                        "Opening Balance 11.71",
+                        "05 Jul 2026 UPI inward Deposit 4000.00 4011.71",
+                        "05 Jul 2026 UPI merchant Withdrawal 3800.00 211.71",
+                        "Closing Balance 211.71",
+                    ]
+                )
+            )
+            parsed = parse_bank_pdf(path)
+            self.assertEqual(parsed["profile"], "kotak")
+            self.assertGreaterEqual(len(parsed["rows"]), 2, parsed["rows"])
+            dates = [row["date"] for row in parsed["rows"]]
+            self.assertIn("2026-07-05", dates)
+            check = check_balance(
+                parsed["rows"], parsed["opening_balance"], parsed["stated_closing"]
+            )
+            self.assertEqual(check["status"], "match", check)
+
+
+class MarkdownTableTests(unittest.TestCase):
+    def test_kotak_markdown_table_maps_debit_credit(self) -> None:
+        from apps.engine.parsers.bank.profiles import detect_profile
+        from apps.engine.parsers.bank.tables import rows_from_markdown
+        from apps.engine.validators.balance import check_balance
+
+        markdown = """
+| Date | Description | Chq/Ref. No. | Withdrawal (Dr.) | Deposit (Cr.) | Balance |
+| --- | --- | --- | --- | --- | --- |
+| - | Opening Balance | - | - | - | 11.71 |
+| 05 Jul 2026 | UPI inward | UPI-1 |  | 4,000.00 | 4,011.71 |
+| 05 Jul 2026 | UPI merchant | UPI-2 | 3,800.00 |  | 211.71 |
+"""
+        profile = detect_profile("Kotak Mahindra Bank", "kotak.pdf")
+        rows = rows_from_markdown(markdown, profile, "kotak.pdf")
+        self.assertEqual(len(rows), 2, rows)
+        self.assertEqual(rows[0]["credit"], 4000.0)
+        self.assertEqual(rows[1]["debit"], 3800.0)
+        check = check_balance(rows, 11.71, 211.71)
+        self.assertEqual(check["status"], "match", check)
+
+    def test_dateless_amount_row_is_its_own_transaction(self) -> None:
+        from apps.engine.parsers.bank.profiles import detect_profile
+        from apps.engine.parsers.bank.tables import rows_from_markdown
+        from apps.engine.validators.balance import check_balance
+
+        markdown = """
+| Date | Description | Chq/Ref. No. | Withdrawal (Dr.) | Deposit (Cr.) | Balance |
+| --- | --- | --- | --- | --- | --- |
+| 14 Jul 2026 | UPI wrap debit | UPI-21 | 100.00 |  | 65.82 |
+|  | Payment from previous page | UPI-22 |  | 200.00 | 265.82 |
+| 14 Jul 2026 | UPI cake | UPI-23 | 140.00 |  | 125.82 |
+"""
+        profile = detect_profile("Kotak Mahindra Bank", "kotak.pdf")
+        rows = rows_from_markdown(markdown, profile, "kotak.pdf")
+        self.assertEqual(len(rows), 3, rows)
+        self.assertEqual([row["date"] for row in rows], ["2026-07-14"] * 3)
+        self.assertEqual(rows[1]["credit"], 200.0)
+        self.assertEqual(rows[1]["balance"], 265.82)
+        self.assertEqual(rows[2]["debit"], 140.0)
+        self.assertEqual(rows[2]["balance"], 125.82)
+        check = check_balance(rows, 165.82, 125.82)
+        self.assertEqual(check["status"], "match", check)
+
+    def test_date_inside_narration_does_not_start_a_new_row(self) -> None:
+        from apps.engine.parsers.bank.profiles import detect_profile
+        from apps.engine.parsers.bank.tables import rows_from_markdown
+
+        markdown = """
+| Date | Description | Chq/Ref. No. | Withdrawal (Dr.) | Deposit (Cr.) | Balance |
+| --- | --- | --- | --- | --- | --- |
+| 30 Jul 2026 | CHRG: DCC FEE FOR 2877 ECOM TXN |  | 1.77 |  | 1,579.85 |
+|  | ON 12-JUN-2026 |  |  |  |  |
+| 31 Jul 2026 | UPI next | UPI-1 |  | 100.00 | 1,679.85 |
+"""
+        profile = detect_profile("Kotak Mahindra Bank", "kotak.pdf")
+        rows = rows_from_markdown(markdown, profile, "kotak.pdf")
+        self.assertEqual(len(rows), 2, rows)
+        self.assertEqual(rows[0]["date"], "2026-07-30")
+        self.assertEqual(rows[0]["debit"], 1.77)
+        self.assertIn("12-JUN-2026", rows[0]["description"])
+        self.assertEqual(rows[1]["date"], "2026-07-31")
+
+
+class RunningGapRepairTests(unittest.TestCase):
+    def test_inserts_missing_credit_so_later_dates_stay_put(self) -> None:
+        from decimal import Decimal
+
+        from apps.engine.parsers.bank.parser import _finish_rows
+        from apps.engine.parsers.bank.profiles import detect_profile
+        from apps.engine.validators.balance import check_balance
+
+        profile = detect_profile("Kotak Mahindra Bank", "kotak.pdf")
+        raw = [
+            {
+                "date": "2026-07-14",
+                "description": "UPI wrap debit",
+                "debit": 100.0,
+                "credit": None,
+                "balance": 65.82,
+                "flags": [],
+            },
+            {
+                "date": "2026-07-14",
+                "description": "UPI cake",
+                "debit": 140.0,
+                "credit": None,
+                "balance": 125.82,
+                "flags": [],
+            },
+            {
+                "date": "2026-07-15",
+                "description": "UPI next day",
+                "debit": None,
+                "credit": 100.0,
+                "balance": 225.82,
+                "flags": [],
+            },
+        ]
+        rows = _finish_rows(raw, Decimal("165.82"), None, None, profile)
+        self.assertEqual(len(rows), 4, rows)
+        self.assertEqual(rows[1]["credit"], 200.0)
+        self.assertEqual(rows[1]["balance"], 265.82)
+        self.assertEqual(rows[2]["date"], "2026-07-14")
+        self.assertEqual(rows[2]["debit"], 140.0)
+        self.assertEqual(rows[3]["date"], "2026-07-15")
+        check = check_balance(rows, 165.82, 225.82)
+        self.assertEqual(check["status"], "match", check)
+
+
+class SplitLayoutTests(unittest.TestCase):
+    def test_date_on_one_line_amounts_on_next(self) -> None:
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+        from apps.engine.validators.balance import check_balance
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "HDFC_Statement_Jul2026.pdf"
+            path.write_bytes(
+                pdf_with_text(
+                    [
+                        "HDFC Bank Account Statement",
+                        "Opening Balance 150000.00",
+                        "01/07/2026 UPI merchant Withdrawal",
+                        "2500.00 147500.00",
+                        "03/07/2026 NEFT INWARD Deposit",
+                        "18000.00 165500.00",
+                        "05/07/2026 Cheque 112233 Withdrawal",
+                        "1000.00 164500.00",
+                        "Closing Balance 164500.00",
+                    ]
+                )
+            )
+            parsed = parse_bank_pdf(path)
+            self.assertGreaterEqual(len(parsed["rows"]), 3, parsed["rows"])
+            check = check_balance(
+                parsed["rows"], parsed["opening_balance"], parsed["stated_closing"]
+            )
+            self.assertEqual(check["status"], "match", check)
+
+    def test_wrapped_narration_then_amounts(self) -> None:
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+        from apps.engine.validators.balance import check_balance
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "HDFC_Statement_Jul2026.pdf"
+            path.write_bytes(
+                pdf_with_text(
+                    [
+                        "HDFC Bank Account Statement",
+                        "Opening Balance 150000.00",
+                        "01/07/2026 UPI-MEHTA TRADING PVT LTD",
+                        "INVOICE JULY MUMBAI",
+                        "2500.00 147500.00",
+                        "Closing Balance 147500.00",
+                    ]
+                )
+            )
+            parsed = parse_bank_pdf(path)
+            self.assertEqual(len(parsed["rows"]), 1, parsed["rows"])
+            row = parsed["rows"][0]
+            self.assertEqual(row["debit"], 2500.0)
+            self.assertIn("MEHTA", row["description"].upper())
+            self.assertIn("MUMBAI", row["description"].upper())
+            check = check_balance(
+                parsed["rows"], parsed["opening_balance"], parsed["stated_closing"]
+            )
+            self.assertEqual(check["status"], "match", check)
+
+    def test_column_header_debit_credit_layout(self) -> None:
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+        from apps.engine.validators.balance import check_balance
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "HDFC_Statement_Jul2026.pdf"
+            path.write_bytes(
+                pdf_with_xy(
+                    [
+                        (40, 800, "HDFC Bank Account Statement"),
+                        (40, 780, "Opening Balance 150000.00"),
+                        (40, 750, "Txn Date"),
+                        (120, 750, "Narration"),
+                        (320, 750, "Withdrawal"),
+                        (400, 750, "Deposit"),
+                        (480, 750, "Balance"),
+                        (40, 720, "01/07/2026"),
+                        (120, 720, "UPI merchant"),
+                        (320, 720, "2500.00"),
+                        (480, 720, "147500.00"),
+                        (40, 700, "03/07/2026"),
+                        (120, 700, "NEFT INWARD"),
+                        (400, 700, "18000.00"),
+                        (480, 700, "165500.00"),
+                        (40, 670, "Closing Balance 165500.00"),
+                    ]
+                )
+            )
+            parsed = parse_bank_pdf(path)
+            self.assertGreaterEqual(len(parsed["rows"]), 2, parsed)
+            dates = [row["date"] for row in parsed["rows"]]
+            self.assertIn("2026-07-01", dates)
+            self.assertIn("2026-07-03", dates)
+            first = next(row for row in parsed["rows"] if row["date"] == "2026-07-01")
+            self.assertEqual(first["debit"], 2500.0)
+            self.assertTrue(first.get("credit") in (None, 0.0))
+            second = next(row for row in parsed["rows"] if row["date"] == "2026-07-03")
+            self.assertEqual(second["credit"], 18000.0)
+            check = check_balance(
+                parsed["rows"], parsed["opening_balance"], parsed["stated_closing"]
+            )
+            self.assertEqual(check["status"], "match", (check, parsed["rows"]))
+            self.assertIn(parsed.get("parse_strategy"), {"pdfplumber", "columns", "lines"})
+
+
+class PdfPlumberTableTests(unittest.TestCase):
+    def test_extract_tables_from_column_layout(self) -> None:
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+        from apps.engine.parsers.bank.plumber import rows_from_pdfplumber
+        from apps.engine.parsers.bank.profiles import detect_profile
+        from apps.engine.validators.balance import check_balance
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = Path(tmp) / "HDFC_Statement_Jul2026.pdf"
+            path.write_bytes(
+                pdf_with_xy(
+                    [
+                        (40, 800, "HDFC Bank Account Statement"),
+                        (40, 780, "Opening Balance 150000.00"),
+                        (40, 750, "Txn Date"),
+                        (120, 750, "Narration"),
+                        (320, 750, "Withdrawal"),
+                        (400, 750, "Deposit"),
+                        (480, 750, "Balance"),
+                        (40, 720, "01/07/2026"),
+                        (120, 720, "UPI merchant"),
+                        (320, 720, "2500.00"),
+                        (480, 720, "147500.00"),
+                        (40, 700, "03/07/2026"),
+                        (120, 700, "NEFT INWARD"),
+                        (400, 700, "18000.00"),
+                        (480, 700, "165500.00"),
+                        (40, 670, "Closing Balance 165500.00"),
+                    ]
+                )
+            )
+            profile = detect_profile("HDFC Bank Account Statement", path.name)
+            rows = rows_from_pdfplumber(path, profile, path.name)
+            self.assertGreaterEqual(len(rows), 2, rows)
+            parsed = parse_bank_pdf(path)
+            self.assertEqual(parsed["parse_strategy"], "pdfplumber", parsed)
+            check = check_balance(
+                parsed["rows"], parsed["opening_balance"], parsed["stated_closing"]
+            )
+            self.assertEqual(check["status"], "match", check)
+
+
+def pdf_with_xy(items: list[tuple[float, float, str]]) -> bytes:
+    content = "BT /F1 10 Tf\n"
+    for x, y, text in items:
+        safe = text.replace("\\", "\\\\").replace("(", "\\(").replace(")", "\\)")
+        content += f"1 0 0 1 {x:.1f} {y:.1f} Tm ({safe}) Tj\n"
+    content += "ET\n"
+    stream = content.encode("latin-1", errors="replace")
+    objects = [
+        b"1 0 obj<</Type/Catalog/Pages 2 0 R>>endobj\n",
+        b"2 0 obj<</Type/Pages/Kids[3 0 R]/Count 1>>endobj\n",
+        b"3 0 obj<</Type/Page/Parent 2 0 R/MediaBox[0 0 595 842]/Contents 4 0 R/Resources<</Font<</F1 5 0 R>>>>>>endobj\n",
+        f"4 0 obj<</Length {len(stream)}>>stream\n".encode("ascii") + stream + b"endstream\nendobj\n",
+        b"5 0 obj<</Type/Font/Subtype/Type1/BaseFont/Helvetica>>endobj\n",
+    ]
+    body = b"%PDF-1.4\n"
+    offsets = [0]
+    for obj in objects:
+        offsets.append(len(body))
+        body += obj
+    xref_pos = len(body)
+    xref = f"xref\n0 {len(objects)+1}\n0000000000 65535 f \n"
+    for off in offsets[1:]:
+        xref += f"{off:010d} 00000 n \n"
+    trailer = (
+        f"trailer<</Size {len(objects)+1}/Root 1 0 R>>\nstartxref\n{xref_pos}\n%%EOF\n"
+    )
+    return body + xref.encode("ascii") + trailer.encode("ascii")
+
+
 class BankPackPipelineTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()

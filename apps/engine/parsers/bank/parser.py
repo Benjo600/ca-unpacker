@@ -1,24 +1,28 @@
 from __future__ import annotations
 
+import copy
 import re
 from decimal import Decimal
 from pathlib import Path
 
-from apps.engine.parsers.bank.money import DATE_RE, amounts_in, normalize_date
-from apps.engine.parsers.bank.profiles import BankProfile, detect_profile
-from apps.engine.pdf_extract import ExtractedPdf, LineBox, extract_pdf
-
-SKIP_LINE = re.compile(
-    r"page\s+\d+|statement of account|account statement|customer id|"
-    r"nomination|gstin of bank|relationship manager|continued on next|"
-    r"computer generated|end of statement|confidential|"
-    r"^summary\b|debits\s+\d+|opening\s+[\d,]+|this statement is system",
-    re.I,
+from apps.engine.parsers.bank.docling_tables import rows_from_docling
+from apps.engine.parsers.bank.layout import _debit_credit, rows_from_words
+from apps.engine.parsers.bank.money import DATE_RE, amounts_in, is_plausible_iso_date, normalize_date
+from apps.engine.parsers.bank.patterns import (
+    ACCOUNT_RE,
+    CLOSING_RE,
+    IFSC_RE,
+    OPENING_RE,
+    clean_text,
+    is_amount_line,
+    is_boilerplate,
+    is_continuation,
+    looks_like_txn,
 )
-OPENING_RE = re.compile(r"opening\s+balance", re.I)
-CLOSING_RE = re.compile(r"closing\s+balance", re.I)
-ACCOUNT_RE = re.compile(r"\b(?:a/?c|account)\s*(?:no|number|#)?\.?\s*[:\-]?\s*(\d{9,18})\b", re.I)
-IFSC_RE = re.compile(r"\b([A-Z]{4}0[A-Z0-9]{6})\b")
+from apps.engine.parsers.bank.plumber import rows_from_pdfplumber
+from apps.engine.parsers.bank.profiles import BankProfile, detect_profile
+from apps.engine.parsers.bank.tables import rows_from_markdown
+from apps.engine.pdf_extract import ExtractedPdf, LineBox, extract_pdf
 
 
 def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
@@ -29,36 +33,41 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
     closing = _balance_near(extracted, CLOSING_RE)
     account = _search(header, ACCOUNT_RE)
     ifsc = _search(header.upper(), IFSC_RE)
+    name = filename or path.name
 
-    rows: list[dict] = []
-    candidate_count = 0
-    running = opening
-    for line in extracted.lines:
-        text = " ".join(line.text.split())
-        if _looks_like_txn(text):
-            candidate_count += 1
-        if rows and not DATE_RE.search(text) and _is_continuation(text):
-            extra = text.strip()
-            if extra:
-                rows[-1]["description"] = f"{rows[-1]['description']} {extra}".strip()
-                rows[-1]["raw_text"] = f"{rows[-1]['raw_text']} | {extra}"
-            continue
-        row = _line_to_row(line, profile, filename or path.name)
-        if row is None:
-            continue
-        row = _align_to_running(row, running)
-        row["account_number"] = account
-        row["ifsc"] = ifsc
-        row["account_name"] = profile.label
-        rows.append(row)
-        if row.get("balance") is not None:
-            running = Decimal(str(row["balance"]))
+    line_rows, line_candidates = _rows_from_lines(extracted.lines, profile, name)
+    word_rows, word_candidates = _rows_from_extracted_words(extracted, profile, name)
+    plumber_rows = rows_from_pdfplumber(path, profile, name)
+    markdown_rows = rows_from_markdown(
+        "\n".join(page.text or "" for page in extracted.pages),
+        profile,
+        name,
+    )
+    docling_rows: list[dict] = []
+    if extracted.pdf_type in {"scanned", "image_based", "mixed"}:
+        docling_rows = rows_from_docling(path, profile, name)
+
+    finished_lines = _finish_rows(line_rows, opening, account, ifsc, profile)
+    finished_words = _finish_rows(word_rows, opening, account, ifsc, profile)
+    finished_plumber = _finish_rows(plumber_rows, opening, account, ifsc, profile)
+    finished_markdown = _finish_rows(markdown_rows, opening, account, ifsc, profile)
+    finished_docling = _finish_rows(docling_rows, opening, account, ifsc, profile)
+    rows, candidate_count, strategy = _choose_rows(
+        opening,
+        closing,
+        ("docling", finished_docling, len(docling_rows)),
+        ("pdfplumber", finished_plumber, len(plumber_rows)),
+        ("markdown", finished_markdown, len(markdown_rows)),
+        ("columns", finished_words, word_candidates),
+        ("lines", finished_lines, line_candidates),
+    )
 
     return {
         "profile": profile.key,
         "profile_label": profile.label,
         "engine": extracted.engine,
         "pdf_type": extracted.pdf_type,
+        "parse_strategy": strategy,
         "page_count": extracted.page_count,
         "opening_balance": _dec(opening),
         "stated_closing": _dec(closing),
@@ -68,6 +77,157 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
         "dropped_count": max(candidate_count - len(rows), 0),
         "rows": rows,
     }
+
+
+def _rows_from_extracted_words(
+    extracted: ExtractedPdf, profile: BankProfile, filename: str
+) -> tuple[list[dict], int]:
+    words = list(extracted.words or [])
+    rows = rows_from_words(words, profile, filename)
+    return rows, len(rows)
+
+
+def _rows_from_lines(
+    lines: list[LineBox], profile: BankProfile, filename: str
+) -> tuple[list[dict], int]:
+    rows: list[dict] = []
+    candidate_count = 0
+    index = 0
+    while index < len(lines):
+        line = lines[index]
+        text = clean_text(line.text)
+        if not DATE_RE.search(text) or is_boilerplate(text):
+            if rows and not DATE_RE.search(text) and is_continuation(text):
+                extra = text.strip()
+                if extra:
+                    rows[-1]["description"] = f"{rows[-1]['description']} {extra}".strip()
+                    rows[-1]["raw_text"] = f"{rows[-1]['raw_text']} | {extra}"
+            index += 1
+            continue
+        block, index = _expand_txn_lines(lines, index)
+        merged = _merge_line_boxes(block)
+        merged_text = clean_text(merged.text)
+        if looks_like_txn(merged_text) or DATE_RE.search(merged_text):
+            candidate_count += 1
+        row = _line_to_row(merged, profile, filename)
+        if row is None:
+            continue
+        rows.append(row)
+    return rows, candidate_count
+
+
+def _expand_txn_lines(lines: list[LineBox], start: int) -> tuple[list[LineBox], int]:
+    block = [lines[start]]
+    cursor = start + 1
+    while cursor < len(lines) and cursor - start < 8:
+        nxt = clean_text(lines[cursor].text)
+        if not nxt:
+            cursor += 1
+            continue
+        if DATE_RE.search(nxt) or is_boilerplate(nxt):
+            break
+        combined = clean_text(" ".join(item.text for item in block))
+        if looks_like_txn(combined) and is_amount_line(nxt):
+            break
+        if looks_like_txn(combined) and not amounts_in(nxt) and not is_continuation(nxt):
+            break
+        if looks_like_txn(combined) and is_continuation(nxt):
+            block.append(lines[cursor])
+            cursor += 1
+            continue
+        if not looks_like_txn(combined):
+            block.append(lines[cursor])
+            cursor += 1
+            continue
+        break
+    return block, cursor
+
+
+def _merge_line_boxes(lines: list[LineBox]) -> LineBox:
+    first = lines[0]
+    text = clean_text(" ".join(line.text for line in lines))
+    xs = [line.x for line in lines]
+    ys = [line.y for line in lines]
+    rights = [line.x + line.width for line in lines]
+    tops = [line.y + line.height for line in lines]
+    return LineBox(
+        page=first.page,
+        text=text,
+        x=min(xs),
+        y=min(ys),
+        width=max(rights) - min(xs),
+        height=max(tops) - min(ys),
+    )
+
+
+def _finish_rows(
+    raw_rows: list[dict],
+    opening: Decimal | None,
+    account: str | None,
+    ifsc: str | None,
+    profile: BankProfile,
+) -> list[dict]:
+    rows: list[dict] = []
+    running = opening
+    for raw in raw_rows:
+        row = dict(raw)
+        gap = _implied_gap_row(row, running)
+        if gap is not None:
+            gap["account_number"] = account
+            gap["ifsc"] = ifsc
+            gap["account_name"] = profile.label
+            rows.append(gap)
+            running = Decimal(str(gap["balance"]))
+        row = _align_to_running(row, running)
+        row["account_number"] = account
+        row["ifsc"] = ifsc
+        row["account_name"] = profile.label
+        rows.append(row)
+        if row.get("balance") is not None:
+            running = Decimal(str(row["balance"]))
+    return rows
+
+
+def _choose_rows(
+    opening: Decimal | None,
+    closing: Decimal | None,
+    *options: tuple[str, list[dict], int],
+) -> tuple[list[dict], int, str]:
+    best_name = "lines"
+    best_rows: list[dict] = []
+    best_candidates = 0
+    best_key = (-2, 0, -1, 0, 0)
+    for name, rows, candidates in options:
+        quality = _quality(rows, opening, closing)
+        prefer = {"docling": 3, "pdfplumber": 2, "markdown": 1}.get(name, 0) if rows else 0
+        key = (quality[0], prefer, quality[1], quality[2])
+        if key > best_key:
+            best_key = key
+            best_name = name
+            best_rows = rows
+            best_candidates = candidates
+    return best_rows, max(best_candidates, len(best_rows)), best_name
+
+
+def _quality(rows: list[dict], opening: Decimal | None, closing: Decimal | None) -> tuple:
+    if not rows:
+        return (-1, 0, 0)
+    from apps.engine.validators.balance import check_balance
+
+    probe = copy.deepcopy(rows)
+    check = check_balance(
+        probe,
+        float(opening) if opening is not None else None,
+        float(closing) if closing is not None else None,
+    )
+    rank = {"match": 3, "unverified": 1, "mismatch": 0}.get(check.get("status"), 0)
+    breaks = sum(
+        1
+        for row in rows
+        if "running_balance_break" in (row.get("flags") or [])
+        or "balance_mismatch" in (row.get("flags") or [])
+    )
+    return (rank, len(rows) - breaks, len(rows))
 
 
 def _search(text: str, pattern: re.Pattern) -> str | None:
@@ -90,31 +250,42 @@ def _balance_near(extracted: ExtractedPdf, pattern: re.Pattern) -> Decimal | Non
     return None
 
 
-HEADERISH = re.compile(
-    r"txn date|narration|withdrawal|transaction remarks|closing balance|"
-    r"debit credit|chq / ref|description",
-    re.I,
-)
-
-
-def _is_continuation(text: str) -> bool:
-    if len(text) < 4 or SKIP_LINE.search(text) or HEADERISH.search(text):
-        return False
-    if OPENING_RE.search(text) or CLOSING_RE.search(text):
-        return False
-    if re.fullmatch(r"[\d,.\s]+", text):
-        return False
-    return True
-
-
-def _looks_like_txn(text: str) -> bool:
-    if len(text) < 8 or SKIP_LINE.search(text):
-        return False
-    if OPENING_RE.search(text) or CLOSING_RE.search(text):
-        return False
-    if not DATE_RE.search(text):
-        return False
-    return len(amounts_in(text)) >= 2
+def _implied_gap_row(row: dict, running: Decimal | None) -> dict | None:
+    if running is None or row.get("balance") is None:
+        return None
+    stated = Decimal(str(row["balance"]))
+    debit = Decimal(str(row["debit"])) if row.get("debit") else Decimal("0")
+    credit = Decimal(str(row["credit"])) if row.get("credit") else Decimal("0")
+    expected = running - debit + credit
+    gap = expected - stated
+    if gap.copy_abs() <= Decimal("1.00"):
+        return None
+    txn = debit if debit else credit
+    if txn:
+        if (running - txn - stated).copy_abs() <= Decimal("1.00"):
+            return None
+        if (running + txn - stated).copy_abs() <= Decimal("1.00"):
+            return None
+        if gap.copy_abs() > running.copy_abs() + txn.copy_abs() + Decimal("1.00"):
+            return None
+    if debit and credit:
+        return None
+    inferred_balance = running - gap
+    flags = ["inferred_from_balance"]
+    return {
+        "date": row.get("date"),
+        "description": "Inferred missing row (statement wrap)",
+        "cheque_ref": None,
+        "debit": float(gap) if gap > 0 else None,
+        "credit": float(-gap) if gap < 0 else None,
+        "balance": float(inferred_balance),
+        "source_page": row.get("source_page"),
+        "source_bbox": row.get("source_bbox"),
+        "source": row.get("source"),
+        "raw_text": "",
+        "flags": flags,
+        "validation_flags": flags,
+    }
 
 
 def _align_to_running(row: dict, running: Decimal | None) -> dict:
@@ -128,6 +299,18 @@ def _align_to_running(row: dict, running: Decimal | None) -> dict:
     if (running - debit + credit - stated).copy_abs() <= Decimal("1.00"):
         row["flags"] = flags
         return row
+
+    if debit and credit:
+        if (running - debit - stated).copy_abs() <= Decimal("1.00"):
+            row["debit"] = float(debit)
+            row["credit"] = None
+            row["flags"] = flags
+            return row
+        if (running + credit - stated).copy_abs() <= Decimal("1.00"):
+            row["credit"] = float(credit)
+            row["debit"] = None
+            row["flags"] = flags
+            return row
 
     txn = debit if debit else credit
     if txn:
@@ -149,10 +332,8 @@ def _align_to_running(row: dict, running: Decimal | None) -> dict:
 
 
 def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | None:
-    text = " ".join(line.text.split())
-    if len(text) < 8 or SKIP_LINE.search(text):
-        return None
-    if OPENING_RE.search(text) or CLOSING_RE.search(text):
+    text = clean_text(line.text)
+    if len(text) < 8 or is_boilerplate(text):
         return None
     date_match = DATE_RE.search(text)
     if not date_match:
@@ -162,33 +343,10 @@ def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | N
         return None
 
     date = normalize_date(date_match.group(1))
+    if not is_plausible_iso_date(date):
+        return None
     balance = amounts[-1]
-    debit: Decimal | None = None
-    credit: Decimal | None = None
-    lowered = text.lower()
-
-    if len(amounts) >= 3:
-        first, second = amounts[-3], amounts[-2]
-        if first and not second:
-            debit = first
-        elif second and not first:
-            credit = second
-        else:
-            debit, credit = first, second
-            if debit == 0:
-                debit = None
-            if credit == 0:
-                credit = None
-    else:
-        amount = amounts[-2]
-        if any(word in lowered for word in profile.credit_words) and not any(
-            word in lowered for word in profile.debit_words
-        ):
-            credit = amount
-        elif any(word in lowered for word in ("deposit", "neft inward", "imps", "salary", "refund")):
-            credit = amount
-        else:
-            debit = amount
+    debit, credit = _debit_credit(amounts, text, profile)
 
     description = DATE_RE.sub("", text, count=1)
     for amount in amounts[-3:]:

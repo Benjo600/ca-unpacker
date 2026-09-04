@@ -26,11 +26,22 @@ class LineBox:
 
 
 @dataclass
+class WordBox:
+    page: int
+    text: str
+    x: float
+    y: float
+    width: float
+    height: float
+
+
+@dataclass
 class ExtractedPdf:
     pdf_type: str
     page_count: int
     pages: list[PageText] = field(default_factory=list)
     lines: list[LineBox] = field(default_factory=list)
+    words: list[WordBox] = field(default_factory=list)
     engine: str = "none"
 
 
@@ -48,6 +59,10 @@ def using_password(password: str | None):
         _active_password.reset(token)
 
 
+def current_pdf_password() -> str | None:
+    return _resolve_password(None)
+
+
 def extract_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
     """Local extract only. Uses Firecrawl pdf-inspector on this PC, never uploads."""
     path = Path(path)
@@ -60,6 +75,12 @@ def extract_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
         work = unlocked or path
 
         extracted = _extract_with_inspector(work)
+        if extracted is None or _almost_no_lines(extracted):
+            plumber = _extract_with_pdfplumber(work)
+            if plumber is not None and (
+                extracted is None or len(plumber.words) > len(extracted.words)
+            ):
+                extracted = plumber
         if extracted is None:
             extracted = _extract_with_pypdf(work)
         extracted = _normalize_extracted(extracted)
@@ -167,6 +188,9 @@ def _normalize_extracted(extracted: ExtractedPdf) -> ExtractedPdf:
     for line in extracted.lines:
         if line.page <= 0:
             line.page += 1
+    for word in extracted.words:
+        if word.page <= 0:
+            word.page += 1
     for page in extracted.pages:
         if page.page <= 0:
             page.page += 1
@@ -203,8 +227,128 @@ def _extract_with_inspector(path: Path) -> ExtractedPdf | None:
         page_count=int(getattr(result, "page_count", len(pages)) or len(pages)),
         pages=pages,
         lines=_group_items(items),
+        words=_words_from_items(items),
         engine="pdf-inspector",
     )
+
+
+def _words_from_items(items) -> list[WordBox]:
+    words: list[WordBox] = []
+    if not items:
+        return words
+    for item in items:
+        text = (item.text or "").strip()
+        if not text:
+            continue
+        try:
+            words.append(
+                WordBox(
+                    page=int(item.page),
+                    text=text,
+                    x=float(item.x),
+                    y=float(item.y),
+                    width=float(item.width),
+                    height=float(item.height),
+                )
+            )
+        except (TypeError, ValueError):
+            continue
+    return words
+
+
+def _extract_with_pdfplumber(path: Path) -> ExtractedPdf | None:
+    try:
+        import pdfplumber
+    except ImportError:
+        return None
+    try:
+        with pdfplumber.open(str(path)) as pdf:
+            pages: list[PageText] = []
+            words: list[WordBox] = []
+            for index, page in enumerate(pdf.pages, start=1):
+                try:
+                    text = page.extract_text() or ""
+                except Exception:
+                    text = ""
+                pages.append(PageText(page=index, text=text))
+                height = float(page.height or 0)
+                try:
+                    raw_words = page.extract_words() or []
+                except Exception:
+                    raw_words = []
+                for raw in raw_words:
+                    token = (raw.get("text") or "").strip()
+                    if not token:
+                        continue
+                    x0 = float(raw.get("x0") or 0)
+                    x1 = float(raw.get("x1") or x0)
+                    top = float(raw.get("top") or 0)
+                    bottom = float(raw.get("bottom") or top)
+                    word_height = max(bottom - top, 0.0)
+                    y = height - bottom if height else top
+                    words.append(
+                        WordBox(
+                            page=index,
+                            text=token,
+                            x=x0,
+                            y=y,
+                            width=max(x1 - x0, 0.0),
+                            height=word_height,
+                        )
+                    )
+    except Exception:
+        return None
+    if not pages:
+        return None
+    lines = _lines_from_words(words)
+    has_text = any((page.text or "").strip() for page in pages) or bool(words)
+    return ExtractedPdf(
+        pdf_type="text_based" if has_text else "image_based",
+        page_count=len(pages),
+        pages=pages,
+        lines=lines,
+        words=words,
+        engine="pdfplumber",
+    )
+
+
+def _lines_from_words(words: list[WordBox]) -> list[LineBox]:
+    if not words:
+        return []
+    by_page: dict[int, list[WordBox]] = {}
+    for word in words:
+        by_page.setdefault(word.page, []).append(word)
+    lines: list[LineBox] = []
+    for page, page_words in by_page.items():
+        ordered = sorted(page_words, key=lambda item: (-(item.y + item.height / 2.0), item.x))
+        bands: list[list[WordBox]] = []
+        for word in ordered:
+            placed = False
+            for band in bands:
+                if abs(word.y - band[0].y) <= max(3.0, max(word.height, band[0].height) * 0.5):
+                    band.append(word)
+                    placed = True
+                    break
+            if not placed:
+                bands.append([word])
+        for band in bands:
+            band.sort(key=lambda item: item.x)
+            text = " ".join(item.text for item in band if item.text.strip())
+            xs = [item.x for item in band]
+            ys = [item.y for item in band]
+            rights = [item.x + item.width for item in band]
+            tops = [item.y + item.height for item in band]
+            lines.append(
+                LineBox(
+                    page=page,
+                    text=text,
+                    x=min(xs),
+                    y=min(ys),
+                    width=max(rights) - min(xs),
+                    height=max(tops) - min(ys),
+                )
+            )
+    return lines
 
 
 def _group_items(items) -> list[LineBox]:
@@ -273,10 +417,15 @@ def _extract_with_pypdf(path: Path) -> ExtractedPdf:
             if row.strip():
                 lines.append(LineBox(page=index, text=row.strip(), x=0, y=0, width=0, height=0))
     has_text = any((page.text or "").strip() for page in pages)
+    words = [
+        WordBox(page=line.page, text=line.text, x=line.x, y=line.y, width=line.width, height=line.height)
+        for line in lines
+    ]
     return ExtractedPdf(
         pdf_type="text_based" if has_text else "image_based",
         page_count=len(reader.pages),
         pages=pages,
         lines=lines,
+        words=words,
         engine="pypdf",
     )
