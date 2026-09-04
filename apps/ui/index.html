@@ -12,18 +12,25 @@
     <div class="auth-card">
       <p class="eyebrow">Sign in</p>
       <h1>Sign in to use CA Unpacker.</h1>
-      <p class="lede">Your client files stay on this PC. We only sync account and usage metadata.</p>
-      <div class="drop-actions">
-        <button type="button" id="auth-signup">Sign up</button>
-        <button type="button" class="ghost" id="auth-login">Log in</button>
-      </div>
-      <p id="auth-error" class="error" hidden></p>
+      <p class="lede">Your client files stay on this PC. Usage counts sync to your firm dashboard so you can see the monthly limit.</p>
+      <form id="auth-form" autocomplete="on">
+        <label for="auth-email">Email</label>
+        <input id="auth-email" type="email" required placeholder="you@firm.in" />
+        <label for="auth-password">Password</label>
+        <input id="auth-password" type="password" required autocomplete="current-password" />
+        <p id="auth-error" class="error" hidden></p>
+        <div class="drop-actions">
+          <button type="submit" id="auth-submit">Log in</button>
+          <button type="button" class="ghost" id="auth-signup">Create account</button>
+        </div>
+      </form>
     </div>
   </div>
 
   <div id="quota-banner" class="quota-banner hidden">
     <span id="quota-text"></span>
     <span class="privacy">Financial data transmitted: NONE</span>
+    <button type="button" class="ghost quota-account" id="auth-account">Usage dashboard</button>
     <button type="button" class="ghost quota-logout" id="auth-logout">Log out</button>
   </div>
 

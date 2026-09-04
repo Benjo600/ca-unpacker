@@ -2,7 +2,7 @@ import { FormEvent, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import AuthShell from "../components/AuthShell";
 import { Alert, FieldLabel, PrimaryButton, TextInput } from "../components/ui";
-import { redirectToDesktop } from "../lib/admin";
+import { pathAfterAuth } from "../lib/postAuth";
 import { supabase } from "../lib/supabase";
 
 export default function Signup() {
@@ -34,13 +34,10 @@ export default function Signup() {
       return;
     }
 
-    if (searchParams.get("redirect") === "desktop" && data.session) {
-      redirectToDesktop(data.session);
-      return;
-    }
-
     if (data.session) {
-      navigate(searchParams.get("next") || "/admin", { replace: true });
+      const next = await pathAfterAuth(data.session, searchParams);
+      if (next === "desktop") return;
+      navigate(next, { replace: true });
       return;
     }
 
@@ -50,7 +47,7 @@ export default function Signup() {
   return (
     <AuthShell
       title="Create your account"
-      subtitle="Starter plan — 100 files per month. Upgrade anytime from the operator console."
+      subtitle="Starter includes 100 files per month. Track usage on your dashboard after you sign in."
       footer={
         <>
           Already registered?{" "}

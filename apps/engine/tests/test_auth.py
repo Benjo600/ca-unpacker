@@ -94,3 +94,28 @@ def test_rejects_document_keys_in_request_body(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="document"):
         _reject_document_keys({"file_count": 1, "invoice_rows": []})
+
+
+def test_login_with_password_maps_invalid_credentials(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from unittest.mock import MagicMock, patch
+
+    from apps.engine.auth import login_with_password
+
+    response = MagicMock()
+    response.status_code = 400
+    response.content = b"{}"
+    with patch("apps.engine.auth.httpx.Client") as client_cls:
+        client_cls.return_value.__enter__.return_value.post.return_value = response
+        with pytest.raises(ValueError, match="Invalid email or password"):
+            login_with_password("owner@example.com", "wrong")
+
+
+def test_unsigned_production_blocks_ingest(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.delenv("CA_UNPACKER_DEV", raising=False)
+    monkeypatch.setenv("CA_UNPACKER_REQUIRE_AUTH", "1")
+    from apps.engine.license import assert_can_ingest
+
+    with pytest.raises(ValueError, match="Sign in"):
+        assert_can_ingest(1)

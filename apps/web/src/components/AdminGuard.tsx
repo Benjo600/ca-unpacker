@@ -64,8 +64,8 @@ export default function AdminGuard({ children }: AdminGuardProps) {
         title="Access denied"
         subtitle="This console is restricted to CA Unpacker operators."
         footer={
-          <Link to="/login" className="font-semibold text-accent no-underline">
-            Return to login
+          <Link to="/app" className="font-semibold text-accent no-underline">
+            Open your firm dashboard
           </Link>
         }
       >

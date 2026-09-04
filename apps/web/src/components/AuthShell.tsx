@@ -54,7 +54,7 @@ export default function AuthShell({
 
         <div className="relative">
           <Link
-            to="/signup"
+            to="/"
             className="font-display text-3xl tracking-tight text-paper no-underline"
           >
             CA Unpacker
@@ -93,7 +93,7 @@ export default function AuthShell({
       <main className="flex flex-1 flex-col items-center justify-center bg-paper-bright px-5 py-12 sm:px-8">
         <div className="mb-8 w-full max-w-[420px] lg:hidden">
           <Link
-            to="/signup"
+            to="/"
             className="font-display text-2xl tracking-tight text-ink no-underline"
           >
             CA Unpacker

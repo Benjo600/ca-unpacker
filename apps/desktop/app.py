@@ -87,6 +87,17 @@ class DesktopApi:
         webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
         return {"ok": True}
 
+    def open_account(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/app")
+        return {"ok": True}
+
+    def login_with_password(self, email: str, password: str) -> dict:
+        try:
+            auth.login_with_password(str(email or ""), str(password or ""))
+            return {"ok": True, **auth.get_auth_state()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
     def logout(self) -> dict:
         auth.logout()
         return {"ok": True, **auth.get_auth_state()}
@@ -103,6 +114,7 @@ class DesktopApi:
             auth.login_via_tokens(str(access), str(refresh))
             try:
                 auth.fetch_quota()
+                auth.send_heartbeat()
             except Exception:
                 pass
             return {"ok": True, **auth.get_auth_state()}
@@ -468,6 +480,7 @@ def _startup_auth_sync() -> None:
     try:
         auth.refresh_session()
         auth.fetch_quota()
+        auth.send_heartbeat()
     except Exception:
         pass
 

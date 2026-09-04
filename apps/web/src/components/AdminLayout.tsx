@@ -1,4 +1,4 @@
-import { NavLink, Outlet, useNavigate } from "react-router-dom";
+import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
 import { LayoutDashboard, LogOut, Users } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
@@ -53,6 +53,12 @@ export default function AdminLayout() {
         </nav>
 
         <div className="border-t border-white/8 p-3">
+          <Link
+            to="/app"
+            className="mb-1 flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm font-semibold text-desk-ink no-underline transition hover:bg-white/6 hover:text-paper"
+          >
+            Firm dashboard
+          </Link>
           <button
             type="button"
             onClick={handleLogout}

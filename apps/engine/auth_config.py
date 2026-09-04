@@ -16,3 +16,4 @@ SUPABASE_ANON_KEY = os.environ.get("SUPABASE_ANON_KEY") or _DEFAULT_SUPABASE_ANO
 CA_UNPACKER_AUTH_URL = (
     os.environ.get("CA_UNPACKER_AUTH_URL") or _DEFAULT_AUTH_URL
 ).rstrip("/")
+APP_VERSION = os.environ.get("CA_UNPACKER_VERSION") or "0.1.0"

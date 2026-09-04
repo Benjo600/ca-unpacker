@@ -123,3 +123,37 @@ export function redirectToDesktop(session: {
   const { access_token, refresh_token } = session;
   window.location.href = `caunpacker://auth/callback#access_token=${encodeURIComponent(access_token)}&refresh_token=${encodeURIComponent(refresh_token)}`;
 }
+
+export async function probeIsAdmin(): Promise<boolean> {
+  try {
+    await fetchAdminOrgs();
+    return true;
+  } catch (err) {
+    if (err instanceof AdminForbiddenError) return false;
+    if (err instanceof Error && err.message === "Not signed in") return false;
+    return false;
+  }
+}
+
+export function isSafeNextPath(value: string | null): value is string {
+  return Boolean(
+    value &&
+      value.startsWith("/") &&
+      !value.startsWith("//") &&
+      !value.startsWith("/\\"),
+  );
+}
+
+export async function defaultSignedInPath(): Promise<string> {
+  return (await probeIsAdmin()) ? "/admin" : "/app";
+}
+
+export const PLAN_LIMITS: Record<PlanType, number | null> = {
+  starter: 100,
+  pro: null,
+  suspended: 0,
+};
+
+export function fileLimitForPlan(plan: PlanType): number | null {
+  return PLAN_LIMITS[plan];
+}

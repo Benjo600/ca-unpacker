@@ -80,6 +80,32 @@ class DesktopAuthApiContractTests(unittest.TestCase):
         self.assertTrue(result["ok"])
         self.assertFalse(api.get_auth_state()["signed_in"])
 
+    def test_login_with_password_returns_error_without_network(self) -> None:
+        from unittest.mock import patch
+
+        from apps.desktop.app import DesktopApi
+
+        api = DesktopApi()
+        with patch(
+            "apps.engine.auth.login_with_password",
+            side_effect=ValueError("Invalid email or password."),
+        ):
+            result = api.login_with_password("owner@example.com", "wrong")
+        self.assertFalse(result["ok"])
+        self.assertIn("Invalid", result["error"])
+
+    def test_open_account_opens_dashboard(self) -> None:
+        from unittest.mock import patch
+
+        from apps.desktop.app import DesktopApi
+
+        api = DesktopApi()
+        with patch("webbrowser.open") as opener:
+            result = api.open_account()
+        self.assertTrue(result["ok"])
+        opener.assert_called_once()
+        self.assertIn("/app", opener.call_args[0][0])
+
     def test_extract_deep_link_url_from_argv(self) -> None:
         from apps.desktop.app import extract_deep_link_url
 

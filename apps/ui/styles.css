@@ -68,10 +68,29 @@ html, body {
   text-transform: uppercase;
 }
 
-.quota-banner .quota-logout {
-  margin-left: auto;
+.quota-banner .quota-logout,
+.quota-banner .quota-account {
+  margin-left: 0;
   color: var(--desk-ink);
   border-color: #ffffff30;
+}
+
+.quota-banner .quota-account {
+  margin-left: auto;
+}
+
+.auth-card label {
+  display: block;
+  margin-top: 16px;
+  font-size: 12px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.auth-card .drop-actions {
+  margin-top: 8px;
 }
 
 body.auth-signed-in #desk,

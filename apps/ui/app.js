@@ -345,10 +345,16 @@ function renderQuotaBanner(state) {
   document.body.classList.add("auth-signed-in");
   quotaBannerEl.classList.remove("hidden");
   const offline = auth.offline ? " · offline" : "";
-  if (auth.file_limit == null) {
-    quotaTextEl.textContent = `${auth.plan || "pro"} · unlimited files this month${offline}`;
+  const plan = String(auth.plan || "starter");
+  if (plan === "suspended") {
+    quotaTextEl.textContent = `Suspended · ingest blocked${offline}`;
+  } else if (auth.file_limit == null) {
+    quotaTextEl.textContent = `Pro · unlimited files this month${offline}`;
   } else {
-    quotaTextEl.textContent = `${auth.files_used || 0}/${auth.file_limit} files this month${offline}`;
+    const remaining = Number.isFinite(Number(auth.files_remaining))
+      ? auth.files_remaining
+      : Math.max(0, Number(auth.file_limit) - Number(auth.files_used || 0));
+    quotaTextEl.textContent = `${plan} · ${auth.files_used || 0}/${auth.file_limit} files this month · ${remaining} left${offline}`;
   }
 }
 
@@ -1062,6 +1068,7 @@ function pollJob(jobId) {
     if (job.warnings && job.warnings.length) {
       showError(dumpErrorEl, job.warnings.join(" · "));
     }
+    await refreshAuthState();
     syncGuide();
   }, 350);
 }
@@ -1446,6 +1453,33 @@ if (reconFiltersEl) {
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
 document.getElementById("guide-open").addEventListener("click", reopenGuide);
 
+const authForm = document.getElementById("auth-form");
+if (authForm) {
+  authForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    showError(authErrorEl, "");
+    const api = desktopApi();
+    if (!api || !api.login_with_password) {
+      showError(authErrorEl, "Sign-in is not available in this build.");
+      return;
+    }
+    const submitBtn = document.getElementById("auth-submit");
+    if (submitBtn) submitBtn.disabled = true;
+    const result = await api.login_with_password(
+      document.getElementById("auth-email").value,
+      document.getElementById("auth-password").value
+    );
+    if (submitBtn) submitBtn.disabled = false;
+    if (!result.ok) {
+      showError(authErrorEl, result.error || "Could not sign in.");
+      return;
+    }
+    await refreshAuthState();
+    const state = await api.get_state();
+    if (state.firm && state.output_path) showDesk(state);
+    else showSetup(state);
+  });
+}
 const authSignupBtn = document.getElementById("auth-signup");
 if (authSignupBtn) {
   authSignupBtn.addEventListener("click", async () => {
@@ -1456,14 +1490,12 @@ if (authSignupBtn) {
     if (!result.ok) showError(authErrorEl, result.error || "Could not open sign-up page.");
   });
 }
-const authLoginBtn = document.getElementById("auth-login");
-if (authLoginBtn) {
-  authLoginBtn.addEventListener("click", async () => {
-    showError(authErrorEl, "");
+const authAccountBtn = document.getElementById("auth-account");
+if (authAccountBtn) {
+  authAccountBtn.addEventListener("click", async () => {
     const api = desktopApi();
-    if (!api || !api.open_login) return;
-    const result = await api.open_login();
-    if (!result.ok) showError(authErrorEl, result.error || "Could not open login page.");
+    if (!api || !api.open_account) return;
+    await api.open_account();
   });
 }
 const authLogoutBtn = document.getElementById("auth-logout");
