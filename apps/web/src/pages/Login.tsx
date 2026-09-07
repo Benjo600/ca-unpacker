@@ -1,4 +1,4 @@
-import { FormEvent, useState } from "react";
+import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { redirectToDesktop } from "../lib/admin";
 import { supabase } from "../lib/supabase";
@@ -8,8 +8,31 @@ export default function Login() {
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
+  const [handingOff, setHandingOff] = useState(false);
   const [searchParams] = useSearchParams();
   const navigate = useNavigate();
+
+  const wantsDesktop = searchParams.get("redirect") === "desktop";
+
+  // Hand off an existing browser session straight to the app. This covers the
+  // two ways a user arrives here already authenticated: the browser remembered
+  // them, or they just clicked the confirmation link in a signup email. Either
+  // way they should not have to retype a password the browser already knows.
+  useEffect(() => {
+    if (!wantsDesktop) return;
+    let cancelled = false;
+
+    (async () => {
+      const { data } = await supabase.auth.getSession();
+      if (cancelled || !data.session) return;
+      setHandingOff(true);
+      redirectToDesktop(data.session);
+    })();
+
+    return () => {
+      cancelled = true;
+    };
+  }, [wantsDesktop]);
 
   async function handleSubmit(e: FormEvent) {
     e.preventDefault();
@@ -50,7 +73,16 @@ export default function Login() {
       <main>
         <div className="docket">
           <h1>Log in</h1>
-          <p className="muted">Sign in to your CA Unpacker account.</p>
+          <p className="muted">
+            {handingOff
+              ? "Signing you in to the CA Unpacker app…"
+              : "Sign in to your CA Unpacker account."}
+          </p>
+          {handingOff && (
+            <p className="muted">
+              If the app does not come to the front, open it from your taskbar.
+            </p>
+          )}
           <form onSubmit={handleSubmit}>
             <div className="field">
               <label htmlFor="email">Email</label>

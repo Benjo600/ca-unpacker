@@ -52,9 +52,17 @@ const unlockFilenameEl = document.getElementById("unlock-filename");
 const unlockPasswordEl = document.getElementById("unlock-password");
 const unlockErrorEl = document.getElementById("unlock-error");
 const authGateEl = document.getElementById("auth-gate");
-const quotaBannerEl = document.getElementById("quota-banner");
+const quotaBannerEl = document.getElementById("profile");
 const quotaTextEl = document.getElementById("quota-text");
+const profileButtonEl = document.getElementById("profile-button");
+const profilePanelEl = document.getElementById("profile-panel");
+const profileInitialEl = document.getElementById("profile-initial");
+const profileEmailEl = document.getElementById("profile-email");
+const profilePlanEl = document.getElementById("profile-plan");
+const profileMeterEl = document.getElementById("profile-meter");
+const profileMeterFillEl = document.getElementById("profile-meter-fill");
 const authErrorEl = document.getElementById("auth-error");
+const authNoticeEl = document.getElementById("auth-notice");
 
 let currentClient = null;
 let currentPeriod = null;
@@ -334,21 +342,52 @@ function renderLicense(license) {
   }
 }
 
+function closeProfilePanel() {
+  if (!profilePanelEl || !profileButtonEl) return;
+  profilePanelEl.hidden = true;
+  profileButtonEl.setAttribute("aria-expanded", "false");
+}
+
 function renderQuotaBanner(state) {
   if (!quotaBannerEl || !quotaTextEl) return;
   const auth = state || authState;
   if (!auth || !auth.signed_in) {
     quotaBannerEl.classList.add("hidden");
+    closeProfilePanel();
     document.body.classList.remove("auth-signed-in");
     return;
   }
   document.body.classList.add("auth-signed-in");
   quotaBannerEl.classList.remove("hidden");
+
+  const email = auth.email || "";
+  if (profileInitialEl) {
+    profileInitialEl.textContent = email.trim().charAt(0) || "·";
+  }
+  if (profileButtonEl) {
+    profileButtonEl.title = email ? `Account — ${email}` : "Account";
+  }
+  if (profileEmailEl) profileEmailEl.textContent = email;
+
   const offline = auth.offline ? " · offline" : "";
-  if (auth.file_limit == null) {
-    quotaTextEl.textContent = `${auth.plan || "pro"} · unlimited files this month${offline}`;
+  if (profilePlanEl) {
+    profilePlanEl.textContent = `${auth.plan || "pro"} plan${offline}`;
+  }
+
+  const used = Number(auth.files_used || 0);
+  const limit = auth.file_limit;
+  if (limit == null) {
+    quotaTextEl.textContent = "Unlimited files this month";
+    if (profileMeterEl) profileMeterEl.hidden = true;
   } else {
-    quotaTextEl.textContent = `${auth.files_used || 0}/${auth.file_limit} files this month${offline}`;
+    quotaTextEl.textContent = `${used} of ${limit} files this month`;
+    if (profileMeterEl && profileMeterFillEl) {
+      profileMeterEl.hidden = false;
+      const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
+      profileMeterFillEl.style.width = `${Math.round(ratio * 100)}%`;
+      profileMeterFillEl.classList.toggle("near-limit", ratio >= 0.8 && ratio < 1);
+      profileMeterFillEl.classList.toggle("at-limit", ratio >= 1);
+    }
   }
 }
 
@@ -1446,16 +1485,117 @@ if (reconFiltersEl) {
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
 document.getElementById("guide-open").addEventListener("click", reopenGuide);
 
-const authSignupBtn = document.getElementById("auth-signup");
-if (authSignupBtn) {
-  authSignupBtn.addEventListener("click", async () => {
+const authForm = document.getElementById("auth-form");
+const authEmailEl = document.getElementById("auth-email");
+const authPasswordEl = document.getElementById("auth-password");
+const authSubmitBtn = document.getElementById("auth-submit");
+const authModeToggle = document.getElementById("auth-mode-toggle");
+const authForgotBtn = document.getElementById("auth-forgot");
+let authSignupMode = false;
+let authBusy = false;
+
+function renderAuthMode() {
+  if (!authSubmitBtn || !authModeToggle) return;
+  authSubmitBtn.textContent = authSignupMode ? "Create account" : "Log in";
+  authModeToggle.textContent = authSignupMode
+    ? "Already have an account? Log in"
+    : "New here? Create an account";
+  if (authPasswordEl) {
+    authPasswordEl.setAttribute(
+      "autocomplete",
+      authSignupMode ? "new-password" : "current-password"
+    );
+  }
+}
+
+function setAuthBusy(busy, label) {
+  authBusy = Boolean(busy);
+  if (!authSubmitBtn) return;
+  authSubmitBtn.disabled = authBusy;
+  if (authModeToggle) authModeToggle.disabled = authBusy;
+  if (authForgotBtn) authForgotBtn.disabled = authBusy;
+  if (authBusy) authSubmitBtn.textContent = label;
+  else renderAuthMode();
+}
+
+function clearAuthPassword() {
+  if (authPasswordEl) authPasswordEl.value = "";
+}
+
+if (authModeToggle) {
+  authModeToggle.addEventListener("click", () => {
+    authSignupMode = !authSignupMode;
     showError(authErrorEl, "");
-    const api = desktopApi();
-    if (!api || !api.open_signup) return;
-    const result = await api.open_signup();
-    if (!result.ok) showError(authErrorEl, result.error || "Could not open sign-up page.");
+    showError(authNoticeEl, "");
+    renderAuthMode();
   });
 }
+
+if (authForm) {
+  renderAuthMode();
+  authForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    if (authBusy) return;
+    showError(authErrorEl, "");
+    showError(authNoticeEl, "");
+    const api = desktopApi();
+    const email = authEmailEl ? authEmailEl.value : "";
+    const password = authPasswordEl ? authPasswordEl.value : "";
+    const signup = authSignupMode;
+    if (!api || !api.login_with_password || !api.signup_with_password) {
+      showError(authErrorEl, "Update the app to sign in here.");
+      return;
+    }
+    setAuthBusy(true, signup ? "Creating account…" : "Signing in…");
+    let result;
+    try {
+      result = signup
+        ? await api.signup_with_password(email, password)
+        : await api.login_with_password(email, password);
+    } catch {
+      result = { ok: false, error: "Could not reach the sign-in service. Try again." };
+    }
+    clearAuthPassword();
+    setAuthBusy(false);
+    if (!result || !result.ok) {
+      showError(authErrorEl, (result && result.error) || "Could not sign in.");
+      return;
+    }
+    if (result.confirmation_required) {
+      showError(authNoticeEl, "Check your email to confirm your account, then log in.");
+      authSignupMode = false;
+      renderAuthMode();
+      return;
+    }
+    await refreshAuthState();
+    if (api.get_state) {
+      const state = await api.get_state();
+      if (state.firm && state.output_path) showDesk(state);
+      else showSetup(state);
+    }
+  });
+}
+
+if (authForgotBtn) {
+  authForgotBtn.addEventListener("click", async () => {
+    if (authBusy) return;
+    showError(authErrorEl, "");
+    showError(authNoticeEl, "");
+    const api = desktopApi();
+    if (!api || !api.request_password_reset) {
+      showError(authErrorEl, "Update the app to reset your password here.");
+      return;
+    }
+    const email = authEmailEl ? authEmailEl.value : "";
+    try {
+      await api.request_password_reset(email);
+    } catch {
+      // Never reveal whether the address exists.
+    }
+    showError(authNoticeEl, "If that email has an account, a reset link is on its way.");
+  });
+}
+
 const authLoginBtn = document.getElementById("auth-login");
 if (authLoginBtn) {
   authLoginBtn.addEventListener("click", async () => {
@@ -1466,11 +1606,31 @@ if (authLoginBtn) {
     if (!result.ok) showError(authErrorEl, result.error || "Could not open login page.");
   });
 }
+if (profileButtonEl && profilePanelEl) {
+  profileButtonEl.addEventListener("click", (event) => {
+    event.stopPropagation();
+    const open = profilePanelEl.hidden;
+    profilePanelEl.hidden = !open;
+    profileButtonEl.setAttribute("aria-expanded", open ? "true" : "false");
+  });
+  document.addEventListener("click", (event) => {
+    if (profilePanelEl.hidden) return;
+    if (!quotaBannerEl.contains(event.target)) closeProfilePanel();
+  });
+  document.addEventListener("keydown", (event) => {
+    if (event.key === "Escape" && !profilePanelEl.hidden) {
+      closeProfilePanel();
+      profileButtonEl.focus();
+    }
+  });
+}
+
 const authLogoutBtn = document.getElementById("auth-logout");
 if (authLogoutBtn) {
   authLogoutBtn.addEventListener("click", async () => {
     const api = desktopApi();
     if (!api || !api.logout) return;
+    closeProfilePanel();
     await api.logout();
     await refreshAuthState();
     const state = await api.get_state();

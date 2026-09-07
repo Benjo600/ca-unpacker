@@ -5,7 +5,11 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = Path(SPECPATH)
 
-datas = [(str(ROOT / "apps" / "ui"), "ui")]
+datas = [
+    (str(ROOT / "apps" / "ui"), "ui"),
+    # Supabase endpoints for the shipped build; read by apps/engine/auth_config.py.
+    (str(ROOT / "apps" / "config.json"), "."),
+]
 binaries = []
 hiddenimports = [
     "apps",

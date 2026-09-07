@@ -19,10 +19,19 @@ export default function Signup() {
     setMessage(null);
     setLoading(true);
 
+    const wantsDesktop = searchParams.get("redirect") === "desktop";
+    // This project requires email confirmation, so signUp returns no session
+    // and cannot hand off here. Point the confirmation link back at the login
+    // page carrying the desktop redirect, so clicking it lands the user in the
+    // app instead of dead-ending in the browser.
+    const emailRedirectTo = `${window.location.origin}/login${
+      wantsDesktop ? "?redirect=desktop" : ""
+    }`;
+
     const { data, error: signUpError } = await supabase.auth.signUp({
       email,
       password,
-      options: { data: { firm_name: firmName } },
+      options: { data: { firm_name: firmName }, emailRedirectTo },
     });
 
     setLoading(false);
@@ -32,7 +41,7 @@ export default function Signup() {
       return;
     }
 
-    if (searchParams.get("redirect") === "desktop" && data.session) {
+    if (wantsDesktop && data.session) {
       redirectToDesktop(data.session);
       return;
     }

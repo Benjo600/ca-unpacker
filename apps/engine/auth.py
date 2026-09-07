@@ -39,7 +39,14 @@ _OFFLINE_EXPIRED = (
     "Connect to the internet to verify your plan before processing more files."
 )
 _SUSPENDED_MESSAGE = "Account suspended — contact support."
+_INVALID_CREDENTIALS_MESSAGE = "Email or password is incorrect."
+_EMAIL_TAKEN_MESSAGE = "An account with this email already exists. Log in instead."
+_WEAK_PASSWORD_MESSAGE = "Password must be at least 6 characters."
+_RATE_LIMITED_MESSAGE = "Too many attempts. Wait a minute and try again."
+_NO_CONNECTION_MESSAGE = "Could not reach the server. Check your internet connection."
 _HTTP_TIMEOUT = 12.0
+_EXISTING_USER_HINTS = ("already registered", "already exists", "user_already_exists")
+_WEAK_PASSWORD_HINTS = ("weak_password", "should be at least", "password is too short")
 
 
 def device_fingerprint() -> str:
@@ -128,6 +135,115 @@ def login_via_tokens(access_token: str, refresh_token: str) -> dict:
     return get_auth_state()
 
 
+def sign_in_with_password(email: str, password: str) -> dict:
+    address = (email or "").strip()
+    secret = password or ""
+    if not address or not secret:
+        raise ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    payload = _post_password_auth(
+        "/auth/v1/token?grant_type=password",
+        {"email": address, "password": secret},
+    )
+    tokens = _session_tokens(payload)
+    if tokens is None:
+        raise ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    return login_via_tokens(tokens[0], tokens[1])
+
+
+def sign_up_with_password(email: str, password: str) -> dict:
+    address = (email or "").strip()
+    secret = password or ""
+    if not address:
+        raise ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    if len(secret) < 6:
+        raise ValueError(_WEAK_PASSWORD_MESSAGE)
+    payload = _post_password_auth(
+        "/auth/v1/signup",
+        {"email": address, "password": secret},
+        signup=True,
+    )
+    tokens = _session_tokens(payload)
+    if tokens is None:
+        return {
+            "signed_in": False,
+            "confirmation_required": True,
+            "email": address,
+        }
+    state = login_via_tokens(tokens[0], tokens[1])
+    state["confirmation_required"] = False
+    return state
+
+
+def send_password_reset(email: str) -> None:
+    address = (email or "").strip()
+    if not address:
+        return None
+    try:
+        _post_auth("/auth/v1/recover", {"email": address})
+    except (httpx.HTTPError, ValueError):
+        # Never reveal whether the address is registered.
+        return None
+    return None
+
+
+def _session_tokens(payload: dict) -> tuple[str, str] | None:
+    source: dict[str, Any] = payload
+    nested = payload.get("session")
+    if not payload.get("access_token") and isinstance(nested, dict):
+        source = nested
+    access = str(source.get("access_token") or "").strip()
+    refresh = str(source.get("refresh_token") or "").strip()
+    if not access or not refresh:
+        return None
+    return access, refresh
+
+
+def _auth_error_detail(response: httpx.Response) -> str:
+    try:
+        payload = response.json()
+    except Exception:
+        return response.text or ""
+    if not isinstance(payload, dict):
+        return str(payload)
+    fields = (
+        "error_code",
+        "error",
+        "error_description",
+        "code",
+        "msg",
+        "message",
+    )
+    parts = [str(payload.get(field)) for field in fields if payload.get(field)]
+    return " ".join(parts)
+
+
+def _password_auth_error(exc: httpx.HTTPStatusError, signup: bool) -> ValueError:
+    status = exc.response.status_code
+    detail = _auth_error_detail(exc.response).lower()
+    if status == 429 or "rate limit" in detail or "over_email_send_rate" in detail:
+        return ValueError(_RATE_LIMITED_MESSAGE)
+    if any(hint in detail for hint in _EXISTING_USER_HINTS):
+        return ValueError(_EMAIL_TAKEN_MESSAGE)
+    if any(hint in detail for hint in _WEAK_PASSWORD_HINTS):
+        return ValueError(_WEAK_PASSWORD_MESSAGE)
+    if status == 422:
+        return ValueError(_WEAK_PASSWORD_MESSAGE)
+    if status == 400:
+        if signup:
+            return ValueError(_EMAIL_TAKEN_MESSAGE)
+        return ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    return ValueError(_NO_CONNECTION_MESSAGE)
+
+
+def _post_password_auth(path: str, body: dict[str, Any], signup: bool = False) -> dict:
+    try:
+        return _post_auth(path, body)
+    except httpx.HTTPStatusError as exc:
+        raise _password_auth_error(exc, signup) from None
+    except httpx.RequestError:
+        raise ValueError(_NO_CONNECTION_MESSAGE) from None
+
+
 def logout() -> None:
     session = get_session()
     if session and _network_available():
@@ -137,7 +253,10 @@ def logout() -> None:
                 {"refresh_token": session["refresh_token"]},
                 session=session,
             )
-        except httpx.HTTPError:
+        except Exception:
+            # Revoking server-side is best effort. A rejected or expired token
+            # (403 raises ValueError, not HTTPError) must never strand the user
+            # signed in locally, so the session is cleared either way.
             pass
     _clear_session()
 
