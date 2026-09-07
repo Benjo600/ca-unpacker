@@ -1,3 +1,5 @@
+const loginEl = document.getElementById("login");
+const welcomeEl = document.getElementById("welcome");
 const setupEl = document.getElementById("setup");
 const deskEl = document.getElementById("desk");
 const firmNameEl = document.getElementById("firm-name");
@@ -85,6 +87,15 @@ let lastGuideHighlight = null;
 let lastPeriodCount = 0;
 let authState = null;
 let devMode = false;
+let lastAppState = null;
+let uiSessionActive = false;
+let navHistory = [];
+let navIndex = -1;
+let navSilent = false;
+let navBusy = false;
+
+const UI_SESSION_KEY = "caUnpackerUiSession";
+const UI_REMEMBER_KEY = "caUnpackerRememberUser";
 
 function desktopApi() {
   return (window.pywebview && window.pywebview.api) || null;
@@ -107,6 +118,248 @@ function showPane(name) {
   if (name === "clients") navLabelEl.textContent = "Clients";
   if (name === "periods") navLabelEl.textContent = "Periods";
   if (name === "dump") navLabelEl.textContent = "Dump tray";
+  updateDeskContext(name);
+}
+
+function updateDeskContext(pane) {
+  const el = document.getElementById("desk-context");
+  if (!el) return;
+  const current = pane || currentDeskPane();
+  const parts = ["Clients"];
+  if (current === "periods" || current === "dump") {
+    const clientName =
+      (currentClient && currentClient.name) ||
+      (periodClientNameEl && periodClientNameEl.textContent) ||
+      (dumpEyebrowEl && dumpEyebrowEl.textContent);
+    if (clientName && clientName !== "Dump tray") parts.push(clientName);
+  }
+  if (current === "dump") {
+    const periodLabel =
+      (currentPeriod && currentPeriod.label) ||
+      (dumpTitleEl && dumpTitleEl.textContent);
+    if (periodLabel) parts.push(periodLabel);
+  }
+  el.textContent = parts.join(" / ");
+}
+
+function currentDeskPane() {
+  if (paneDump && !paneDump.classList.contains("hidden")) return "dump";
+  if (panePeriods && !panePeriods.classList.contains("hidden")) return "periods";
+  return "clients";
+}
+
+function navEntryKey(entry) {
+  if (!entry) return "";
+  return `${entry.pane}:${entry.clientId || ""}:${entry.periodId || ""}`;
+}
+
+function currentNavEntry() {
+  const pane = currentDeskPane();
+  const entry = { pane };
+  if (pane === "periods" && currentClient) entry.clientId = currentClient.id;
+  if (pane === "dump") {
+    if (currentClient) entry.clientId = currentClient.id;
+    if (currentPeriod) entry.periodId = currentPeriod.id;
+  }
+  return entry;
+}
+
+function updateNavButtons() {
+  const backBtn = document.getElementById("nav-back");
+  const forwardBtn = document.getElementById("nav-forward");
+  if (backBtn) backBtn.disabled = navBusy || navIndex <= 0;
+  if (forwardBtn) forwardBtn.disabled = navBusy || navIndex < 0 || navIndex >= navHistory.length - 1;
+}
+
+function recordNav(entry) {
+  if (navSilent || !entry) return;
+  const last = navHistory[navIndex];
+  if (last && navEntryKey(last) === navEntryKey(entry)) {
+    updateNavButtons();
+    return;
+  }
+  navHistory = navHistory.slice(0, navIndex + 1);
+  navHistory.push(entry);
+  navIndex = navHistory.length - 1;
+  updateNavButtons();
+}
+
+async function applyNavEntry(entry) {
+  if (!entry) return;
+  if (entry.pane === "clients") {
+    const api = desktopApi();
+    let state = lastAppState;
+    if (api && api.get_state) state = await api.get_state();
+    if (state) showDesk(state);
+    return;
+  }
+  if (entry.pane === "periods" && entry.clientId) {
+    await openClient(entry.clientId);
+    return;
+  }
+  if (entry.pane === "dump" && entry.periodId) {
+    await openPeriod(entry.periodId);
+  }
+}
+
+async function goNavBack() {
+  if (navBusy || navIndex <= 0) return;
+  navBusy = true;
+  updateNavButtons();
+  navSilent = true;
+  navIndex -= 1;
+  try {
+    await applyNavEntry(navHistory[navIndex]);
+  } finally {
+    navSilent = false;
+    navBusy = false;
+    updateNavButtons();
+  }
+}
+
+async function goNavForward() {
+  if (navBusy || navIndex < 0 || navIndex >= navHistory.length - 1) return;
+  navBusy = true;
+  updateNavButtons();
+  navSilent = true;
+  navIndex += 1;
+  try {
+    await applyNavEntry(navHistory[navIndex]);
+  } finally {
+    navSilent = false;
+    navBusy = false;
+    updateNavButtons();
+  }
+}
+
+async function refreshCurrentView() {
+  if (navBusy || !deskIsVisible()) return;
+  navBusy = true;
+  updateNavButtons();
+  navSilent = true;
+  try {
+    const pane = currentDeskPane();
+    if (pane === "dump" && currentPeriod) {
+      await openPeriod(currentPeriod.id);
+    } else if (pane === "periods" && currentClient) {
+      await openClient(currentClient.id);
+    } else {
+      const api = desktopApi();
+      let state = lastAppState;
+      if (api && api.get_state) state = await api.get_state();
+      if (state) {
+        lastAppState = state;
+        firmLabelEl.textContent = state.firm ? state.firm.name : "";
+        setOutputLabel(state.output_path || "");
+        setPathWarnings(state.path_warnings || []);
+        renderLicense(state.license);
+        renderClients(state.clients || []);
+        syncGuide();
+      }
+    }
+  } finally {
+    navSilent = false;
+    navBusy = false;
+    updateNavButtons();
+  }
+}
+
+function isTypingTarget(el) {
+  if (!el) return false;
+  const tag = (el.tagName || "").toLowerCase();
+  if (tag === "input" || tag === "textarea" || tag === "select") return true;
+  return Boolean(el.isContentEditable);
+}
+
+function showScreen(name) {
+  if (loginEl) loginEl.classList.toggle("hidden", name !== "login");
+  setupEl.classList.toggle("hidden", name !== "setup");
+  if (welcomeEl) welcomeEl.classList.toggle("hidden", name !== "welcome");
+  deskEl.classList.toggle("hidden", name !== "desk");
+}
+
+function firmIsConfigured(state) {
+  return Boolean(state && state.firm && state.output_path);
+}
+
+function setUiSession() {
+  uiSessionActive = true;
+  try {
+    sessionStorage.setItem(UI_SESSION_KEY, "1");
+  } catch {
+    /* sessionStorage is optional in this host */
+  }
+}
+
+function restoreLoginForm() {
+  const userEl = document.getElementById("login-user");
+  const rememberEl = document.getElementById("login-remember");
+  if (!userEl) return;
+  try {
+    const saved = localStorage.getItem(UI_REMEMBER_KEY) || "";
+    if (saved) {
+      userEl.value = saved;
+      if (rememberEl) rememberEl.checked = true;
+    }
+  } catch {
+    /* localStorage is optional in this host */
+  }
+}
+
+function persistRememberedUser() {
+  const userEl = document.getElementById("login-user");
+  const rememberEl = document.getElementById("login-remember");
+  try {
+    if (rememberEl && rememberEl.checked && userEl && userEl.value) {
+      localStorage.setItem(UI_REMEMBER_KEY, userEl.value);
+    } else {
+      localStorage.removeItem(UI_REMEMBER_KEY);
+    }
+  } catch {
+    /* localStorage is optional in this host */
+  }
+}
+
+function fillWelcome(state) {
+  const firmEl = document.getElementById("welcome-firm");
+  if (firmEl) {
+    firmEl.textContent = (state && state.firm && state.firm.name) || "CA Unpacker";
+  }
+
+  const licenseRow = document.getElementById("welcome-license-row");
+  const licenseEl = document.getElementById("welcome-license");
+  const license = state && state.license;
+  if (licenseRow && licenseEl) {
+    let text = "";
+    if (license && license.plan_label) {
+      if (license.file_limit == null) {
+        text = `${license.plan_label} · unlimited files`;
+      } else {
+        text = `${license.plan_label} · ${license.files_used}/${license.file_limit} files this month`;
+      }
+    }
+    licenseEl.textContent = text;
+    licenseRow.hidden = !text;
+  }
+
+  const outputRow = document.getElementById("welcome-output-row");
+  const outputEl = document.getElementById("welcome-output");
+  const outputPath = (state && state.output_path) || "";
+  if (outputRow && outputEl) {
+    outputEl.textContent = outputPath;
+    outputRow.hidden = !outputPath;
+  }
+}
+
+function routeAfterLogin(state) {
+  lastAppState = state;
+  if (firmIsConfigured(state)) {
+    fillWelcome(state);
+    showScreen("welcome");
+    syncGuide();
+    return;
+  }
+  showSetup(state);
 }
 
 function renderClients(clients) {
@@ -151,9 +404,8 @@ function renderPeriods(periods) {
     name.className = "name";
     name.textContent = period.label;
     const hint = document.createElement("span");
+    hint.className = "period-action";
     hint.textContent = "Open dump tray";
-    hint.style.color = "#5c6b63";
-    hint.style.fontSize = "13px";
     row.append(name, hint);
     row.addEventListener("click", () => openPeriod(period.id));
     row.addEventListener("keydown", (event) => {
@@ -325,15 +577,18 @@ function setPathWarnings(warnings) {
 
 function renderLicense(license) {
   const el = document.getElementById("license-label");
+  const nameEl = document.getElementById("license-plan-name");
   if (!el) return;
   if (!license) {
     el.textContent = "";
+    if (nameEl) nameEl.textContent = "";
     return;
   }
+  if (nameEl) nameEl.textContent = license.plan_label || "";
   if (license.file_limit == null) {
-    el.textContent = `${license.plan_label} · unlimited files`;
+    el.textContent = "Unlimited files";
   } else {
-    el.textContent = `${license.plan_label} · ${license.files_used}/${license.file_limit} files this month`;
+    el.textContent = `${license.files_used} / ${license.file_limit} files`;
   }
   const copy = document.getElementById("license-copy");
   if (copy) {
@@ -420,8 +675,8 @@ async function refreshAuthState() {
 }
 
 function showDesk(state) {
-  setupEl.classList.add("hidden");
-  deskEl.classList.remove("hidden");
+  lastAppState = state;
+  showScreen("desk");
   firmLabelEl.textContent = state.firm ? state.firm.name : "";
   setOutputLabel(state.output_path || "");
   setPathWarnings(state.path_warnings || []);
@@ -430,12 +685,13 @@ function showDesk(state) {
   renderQuotaBanner(state.auth || authState);
   renderClients(state.clients || []);
   showPane("clients");
+  recordNav({ pane: "clients" });
   syncGuide();
 }
 
 function showSetup(state) {
-  deskEl.classList.add("hidden");
-  setupEl.classList.remove("hidden");
+  lastAppState = state;
+  showScreen("setup");
   const lib = document.getElementById("library-path");
   if (lib) lib.textContent = state.library_path || "";
   setOutputLabel(state.output_path || "");
@@ -461,6 +717,7 @@ async function openClient(clientId) {
   renderPeriods(result.periods);
   lastPeriodCount = (result.periods || []).length;
   showPane("periods");
+  recordNav({ pane: "periods", clientId: currentClient.id });
   syncGuide();
 }
 
@@ -481,6 +738,11 @@ async function openPeriod(periodId) {
   setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
   showPane("dump");
   refreshTesseractNote();
+  recordNav({
+    pane: "dump",
+    clientId: currentClient ? currentClient.id : result.client && result.client.id,
+    periodId: currentPeriod.id,
+  });
   syncGuide();
 }
 
@@ -1244,11 +1506,15 @@ function renderGuideList(items) {
   }
 }
 
+function deskIsVisible() {
+  return deskEl && !deskEl.classList.contains("hidden");
+}
+
 function syncGuide() {
   const card = document.getElementById("guide");
   if (!card) return;
   const onSetup = guideOnSetup();
-  if (onSetup || guideDismissed) {
+  if (onSetup || guideDismissed || !deskIsVisible()) {
     card.classList.add("hidden");
     clearGuideHighlight();
     if (onSetup) {
@@ -1303,6 +1569,7 @@ async function deleteClientRow(client) {
     currentClient = null;
     currentPeriod = null;
     showPane("clients");
+    recordNav({ pane: "clients" });
   }
   renderClients(result.clients || []);
   syncGuide();
@@ -1310,6 +1577,7 @@ async function deleteClientRow(client) {
 
 async function boot() {
   const state = await window.pywebview.api.get_state();
+  lastAppState = state;
   guideDismissed = Boolean(state.guide_dismissed);
   authState = state.auth || null;
   applyDevMode(state.license);
@@ -1400,6 +1668,13 @@ document.getElementById("back-to-clients").addEventListener("click", async () =>
 document.getElementById("back-to-periods").addEventListener("click", () => {
   if (currentClient) openClient(currentClient.id);
 });
+
+const navBackBtn = document.getElementById("nav-back");
+const navForwardBtn = document.getElementById("nav-forward");
+const navRefreshBtn = document.getElementById("nav-refresh");
+if (navBackBtn) navBackBtn.addEventListener("click", goNavBack);
+if (navForwardBtn) navForwardBtn.addEventListener("click", goNavForward);
+if (navRefreshBtn) navRefreshBtn.addEventListener("click", refreshCurrentView);
 
 document.getElementById("open-pack").addEventListener("click", async () => {
   if (!currentPeriod) return;
@@ -1697,13 +1972,31 @@ const unlockCancelBtn = document.getElementById("unlock-cancel");
 if (unlockCancelBtn) unlockCancelBtn.addEventListener("click", closeUnlockModal);
 
 document.addEventListener("keydown", (event) => {
-  if (event.key !== "Escape") return;
-  if (cropModal && !cropModal.classList.contains("hidden")) {
-    closeCropModal();
+  if (event.key === "Escape") {
+    if (cropModal && !cropModal.classList.contains("hidden")) {
+      closeCropModal();
+      return;
+    }
+    if (unlockModal && !unlockModal.classList.contains("hidden")) {
+      closeUnlockModal();
+    }
     return;
   }
-  if (unlockModal && !unlockModal.classList.contains("hidden")) {
-    closeUnlockModal();
+  if (isTypingTarget(event.target)) return;
+  if (!deskIsVisible()) return;
+  if (event.altKey && event.key === "ArrowLeft") {
+    event.preventDefault();
+    goNavBack();
+    return;
+  }
+  if (event.altKey && event.key === "ArrowRight") {
+    event.preventDefault();
+    goNavForward();
+    return;
+  }
+  if (event.key === "F5" || ((event.ctrlKey || event.metaKey) && (event.key === "r" || event.key === "R"))) {
+    event.preventDefault();
+    refreshCurrentView();
   }
 });
 
