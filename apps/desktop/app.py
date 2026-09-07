@@ -26,6 +26,7 @@ from apps.engine.dump import (
 )
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
+from apps.desktop.protocol import ensure_registered as register_protocol
 from apps.engine import auth
 from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
@@ -85,6 +86,63 @@ class DesktopApi:
 
     def open_login(self) -> dict:
         webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
+        return {"ok": True}
+
+    def login_with_password(self, email: str, password: str) -> dict:
+        address = str(email or "").strip()
+        secret = str(password or "")
+        if not address:
+            return {"ok": False, "error": "Enter your email address."}
+        if not secret:
+            return {"ok": False, "error": "Enter your password."}
+        try:
+            auth.sign_in_with_password(address, secret)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not reach the sign-in service. Try again."}
+        try:
+            auth.fetch_quota()
+        except Exception:
+            pass
+        return {"ok": True, **auth.get_auth_state()}
+
+    def signup_with_password(self, email: str, password: str) -> dict:
+        address = str(email or "").strip()
+        secret = str(password or "")
+        if not address:
+            return {"ok": False, "error": "Enter your email address."}
+        if not secret:
+            return {"ok": False, "error": "Choose a password."}
+        try:
+            created = auth.sign_up_with_password(address, secret)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not reach the sign-up service. Try again."}
+        if isinstance(created, dict) and created.get("confirmation_required"):
+            return {
+                "ok": True,
+                "confirmation_required": True,
+                "signed_in": False,
+                "email": created.get("email") or address,
+            }
+        try:
+            auth.fetch_quota()
+        except Exception:
+            pass
+        return {"ok": True, "confirmation_required": False, **auth.get_auth_state()}
+
+    def request_password_reset(self, email: str) -> dict:
+        address = str(email or "").strip()
+        if not address:
+            return {"ok": False, "error": "Enter your email address first."}
+        try:
+            auth.send_password_reset(address)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not send the reset email. Try again."}
         return {"ok": True}
 
     def logout(self) -> dict:
@@ -559,6 +617,9 @@ def main() -> None:
     try:
         init_library()
         get_engine()
+        # Claim caunpacker:// so browser sign-in can hand the session back.
+        # Best effort: the in-app form still works if this fails.
+        register_protocol()
         _startup_auth_sync()
         global _WINDOW
         api = DesktopApi()
