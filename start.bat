@@ -1,6 +1,13 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+if exist "%~dp0.env" (
+  for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%~dp0.env") do (
+    if not "%%A"=="" set "%%A=%%B"
+  )
+) else (
+  echo No .env file found. Copy .env.example to .env and fill in the values from the production project.
+)
 if exist "%~dp0dist\CAUnpacker\tesseract\tesseract.exe" (
   set "CAUNPACKER_TESSERACT=%~dp0dist\CAUnpacker\tesseract\tesseract.exe"
 )

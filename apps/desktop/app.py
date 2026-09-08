@@ -1,10 +1,14 @@
 from __future__ import annotations
 
+import json
 import os
 import subprocess
 import sys
 import threading
+import time
+import webbrowser
 from pathlib import Path
+from urllib.parse import parse_qs, urlparse
 
 import webview
 
@@ -22,6 +26,8 @@ from apps.engine.dump import (
 )
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
+from apps.engine import auth
+from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import (
@@ -43,6 +49,17 @@ from apps.engine.pipeline import (
 from apps.engine.wipe import wipe_all
 
 _WINDOW: webview.Window | None = None
+_PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
+_startup_deep_link: str | None = None
+
+
+def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
+    args = argv if argv is not None else sys.argv
+    for arg in args[1:]:
+        text = str(arg)
+        if text.startswith("caunpacker://"):
+            return text
+    return None
 
 
 def _dialog_open():
@@ -57,6 +74,85 @@ class DesktopApi:
     def __init__(self) -> None:
         self._current_period_id: int | None = None
 
+    def get_auth_state(self) -> dict:
+        return auth.get_auth_state()
+
+    def open_signup(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/signup?redirect=desktop")
+        return {"ok": True}
+
+    def open_login(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
+        return {"ok": True}
+
+    def sign_in(self, email: str, password: str) -> dict:
+        try:
+            auth.login_with_password(str(email or ""), str(password or ""))
+            try:
+                auth.fetch_quota()
+            except Exception:
+                pass
+            return {"ok": True, **auth.get_auth_state()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def sign_up(self, full_name: str, email: str, password: str, confirm_password: str) -> dict:
+        try:
+            result = auth.sign_up(
+                str(full_name or ""),
+                str(email or ""),
+                str(password or ""),
+                str(confirm_password or ""),
+            )
+            if result.get("signed_in"):
+                try:
+                    auth.fetch_quota()
+                except Exception:
+                    pass
+                result.update(auth.get_auth_state())
+            return {"ok": True, **result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def request_password_reset(self, email: str) -> dict:
+        try:
+            result = auth.request_password_reset(str(email or ""))
+            return {"ok": True, **result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def update_password(self, password: str, confirm_password: str) -> dict:
+        try:
+            result = auth.update_password(str(password or ""), str(confirm_password or ""))
+            return {"ok": True, **result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def logout(self) -> dict:
+        auth.logout()
+        return {"ok": True, **auth.get_auth_state()}
+
+    def handle_auth_callback(self, url: str) -> dict:
+        parsed = urlparse(str(url or ""))
+        fragment = parsed.fragment or parsed.query
+        params = parse_qs(fragment)
+        access = (params.get("access_token") or [None])[0]
+        refresh = (params.get("refresh_token") or [None])[0]
+        auth_type = str((params.get("type") or [""])[0] or "").lower()
+        recovery = auth_type == "recovery"
+        if not access or not refresh:
+            return {"ok": False, "error": "Sign-in callback did not include tokens."}
+        try:
+            auth.login_via_tokens(str(access), str(refresh), recovery=recovery)
+            try:
+                auth.fetch_quota()
+            except Exception:
+                pass
+            state = auth.get_auth_state()
+            return {"ok": True, "recovery": recovery, **state}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
     def get_state(self) -> dict:
         init_library()
         output = get_output_root()
@@ -68,6 +164,7 @@ class DesktopApi:
             "output_path": str(output) if output else "",
             "guide_dismissed": is_guide_dismissed(),
             "license": get_license_status(),
+            "auth": auth.get_auth_state(),
             "path_warnings": path_sync_warnings(
                 str(library), str(output) if output else ""
             ),
@@ -411,12 +508,74 @@ def _bind_explorer_drop(api: DesktopApi) -> None:
         pass
 
 
+def _pending_deep_link_path() -> Path:
+    return get_library_path() / _PENDING_AUTH_CALLBACK_FILE
+
+
+def _read_pending_deep_link() -> str | None:
+    path = _pending_deep_link_path()
+    if not path.is_file():
+        return None
+    try:
+        url = path.read_text(encoding="utf-8").strip()
+        path.unlink(missing_ok=True)
+    except OSError:
+        return None
+    return url if url.startswith("caunpacker://") else None
+
+
+def _notify_auth_ui(result: dict) -> None:
+    if _WINDOW is None:
+        return
+    try:
+        payload = json.dumps(result)
+        _WINDOW.evaluate_js(f"applyAuthCallback({payload}).catch(() => {{}})")
+    except Exception:
+        pass
+
+
+def _process_deep_link(api: DesktopApi, url: str) -> dict:
+    result = api.handle_auth_callback(url)
+    _notify_auth_ui(result)
+    return result
+
+
+def _start_deep_link_poller(api: DesktopApi) -> None:
+    def poll() -> None:
+        while True:
+            time.sleep(1.5)
+            pending = _read_pending_deep_link()
+            if pending:
+                _process_deep_link(api, pending)
+
+    threading.Thread(target=poll, daemon=True).start()
+
+
+def _on_window_shown(api: DesktopApi) -> None:
+    _bind_explorer_drop(api)
+    if _startup_deep_link:
+        _process_deep_link(api, _startup_deep_link)
+    _start_deep_link_poller(api)
+
+
+def _startup_auth_sync() -> None:
+    try:
+        auth.refresh_session()
+        auth.fetch_quota()
+    except Exception:
+        pass
+
+
 def main() -> None:
     import traceback
+
+    global _startup_deep_link
+    _startup_deep_link = extract_deep_link_url()
 
     try:
         init_library()
         get_engine()
+        _startup_auth_sync()
         global _WINDOW
         api = DesktopApi()
         _WINDOW = webview.create_window(
@@ -428,7 +587,7 @@ def main() -> None:
             min_size=(880, 580),
             background_color="#2C3330",
         )
-        _WINDOW.events.shown += lambda: _bind_explorer_drop(api)
+        _WINDOW.events.shown += lambda: _on_window_shown(api)
         webview.start(icon=app_icon_path())
     except Exception:
         _log_crash(traceback.format_exc())

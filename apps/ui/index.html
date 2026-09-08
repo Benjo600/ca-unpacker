@@ -60,7 +60,52 @@
           <a href="#" id="login-forgot" class="login-forgot">Forgot password</a>
         </div>
         <p id="login-error" class="error" hidden></p>
-        <button type="submit" id="login-submit">Log in</button>
+        <p id="login-message" class="login-note" hidden></p>
+        <button type="submit" id="login-submit" class="login-submit">Log in</button>
+        <p class="login-alt">No account? <button type="button" class="login-forgot" id="login-create">Create account</button></p>
+      </form>
+
+      <form id="signup-form" class="login-card hidden" autocomplete="off">
+        <p class="login-card-kicker">New firm</p>
+        <h2 class="login-card-title">Create account</h2>
+        <p class="login-card-lede">Create a CA Unpacker account to open the workspace on this computer.</p>
+        <label for="signup-name">Full name</label>
+        <input id="signup-name" type="text" maxlength="200" placeholder="e.g. Darshan Shah" autocomplete="name" />
+        <label for="signup-email">Email</label>
+        <input id="signup-email" type="email" maxlength="200" placeholder="e.g. office@firm.in" autocomplete="email" />
+        <label for="signup-password">Password</label>
+        <input id="signup-password" type="password" maxlength="200" placeholder="At least 8 characters" autocomplete="new-password" />
+        <label for="signup-confirm">Confirm password</label>
+        <input id="signup-confirm" type="password" maxlength="200" placeholder="Re-enter password" autocomplete="new-password" />
+        <p id="signup-error" class="error" hidden></p>
+        <p id="signup-message" class="login-note" hidden></p>
+        <button type="submit" id="signup-submit" class="login-submit">Create account</button>
+        <p class="login-alt"><button type="button" class="login-forgot" id="signup-back">Back to log in</button></p>
+      </form>
+
+      <form id="forgot-form" class="login-card hidden" autocomplete="off">
+        <p class="login-card-kicker">Account</p>
+        <h2 class="login-card-title">Reset password</h2>
+        <p class="login-card-lede">Enter the email for your account. We’ll send reset instructions if it exists.</p>
+        <label for="forgot-email">Email</label>
+        <input id="forgot-email" type="email" maxlength="200" placeholder="e.g. office@firm.in" autocomplete="email" />
+        <p id="forgot-error" class="error" hidden></p>
+        <p id="forgot-message" class="login-note" hidden></p>
+        <button type="submit" id="forgot-submit" class="login-submit">Send reset instructions</button>
+        <p class="login-alt"><button type="button" class="login-forgot" id="forgot-back">Back to log in</button></p>
+      </form>
+
+      <form id="reset-form" class="login-card hidden" autocomplete="off">
+        <p class="login-card-kicker">Account</p>
+        <h2 class="login-card-title">Set a new password</h2>
+        <p class="login-card-lede">Choose a new password for this CA Unpacker account.</p>
+        <label for="reset-password">New password</label>
+        <input id="reset-password" type="password" maxlength="200" placeholder="At least 8 characters" autocomplete="new-password" />
+        <label for="reset-confirm">Confirm password</label>
+        <input id="reset-confirm" type="password" maxlength="200" placeholder="Re-enter password" autocomplete="new-password" />
+        <p id="reset-error" class="error" hidden></p>
+        <button type="submit" id="reset-submit" class="login-submit">Save password</button>
+        <p class="login-alt"><button type="button" class="login-forgot" id="reset-back">Back to log in</button></p>
       </form>
     </div>
   </div>

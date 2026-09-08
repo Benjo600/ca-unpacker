@@ -9,3 +9,54 @@ Traceback (most recent call last):
     ^^^
 IndentationError: expected an indented block after function definition on line 320
 23-Aug-26 19:50:50.27 launch 
+31-08-2026 22:27:21.81 launch 
+31-08-2026 22:35:25.53 launch 
+31-08-2026 22:38:32.24 launch 
+31-08-2026 22:45:14.10 launch 
+31-08-2026 22:46:24.74 launch 
+31-08-2026 22:49:32.74 launch 
+31-08-2026 22:50:14.87 launch 
+31-08-2026 22:52:31.29 launch 
+31-08-2026 22:58:31.06 launch 
+01-09-2026 19:23:18.00 launch 
+01-09-2026 19:31:33.89 launch 
+01-09-2026 19:32:12.43 launch 
+04-09-2026 19:30:20.40 launch 
+04-09-2026 19:30:55.12 launch 
+04-09-2026 19:47:34.89 launch 
+04-09-2026 19:55:44.50 launch 
+04-09-2026 20:03:18.34 launch 
+04-09-2026 20:09:32.62 launch 
+04-09-2026 20:13:47.37 launch 
+04-09-2026 21:38:04.79 launch 
+05-09-2026 19:29:31.75 launch 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\darsh\OneDrive\Documents\GitHub\ca-unpacker\apps\desktop\__main__.py", line 1, in <module>
+    from apps.desktop.app import main
+  File "C:\Users\darsh\OneDrive\Documents\GitHub\ca-unpacker\apps\desktop\app.py", line 27, in <module>
+    from apps.engine import auth
+  File "C:\Users\darsh\OneDrive\Documents\GitHub\ca-unpacker\apps\engine\auth.py", line 12, in <module>
+    import httpx
+ModuleNotFoundError: No module named 'httpx'
+05-09-2026 19:29:50.69 launch 
+Traceback (most recent call last):
+  File "<frozen runpy>", line 198, in _run_module_as_main
+  File "<frozen runpy>", line 88, in _run_code
+  File "C:\Users\darsh\OneDrive\Documents\GitHub\ca-unpacker\apps\desktop\__main__.py", line 1, in <module>
+    from apps.desktop.app import main
+  File "C:\Users\darsh\OneDrive\Documents\GitHub\ca-unpacker\apps\desktop\app.py", line 27, in <module>
+    from apps.engine import auth
+  File "C:\Users\darsh\OneDrive\Documents\GitHub\ca-unpacker\apps\engine\auth.py", line 12, in <module>
+    import httpx
+ModuleNotFoundError: No module named 'httpx'
+05-09-2026 19:31:24.40 launch 
+05-09-2026 19:40:49.28 launch 
+05-09-2026 19:41:23.93 launch 
+05-09-2026 19:45:43.44 launch 
+08-09-2026 18:46:14.81 launch 
+08-09-2026 18:57:05.77 launch 
+08-09-2026 20:14:08.82 launch 
+08-09-2026 20:19:51.74 launch 
+08-09-2026 21:00:44.29 launch 

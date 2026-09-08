@@ -94,3 +94,44 @@ def test_rejects_document_keys_in_request_body(tmp_path, monkeypatch):
 
     with pytest.raises(ValueError, match="document"):
         _reject_document_keys({"file_count": 1, "invoice_rows": []})
+
+
+def test_login_with_password_requires_email_and_password(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine.auth import login_with_password
+
+    with pytest.raises(ValueError, match="Enter your email"):
+        login_with_password("", "secret")
+    with pytest.raises(ValueError, match="Enter your email"):
+        login_with_password("office@firm.in", "")
+
+
+def test_sign_up_validates_name_email_and_password(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine.auth import sign_up
+
+    with pytest.raises(ValueError, match="full name"):
+        sign_up("", "office@firm.in", "password1", "password1")
+    with pytest.raises(ValueError, match="valid email"):
+        sign_up("Darshan Shah", "not-an-email", "password1", "password1")
+    with pytest.raises(ValueError, match="do not match"):
+        sign_up("Darshan Shah", "office@firm.in", "password1", "password2")
+    with pytest.raises(ValueError, match="8 characters"):
+        sign_up("Darshan Shah", "office@firm.in", "short", "short")
+
+
+def test_request_password_reset_requires_valid_email(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine.auth import request_password_reset
+
+    with pytest.raises(ValueError, match="valid email"):
+        request_password_reset("not-an-email")
+
+
+def test_recovery_tokens_mark_password_recovery(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    monkeypatch.setattr("apps.engine.auth._network_available", lambda: False)
+    from apps.engine.auth import get_auth_state, login_via_tokens
+
+    login_via_tokens("header.payload.sig", "refresh-token-plain", recovery=True)
+    assert get_auth_state()["password_recovery"] is True

@@ -4,10 +4,12 @@ import base64
 import hashlib
 import json
 import platform
+import re
 import secrets
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
+from urllib.parse import quote
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -39,7 +41,17 @@ _OFFLINE_EXPIRED = (
     "Connect to the internet to verify your plan before processing more files."
 )
 _SUSPENDED_MESSAGE = "Account suspended — contact support."
+_INVALID_CREDENTIALS = "Email or password is incorrect."
+_SIGN_IN_FAILED = "Could not sign in. Check your details and try again."
+_SIGN_UP_FAILED = "Could not create the account. Try again."
+_RESET_GENERIC = (
+    "If an account exists for this email, we'll send password reset instructions."
+)
+_RESET_SEND_FAILED = "Could not send reset instructions. Try again."
+_RESET_SAVE_FAILED = "Could not update the password. Try again."
 _HTTP_TIMEOUT = 12.0
+_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
+_MIN_PASSWORD_LEN = 8
 
 
 def device_fingerprint() -> str:
@@ -108,11 +120,14 @@ def _clear_session() -> None:
             "auth_access_token": "",
             "auth_refresh_token_enc": "",
             "auth_email": "",
+            "auth_recovery": False,
         }
     )
 
 
-def login_via_tokens(access_token: str, refresh_token: str) -> dict:
+def login_via_tokens(
+    access_token: str, refresh_token: str, *, recovery: bool = False
+) -> dict:
     access = (access_token or "").strip()
     refresh = (refresh_token or "").strip()
     if not access or not refresh:
@@ -123,9 +138,146 @@ def login_via_tokens(access_token: str, refresh_token: str) -> dict:
             "auth_access_token": access,
             "auth_refresh_token_enc": _encrypt_refresh_token(refresh),
             "auth_email": email,
+            "auth_recovery": bool(recovery),
         }
     )
     return get_auth_state()
+
+
+def login_with_password(email: str, password: str) -> dict:
+    cleaned = (email or "").strip()
+    if not cleaned or not str(password or ""):
+        raise ValueError("Enter your email and password.")
+    try:
+        payload = _post_auth(
+            "/auth/v1/token?grant_type=password",
+            {"email": cleaned, "password": password},
+        )
+    except ValueError:
+        raise
+    except httpx.HTTPStatusError as exc:
+        status = exc.response.status_code if exc.response is not None else 0
+        if status in (400, 401, 422):
+            raise ValueError(_INVALID_CREDENTIALS) from None
+        raise ValueError(_SIGN_IN_FAILED) from None
+    except httpx.HTTPError:
+        raise ValueError(_SIGN_IN_FAILED) from None
+    access = str(payload.get("access_token") or "").strip()
+    refresh = str(payload.get("refresh_token") or "").strip()
+    if not access or not refresh:
+        raise ValueError(_SIGN_IN_FAILED)
+    return login_via_tokens(access, refresh)
+
+
+def _valid_email(email: str) -> bool:
+    return bool(_EMAIL_RE.match(email or ""))
+
+
+def _friendly_signup_error(exc: httpx.HTTPStatusError) -> str:
+    status = exc.response.status_code if exc.response is not None else 0
+    detail = ""
+    try:
+        body = exc.response.json() if exc.response is not None else {}
+        detail = str(body.get("msg") or body.get("message") or body.get("error") or "")
+    except Exception:
+        detail = ""
+    lowered = detail.lower()
+    if status in (400, 422) and (
+        "already" in lowered or "registered" in lowered or "exists" in lowered
+    ):
+        return "An account with this email already exists."
+    if "password" in lowered and (
+        "weak" in lowered or "least" in lowered or "short" in lowered or "character" in lowered
+    ):
+        return "Choose a stronger password (at least 8 characters)."
+    if status in (400, 422) and "email" in lowered:
+        return "Enter a valid email address."
+    return _SIGN_UP_FAILED
+
+
+def sign_up(full_name: str, email: str, password: str, confirm_password: str) -> dict:
+    name = (full_name or "").strip()
+    cleaned = (email or "").strip()
+    secret = str(password or "")
+    confirm = str(confirm_password or "")
+    if not name:
+        raise ValueError("Enter your full name.")
+    if not cleaned or not _valid_email(cleaned):
+        raise ValueError("Enter a valid email address.")
+    if not secret:
+        raise ValueError("Enter a password.")
+    if secret != confirm:
+        raise ValueError("Passwords do not match.")
+    if len(secret) < _MIN_PASSWORD_LEN:
+        raise ValueError("Choose a stronger password (at least 8 characters).")
+    try:
+        payload = _post_auth(
+            "/auth/v1/signup",
+            {
+                "email": cleaned,
+                "password": secret,
+                "data": {"full_name": name, "firm_name": "My firm"},
+            },
+        )
+    except ValueError:
+        raise
+    except httpx.HTTPStatusError as exc:
+        raise ValueError(_friendly_signup_error(exc)) from None
+    except httpx.HTTPError:
+        raise ValueError(_SIGN_UP_FAILED) from None
+    session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
+    access = str(payload.get("access_token") or session.get("access_token") or "").strip()
+    refresh = str(payload.get("refresh_token") or session.get("refresh_token") or "").strip()
+    if access and refresh:
+        state = login_via_tokens(access, refresh)
+        return {"signed_in": True, "needs_confirmation": False, **state}
+    return {
+        "signed_in": False,
+        "needs_confirmation": True,
+        **get_auth_state(),
+    }
+
+
+def request_password_reset(email: str) -> dict:
+    cleaned = (email or "").strip()
+    if not cleaned or not _valid_email(cleaned):
+        raise ValueError("Enter a valid email address.")
+    redirect = "caunpacker://auth/callback"
+    try:
+        _post_auth(
+            f"/auth/v1/recover?redirect_to={quote(redirect, safe='')}",
+            {"email": cleaned},
+        )
+    except ValueError:
+        return {"ok": True, "message": _RESET_GENERIC}
+    except httpx.HTTPError:
+        raise ValueError(_RESET_SEND_FAILED) from None
+    return {"ok": True, "message": _RESET_GENERIC}
+
+
+def update_password(password: str, confirm_password: str) -> dict:
+    secret = str(password or "")
+    confirm = str(confirm_password or "")
+    if not secret:
+        raise ValueError("Enter a new password.")
+    if secret != confirm:
+        raise ValueError("Passwords do not match.")
+    if len(secret) < _MIN_PASSWORD_LEN:
+        raise ValueError("Choose a stronger password (at least 8 characters).")
+    session = get_session()
+    if session is None:
+        raise ValueError("This reset link is no longer valid. Request a new one.")
+    try:
+        _put_auth("/auth/v1/user", {"password": secret}, session=session)
+    except ValueError:
+        raise
+    except httpx.HTTPStatusError:
+        raise ValueError(_RESET_SAVE_FAILED) from None
+    except httpx.HTTPError:
+        raise ValueError(_RESET_SAVE_FAILED) from None
+    save_settings({"auth_recovery": False})
+    logout()
+    return {"ok": True, **get_auth_state()}
 
 
 def logout() -> None:
@@ -306,6 +458,7 @@ def get_auth_state() -> dict:
         "offline": offline,
         "last_sync_at": cache.get("synced_at"),
         "auth_url": CA_UNPACKER_AUTH_URL,
+        "password_recovery": bool(load_settings().get("auth_recovery")) and session is not None,
     }
 
 
@@ -337,6 +490,16 @@ def _auth_headers(session: dict | None = None) -> dict[str, str]:
     return headers
 
 
+def _parse_json_object(response: httpx.Response) -> dict:
+    if not response.content:
+        return {}
+    try:
+        data = response.json()
+    except Exception:
+        return {}
+    return data if isinstance(data, dict) else {}
+
+
 def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> dict:
     _reject_document_keys(body)
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
@@ -348,8 +511,21 @@ def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> 
     if response.status_code == 403:
         raise ValueError(_SUSPENDED_MESSAGE)
     response.raise_for_status()
-    data = response.json()
-    return data if isinstance(data, dict) else {}
+    return _parse_json_object(response)
+
+
+def _put_auth(path: str, body: dict[str, Any], session: dict | None = None) -> dict:
+    _reject_document_keys(body)
+    with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
+        response = client.put(
+            f"{SUPABASE_URL}{path}",
+            headers=_auth_headers(session),
+            json=body,
+        )
+    if response.status_code == 403:
+        raise ValueError(_SUSPENDED_MESSAGE)
+    response.raise_for_status()
+    return _parse_json_object(response)
 
 
 def _call_function(name: str, body: dict[str, Any], session: dict) -> dict:

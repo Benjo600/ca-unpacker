@@ -74,13 +74,12 @@ let guideDismissed = false;
 let lastGuideHighlight = null;
 let lastPeriodCount = 0;
 let lastAppState = null;
-let uiSessionActive = false;
+let authState = null;
 let navHistory = [];
 let navIndex = -1;
 let navSilent = false;
 let navBusy = false;
 
-const UI_SESSION_KEY = "caUnpackerUiSession";
 const UI_REMEMBER_KEY = "caUnpackerRememberUser";
 
 function desktopApi() {
@@ -268,12 +267,94 @@ function firmIsConfigured(state) {
   return Boolean(state && state.firm && state.output_path);
 }
 
-function setUiSession() {
-  uiSessionActive = true;
+function friendlyLoginError(raw) {
+  const text = String(raw || "").trim();
+  const lower = text.toLowerCase();
+  if (!text) return "Could not sign in. Check your details and try again.";
+  if (lower.includes("suspend")) return "Account suspended — contact support.";
+  if (lower.includes("enter your email")) return "Enter your email and password.";
+  if (
+    lower.includes("email or password") ||
+    lower.includes("invalid login") ||
+    lower.includes("invalid_credentials") ||
+    lower.includes("invalid grant")
+  ) {
+    return "Email or password is incorrect.";
+  }
+  return "Could not sign in. Check your details and try again.";
+}
+
+async function refreshAuthState() {
+  const api = desktopApi();
+  if (!api || !api.get_auth_state) {
+    authState = { signed_in: false };
+    return authState;
+  }
   try {
-    sessionStorage.setItem(UI_SESSION_KEY, "1");
+    authState = await api.get_auth_state();
   } catch {
-    /* sessionStorage is optional in this host */
+    authState = { signed_in: false };
+  }
+  return authState;
+}
+
+function showAuthCard(name) {
+  showScreen("login");
+  const cards = {
+    login: document.getElementById("login-form"),
+    signup: document.getElementById("signup-form"),
+    forgot: document.getElementById("forgot-form"),
+    reset: document.getElementById("reset-form"),
+  };
+  for (const [key, el] of Object.entries(cards)) {
+    if (el) el.classList.toggle("hidden", key !== name);
+  }
+}
+
+function showNote(el, message) {
+  if (!el) return;
+  if (!message) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  el.hidden = false;
+  el.textContent = message;
+}
+
+function continueAfterAuth(state) {
+  if (authState && authState.password_recovery) {
+    showAuthCard("reset");
+    syncGuide();
+    return;
+  }
+  routeAfterLogin(state || {});
+}
+
+async function applyAuthCallback(result) {
+  if (!result) return;
+  authState = result;
+  if (result.recovery || result.password_recovery) {
+    showAuthCard("reset");
+    return;
+  }
+  if (result.ok === false && result.error) {
+    const errorEl = document.getElementById("login-error");
+    showAuthCard("login");
+    if (errorEl) showError(errorEl, friendlyLoginError(result.error));
+    return;
+  }
+  if (result.signed_in) {
+    const api = desktopApi();
+    let state = lastAppState;
+    if (api && api.get_state) {
+      try {
+        state = await api.get_state();
+      } catch {
+        state = lastAppState;
+      }
+    }
+    continueAfterAuth(state || {});
   }
 }
 
@@ -1476,12 +1557,33 @@ async function deleteClientRow(client) {
 }
 
 async function boot() {
-  const state = await window.pywebview.api.get_state();
-  lastAppState = state;
-  guideDismissed = Boolean(state.guide_dismissed);
   restoreLoginForm();
-  showScreen("login");
-  syncGuide();
+  try {
+    const api = desktopApi();
+    let state = lastAppState || {};
+    if (api && api.get_state) {
+      state = await api.get_state();
+    } else if (window.pywebview && window.pywebview.api && window.pywebview.api.get_state) {
+      state = await window.pywebview.api.get_state();
+    }
+    lastAppState = state;
+    guideDismissed = Boolean(state && state.guide_dismissed);
+    authState = (state && state.auth) || null;
+    await refreshAuthState();
+    if (authState && (authState.password_recovery || authState.recovery)) {
+      showAuthCard("reset");
+      return;
+    }
+    if (authState && authState.signed_in) {
+      routeAfterLogin(state);
+      return;
+    }
+    showAuthCard("login");
+    syncGuide();
+  } catch {
+    showAuthCard("login");
+    syncGuide();
+  }
 }
 
 const loginForm = document.getElementById("login-form");
@@ -1489,12 +1591,41 @@ if (loginForm) {
   loginForm.addEventListener("submit", async (event) => {
     event.preventDefault();
     const errorEl = document.getElementById("login-error");
+    const noteEl = document.getElementById("login-message");
+    const userEl = document.getElementById("login-user");
+    const passwordEl = document.getElementById("login-password");
+    const submitBtn = document.getElementById("login-submit");
     if (errorEl) showError(errorEl, "");
+    if (noteEl) showNote(noteEl, "");
     persistRememberedUser();
-    setUiSession();
+    const email = userEl ? String(userEl.value || "").trim() : "";
+    const password = passwordEl ? String(passwordEl.value || "") : "";
+    if (!email || !password) {
+      if (errorEl) showError(errorEl, "Enter your email and password.");
+      return;
+    }
     const api = desktopApi();
+    if (!api || !api.sign_in) {
+      if (errorEl) showError(errorEl, "Could not sign in. Check your details and try again.");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    let result;
+    try {
+      result = await api.sign_in(email, password);
+    } catch {
+      result = { ok: false };
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    if (!result || !result.ok) {
+      if (errorEl) showError(errorEl, friendlyLoginError(result && result.error));
+      return;
+    }
+    authState = result;
+    if (passwordEl) passwordEl.value = "";
     let state = lastAppState;
-    if (api && api.get_state) {
+    if (api.get_state) {
       try {
         state = await api.get_state();
       } catch {
@@ -1502,6 +1633,82 @@ if (loginForm) {
       }
     }
     routeAfterLogin(state || {});
+  });
+}
+
+const loginCreateBtn = document.getElementById("login-create");
+if (loginCreateBtn) {
+  loginCreateBtn.addEventListener("click", () => {
+    const errorEl = document.getElementById("signup-error");
+    const noteEl = document.getElementById("signup-message");
+    if (errorEl) showError(errorEl, "");
+    if (noteEl) showNote(noteEl, "");
+    showAuthCard("signup");
+  });
+}
+
+const signupBack = document.getElementById("signup-back");
+if (signupBack) {
+  signupBack.addEventListener("click", () => showAuthCard("login"));
+}
+
+const signupForm = document.getElementById("signup-form");
+if (signupForm) {
+  signupForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const errorEl = document.getElementById("signup-error");
+    const noteEl = document.getElementById("signup-message");
+    const submitBtn = document.getElementById("signup-submit");
+    const nameEl = document.getElementById("signup-name");
+    const emailEl = document.getElementById("signup-email");
+    const passwordEl = document.getElementById("signup-password");
+    const confirmEl = document.getElementById("signup-confirm");
+    if (errorEl) showError(errorEl, "");
+    if (noteEl) showNote(noteEl, "");
+    const api = desktopApi();
+    if (!api || !api.sign_up) {
+      if (errorEl) showError(errorEl, "Could not create the account. Try again.");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    let result;
+    try {
+      result = await api.sign_up(
+        nameEl ? nameEl.value : "",
+        emailEl ? emailEl.value : "",
+        passwordEl ? passwordEl.value : "",
+        confirmEl ? confirmEl.value : ""
+      );
+    } catch {
+      result = { ok: false };
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    if (!result || !result.ok) {
+      if (errorEl) showError(errorEl, (result && result.error) || "Could not create the account. Try again.");
+      return;
+    }
+    if (passwordEl) passwordEl.value = "";
+    if (confirmEl) confirmEl.value = "";
+    if (result.needs_confirmation && !result.signed_in) {
+      if (noteEl) {
+        showNote(
+          noteEl,
+          "Check your email to confirm your account, then log in."
+        );
+      }
+      return;
+    }
+    authState = result;
+    let state = lastAppState;
+    if (api.get_state) {
+      try {
+        state = await api.get_state();
+      } catch {
+        state = lastAppState;
+      }
+    }
+    continueAfterAuth(state || {});
   });
 }
 
@@ -1520,6 +1727,112 @@ const loginForgot = document.getElementById("login-forgot");
 if (loginForgot) {
   loginForgot.addEventListener("click", (event) => {
     event.preventDefault();
+    const errorEl = document.getElementById("forgot-error");
+    const noteEl = document.getElementById("forgot-message");
+    if (errorEl) showError(errorEl, "");
+    if (noteEl) showNote(noteEl, "");
+    const userEl = document.getElementById("login-user");
+    const forgotEmail = document.getElementById("forgot-email");
+    if (forgotEmail && userEl && userEl.value) forgotEmail.value = userEl.value;
+    showAuthCard("forgot");
+  });
+}
+
+const forgotBack = document.getElementById("forgot-back");
+if (forgotBack) {
+  forgotBack.addEventListener("click", () => showAuthCard("login"));
+}
+
+const forgotForm = document.getElementById("forgot-form");
+if (forgotForm) {
+  forgotForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const errorEl = document.getElementById("forgot-error");
+    const noteEl = document.getElementById("forgot-message");
+    const submitBtn = document.getElementById("forgot-submit");
+    const emailEl = document.getElementById("forgot-email");
+    if (errorEl) showError(errorEl, "");
+    if (noteEl) showNote(noteEl, "");
+    const api = desktopApi();
+    if (!api || !api.request_password_reset) {
+      if (errorEl) showError(errorEl, "Could not send reset instructions. Try again.");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    let result;
+    try {
+      result = await api.request_password_reset(emailEl ? emailEl.value : "");
+    } catch {
+      result = { ok: false };
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    if (!result || !result.ok) {
+      if (errorEl) showError(errorEl, (result && result.error) || "Could not send reset instructions. Try again.");
+      return;
+    }
+    if (noteEl) {
+      showNote(
+        noteEl,
+        result.message ||
+          "If an account exists for this email, we'll send password reset instructions."
+      );
+    }
+  });
+}
+
+const resetBack = document.getElementById("reset-back");
+if (resetBack) {
+  resetBack.addEventListener("click", async () => {
+    const api = desktopApi();
+    if (api && api.logout) {
+      try {
+        await api.logout();
+      } catch {
+        /* stay on login */
+      }
+    }
+    authState = { signed_in: false };
+    showAuthCard("login");
+  });
+}
+
+const resetForm = document.getElementById("reset-form");
+if (resetForm) {
+  resetForm.addEventListener("submit", async (event) => {
+    event.preventDefault();
+    const errorEl = document.getElementById("reset-error");
+    const submitBtn = document.getElementById("reset-submit");
+    const passwordEl = document.getElementById("reset-password");
+    const confirmEl = document.getElementById("reset-confirm");
+    if (errorEl) showError(errorEl, "");
+    const api = desktopApi();
+    if (!api || !api.update_password) {
+      if (errorEl) showError(errorEl, "Could not update the password. Try again.");
+      return;
+    }
+    if (submitBtn) submitBtn.disabled = true;
+    let result;
+    try {
+      result = await api.update_password(
+        passwordEl ? passwordEl.value : "",
+        confirmEl ? confirmEl.value : ""
+      );
+    } catch {
+      result = { ok: false };
+    } finally {
+      if (submitBtn) submitBtn.disabled = false;
+    }
+    if (!result || !result.ok) {
+      if (errorEl) showError(errorEl, (result && result.error) || "Could not update the password. Try again.");
+      return;
+    }
+    if (passwordEl) passwordEl.value = "";
+    if (confirmEl) confirmEl.value = "";
+    authState = { signed_in: false };
+    showAuthCard("login");
+    const loginNote = document.getElementById("login-message");
+    if (loginNote) showNote(loginNote, "Password updated. Log in with your new password.");
   });
 }
 

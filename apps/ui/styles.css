@@ -1659,6 +1659,7 @@ select.kind-pick {
   display: grid;
   place-items: center;
   padding: 40px 32px;
+  overflow: auto;
 }
 
 .login-card {
@@ -1702,7 +1703,8 @@ select.kind-pick {
 }
 
 #login input[type="text"],
-#login input[type="password"] {
+#login input[type="password"],
+#login input[type="email"] {
   border: 1px solid var(--color-border-strong);
   border-radius: 2px;
   background: var(--color-surface-muted);
@@ -1715,7 +1717,8 @@ select.kind-pick {
 }
 
 #login input[type="text"]:focus,
-#login input[type="password"]:focus {
+#login input[type="password"]:focus,
+#login input[type="email"]:focus {
   outline: 2px solid var(--color-focus-ring);
   outline-offset: 0;
   border-color: var(--color-focus);
@@ -1793,7 +1796,33 @@ select.kind-pick {
   color: var(--color-primary-hover);
 }
 
-#login-submit {
+button.login-forgot {
+  margin: 0;
+  padding: 0;
+  height: auto;
+  background: none;
+  border: none;
+  cursor: pointer;
+}
+
+.login-alt {
+  margin: 16px 0 0;
+  text-align: center;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  color: var(--color-text-secondary);
+}
+
+.login-note {
+  margin: 0 0 12px;
+  font-family: var(--font-sans);
+  font-size: var(--font-size-sm);
+  line-height: var(--line-height-body);
+  color: var(--color-text);
+}
+
+#login-submit,
+.login-submit {
   margin-top: 18px;
   width: 100%;
   background: var(--color-primary);
@@ -1805,11 +1834,13 @@ select.kind-pick {
   line-height: 1.2;
 }
 
-#login-submit:hover {
+#login-submit:hover,
+.login-submit:hover {
   background: var(--color-primary-hover);
 }
 
-#login-submit:active {
+#login-submit:active,
+.login-submit:active {
   background: var(--color-primary-active);
 }
 
