@@ -1,3 +1,6 @@
+# Landing page site (this repo root). Auth/signup/admin UI deploys separately from apps/web.
+# See apps/web/netlify.toml — set VITE_SUPABASE_URL and VITE_SUPABASE_ANON_KEY there.
+
 [build]
   publish = "designs/ca-unpacker-landing"
   command = "echo ready"

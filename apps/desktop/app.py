@@ -26,6 +26,7 @@ from apps.engine.dump import (
 )
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
+from apps.desktop.protocol import ensure_registered as register_protocol
 from apps.engine import auth
 from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
@@ -50,7 +51,9 @@ from apps.engine.wipe import wipe_all
 
 _WINDOW: webview.Window | None = None
 _PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
+_SINGLE_INSTANCE_MUTEX_NAME = "Global\\CAUnpackerSingleInstance"
 _startup_deep_link: str | None = None
+_mutex_handle: int | None = None
 
 
 def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
@@ -85,48 +88,62 @@ class DesktopApi:
         webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
         return {"ok": True}
 
-    def sign_in(self, email: str, password: str) -> dict:
+    def login_with_password(self, email: str, password: str) -> dict:
+        address = str(email or "").strip()
+        secret = str(password or "")
+        if not address:
+            return {"ok": False, "error": "Enter your email address."}
+        if not secret:
+            return {"ok": False, "error": "Enter your password."}
         try:
-            auth.login_with_password(str(email or ""), str(password or ""))
-            try:
-                auth.fetch_quota()
-            except Exception:
-                pass
-            return {"ok": True, **auth.get_auth_state()}
+            auth.sign_in_with_password(address, secret)
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not reach the sign-in service. Try again."}
+        try:
+            auth.fetch_quota()
+        except Exception:
+            pass
+        return {"ok": True, **auth.get_auth_state()}
 
-    def sign_up(self, full_name: str, email: str, password: str, confirm_password: str) -> dict:
+    def signup_with_password(self, email: str, password: str) -> dict:
+        address = str(email or "").strip()
+        secret = str(password or "")
+        if not address:
+            return {"ok": False, "error": "Enter your email address."}
+        if not secret:
+            return {"ok": False, "error": "Choose a password."}
         try:
-            result = auth.sign_up(
-                str(full_name or ""),
-                str(email or ""),
-                str(password or ""),
-                str(confirm_password or ""),
-            )
-            if result.get("signed_in"):
-                try:
-                    auth.fetch_quota()
-                except Exception:
-                    pass
-                result.update(auth.get_auth_state())
-            return {"ok": True, **result}
+            created = auth.sign_up_with_password(address, secret)
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not reach the sign-up service. Try again."}
+        if isinstance(created, dict) and created.get("confirmation_required"):
+            return {
+                "ok": True,
+                "confirmation_required": True,
+                "signed_in": False,
+                "email": created.get("email") or address,
+            }
+        try:
+            auth.fetch_quota()
+        except Exception:
+            pass
+        return {"ok": True, "confirmation_required": False, **auth.get_auth_state()}
 
     def request_password_reset(self, email: str) -> dict:
+        address = str(email or "").strip()
+        if not address:
+            return {"ok": False, "error": "Enter your email address first."}
         try:
-            result = auth.request_password_reset(str(email or ""))
-            return {"ok": True, **result}
+            auth.send_password_reset(address)
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
-
-    def update_password(self, password: str, confirm_password: str) -> dict:
-        try:
-            result = auth.update_password(str(password or ""), str(confirm_password or ""))
-            return {"ok": True, **result}
-        except ValueError as exc:
-            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not send the reset email. Try again."}
+        return {"ok": True}
 
     def logout(self) -> dict:
         auth.logout()
@@ -138,18 +155,15 @@ class DesktopApi:
         params = parse_qs(fragment)
         access = (params.get("access_token") or [None])[0]
         refresh = (params.get("refresh_token") or [None])[0]
-        auth_type = str((params.get("type") or [""])[0] or "").lower()
-        recovery = auth_type == "recovery"
         if not access or not refresh:
             return {"ok": False, "error": "Sign-in callback did not include tokens."}
         try:
-            auth.login_via_tokens(str(access), str(refresh), recovery=recovery)
+            auth.login_via_tokens(str(access), str(refresh))
             try:
                 auth.fetch_quota()
             except Exception:
                 pass
-            state = auth.get_auth_state()
-            return {"ok": True, "recovery": recovery, **state}
+            return {"ok": True, **auth.get_auth_state()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -508,8 +522,34 @@ def _bind_explorer_drop(api: DesktopApi) -> None:
         pass
 
 
+def _startup_auth_sync() -> None:
+    try:
+        auth.refresh_session()
+        auth.fetch_quota()
+    except Exception:
+        pass
+
+
 def _pending_deep_link_path() -> Path:
     return get_library_path() / _PENDING_AUTH_CALLBACK_FILE
+
+
+def _acquire_single_instance_mutex() -> bool:
+    """Return True when this process is the primary desktop instance."""
+    global _mutex_handle
+    if sys.platform != "win32":
+        return True
+    import ctypes
+
+    kernel32 = ctypes.windll.kernel32
+    _mutex_handle = kernel32.CreateMutexW(None, True, _SINGLE_INSTANCE_MUTEX_NAME)
+    return kernel32.GetLastError() != 183
+
+
+def _delegate_deep_link_to_running_instance(url: str) -> None:
+    path = _pending_deep_link_path()
+    path.parent.mkdir(parents=True, exist_ok=True)
+    path.write_text(url, encoding="utf-8")
 
 
 def _read_pending_deep_link() -> str | None:
@@ -524,19 +564,24 @@ def _read_pending_deep_link() -> str | None:
     return url if url.startswith("caunpacker://") else None
 
 
-def _notify_auth_ui(result: dict) -> None:
+def _notify_auth_ui_refresh(result: dict) -> None:
     if _WINDOW is None:
         return
     try:
-        payload = json.dumps(result)
-        _WINDOW.evaluate_js(f"applyAuthCallback({payload}).catch(() => {{}})")
+        if result.get("ok"):
+            _WINDOW.evaluate_js("refreshAuthState().catch(() => {})")
+        elif result.get("error"):
+            message = json.dumps(str(result["error"]))
+            _WINDOW.evaluate_js(
+                f"showError(document.getElementById('auth-error'), {message})"
+            )
     except Exception:
         pass
 
 
 def _process_deep_link(api: DesktopApi, url: str) -> dict:
     result = api.handle_auth_callback(url)
-    _notify_auth_ui(result)
+    _notify_auth_ui_refresh(result)
     return result
 
 
@@ -558,23 +603,23 @@ def _on_window_shown(api: DesktopApi) -> None:
     _start_deep_link_poller(api)
 
 
-def _startup_auth_sync() -> None:
-    try:
-        auth.refresh_session()
-        auth.fetch_quota()
-    except Exception:
-        pass
-
-
 def main() -> None:
     import traceback
 
     global _startup_deep_link
-    _startup_deep_link = extract_deep_link_url()
+    deep_link = extract_deep_link_url()
+    is_primary = _acquire_single_instance_mutex()
+    if deep_link and not is_primary:
+        _delegate_deep_link_to_running_instance(deep_link)
+        return
+    _startup_deep_link = deep_link
 
     try:
         init_library()
         get_engine()
+        # Claim caunpacker:// so browser sign-in can hand the session back.
+        # Best effort: the in-app form still works if this fails.
+        register_protocol()
         _startup_auth_sync()
         global _WINDOW
         api = DesktopApi()

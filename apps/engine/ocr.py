@@ -5,11 +5,32 @@ import shutil
 import tempfile
 from pathlib import Path
 
-from apps.engine.pdf_extract import ExtractedPdf, LineBox, PageText
+from apps.engine.pdf_extract import ExtractedPdf, LineBox, PageText, WordBox
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MIN_WORD_CONF = 40.0
 _RENDER_SCALE = 2.0
+_rapidocr_singleton = None
+
+
+def _rapidocr_engine():
+    global _rapidocr_singleton
+    if _rapidocr_singleton is False:
+        return None
+    if _rapidocr_singleton is not None:
+        return _rapidocr_singleton
+    try:
+        from rapidocr import RapidOCR
+
+        _rapidocr_singleton = RapidOCR()
+    except Exception:
+        _rapidocr_singleton = False
+        return None
+    return _rapidocr_singleton
+
+
+def ocr_available() -> bool:
+    return _rapidocr_engine() is not None or find_tesseract() is not None
 
 
 def _frozen_roots() -> list[Path]:
@@ -92,13 +113,88 @@ def ocr_image_lines(
     scale: float,
 ) -> list[LineBox]:
     """OCR a page image. Pixel boxes (top-left) become PDF user-space LineBoxes."""
+    lines, _, _ = ocr_image_page(image_path, page, page_width_pts, page_height_pts, scale)
+    return lines
+
+
+def ocr_image_page(
+    image_path: Path,
+    page: int,
+    page_width_pts: float,
+    page_height_pts: float,
+    scale: float,
+) -> tuple[list[LineBox], list[WordBox], str]:
+    words, engine = _rapidocr_words(image_path, page_width_pts, page_height_pts, scale)
+    if not words:
+        words, engine = _tesseract_words(image_path, page_width_pts, page_height_pts, scale)
+    page_no = page + 1 if page <= 0 else page
+    lines = _lines_from_words(words, page_no)
+    boxes = [
+        WordBox(page=page_no, text=item[4], x=item[0], y=item[1], width=item[2], height=item[3])
+        for item in words
+    ]
+    return lines, boxes, engine
+
+
+def _rapidocr_words(
+    image_path: Path, page_width_pts: float, page_height_pts: float, scale: float
+) -> tuple[list[tuple[float, float, float, float, str]], str]:
+    engine = _rapidocr_engine()
+    if engine is None or scale <= 0:
+        return [], "none"
+    try:
+        result = engine(str(image_path))
+    except Exception:
+        return [], "none"
+    boxes = getattr(result, "boxes", None)
+    txts = getattr(result, "txts", None)
+    scores = getattr(result, "scores", None)
+    if boxes is None or txts is None:
+        return [], "none"
+    words: list[tuple[float, float, float, float, str]] = []
+    for index, text in enumerate(txts):
+        token = (text or "").strip()
+        if not token:
+            continue
+        if scores is not None:
+            try:
+                if float(scores[index]) < 0.35:
+                    continue
+            except (TypeError, ValueError, IndexError):
+                pass
+        try:
+            pts = boxes[index]
+            xs = [float(pt[0]) for pt in pts]
+            ys = [float(pt[1]) for pt in pts]
+        except (TypeError, ValueError, IndexError):
+            continue
+        if not xs or not ys:
+            continue
+        left, top = min(xs), min(ys)
+        right, bottom = max(xs), max(ys)
+        width_px = right - left
+        height_px = bottom - top
+        if width_px <= 0 or height_px <= 0:
+            continue
+        x = left / scale
+        width = width_px / scale
+        height = height_px / scale
+        y = page_height_pts - bottom / scale
+        words.append((x, y, width, height, token))
+    words.sort(key=lambda item: (-(item[1] + item[3] / 2.0), item[0]))
+    return words, "rapidocr"
+
+
+def _tesseract_words(
+    image_path: Path, page_width_pts: float, page_height_pts: float, scale: float
+) -> tuple[list[tuple[float, float, float, float, str]], str]:
     exe = find_tesseract()
     if exe is None:
-        return []
+        return [], "none"
     try:
         import pytesseract
     except ImportError:
-        return []
+        return [], "none"
 
     pytesseract.pytesseract.tesseract_cmd = str(exe)
     tessdata = exe.parent / "tessdata"
@@ -107,7 +203,7 @@ def ocr_image_lines(
     try:
         data = pytesseract.image_to_data(str(image_path), output_type=pytesseract.Output.DICT)
     except Exception:
-        return []
+        return [], "none"
 
     words: list[tuple[float, float, float, float, str]] = []
     n = len(data.get("text") or [])
@@ -138,8 +234,13 @@ def ocr_image_lines(
         height = height_px / scale
         y = page_height_pts - (top + height_px) / scale
         words.append((x, y, width, height, text))
-
     words.sort(key=lambda item: (-(item[1] + item[3] / 2.0), item[0]))
+    return words, "tesseract"
+
+
+def _lines_from_words(
+    words: list[tuple[float, float, float, float, str]], page_no: int
+) -> list[LineBox]:
     bands: list[list[tuple[float, float, float, float, str]]] = []
     for word in words:
         placed = False
@@ -150,8 +251,6 @@ def ocr_image_lines(
                 break
         if not placed:
             bands.append([word])
-
-    page_no = page + 1 if page <= 0 else page
     lines: list[LineBox] = []
     for band in bands:
         band.sort(key=lambda item: item[0])
@@ -176,24 +275,25 @@ def ocr_image_lines(
 def extract_image(path: Path) -> ExtractedPdf:
     """OCR a raster invoice. page size in points = pixel size, scale=1.
     LineBoxes must use the same bottom-left PDF space as ocr_image_lines.
-    If tesseract missing, return empty lines, engine='none'.
+    If no local OCR engine is present, return empty lines, engine='none'.
     """
     path = Path(path)
-    if find_tesseract() is None:
+    if not ocr_available():
         return ExtractedPdf(pdf_type="image_based", page_count=1, engine="none")
 
     width_pts, height_pts = _image_size_pts(path)
     if width_pts <= 0 or height_pts <= 0:
-        return ExtractedPdf(pdf_type="image_based", page_count=1, engine="tesseract")
+        return ExtractedPdf(pdf_type="image_based", page_count=1, engine="none")
 
-    lines = ocr_image_lines(path, 1, width_pts, height_pts, 1.0)
+    lines, words, engine = ocr_image_page(path, 1, width_pts, height_pts, 1.0)
     text = "\n".join(line.text for line in lines)
     return ExtractedPdf(
         pdf_type="image_based",
         page_count=1,
         pages=[PageText(page=1, text=text, needs_ocr=False)],
         lines=lines,
-        engine="tesseract",
+        words=words,
+        engine=engine if lines else "none",
     )
 
 
@@ -209,10 +309,10 @@ def _image_size_pts(path: Path) -> tuple[float, float]:
 
 
 def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
-    """Render each page locally and OCR with Tesseract. Never uploads."""
+    """Render each page locally and OCR. Never uploads. RapidOCR first, Tesseract fallback."""
     page_count = _pdf_page_count(path, password)
     empty = ExtractedPdf(pdf_type="scanned", page_count=page_count, engine="none")
-    if find_tesseract() is None:
+    if not ocr_available():
         return empty
     try:
         import pypdfium2
@@ -225,7 +325,9 @@ def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
         return empty
 
     lines: list[LineBox] = []
+    words: list[WordBox] = []
     pages: list[PageText] = []
+    engine_name = "none"
     try:
         with tempfile.TemporaryDirectory(prefix="caunpacker_ocr_") as tmp:
             tmp_dir = Path(tmp)
@@ -244,14 +346,18 @@ def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
                         image.save(png_path, "PNG")
                     finally:
                         bitmap.close()
-                    page_lines = ocr_image_lines(
+                    page_lines, page_words, used = ocr_image_page(
                         png_path, page_no, width, height, _RENDER_SCALE
                     )
+                    if used != "none":
+                        engine_name = used
                 except Exception:
                     page_lines = []
+                    page_words = []
                 finally:
                     page.close()
                 lines.extend(page_lines)
+                words.extend(page_words)
                 pages.append(
                     PageText(
                         page=page_no,
@@ -267,7 +373,8 @@ def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
         page_count=len(pages) or page_count,
         pages=pages,
         lines=lines,
-        engine="tesseract",
+        words=words,
+        engine=engine_name if lines else "none",
     )
 
 

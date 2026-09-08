@@ -8,6 +8,48 @@
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <div id="auth-gate" class="auth-gate hidden">
+    <div class="auth-card">
+      <p class="eyebrow">Sign in</p>
+      <h1>Sign in to use CA Unpacker.</h1>
+      <p class="lede">Your client files stay on this PC. We only sync account and usage metadata.</p>
+      <form id="auth-form" autocomplete="on">
+        <label for="auth-email">Email</label>
+        <input id="auth-email" type="email" autocomplete="email" placeholder="you@firm.in" />
+        <label for="auth-password">Password</label>
+        <input id="auth-password" type="password" autocomplete="current-password" placeholder="Your password" />
+        <button type="submit" id="auth-submit">Log in</button>
+      </form>
+      <p class="auth-links">
+        <button type="button" class="link" id="auth-mode-toggle">New here? Create an account</button>
+        <button type="button" class="link" id="auth-forgot">Forgot password?</button>
+      </p>
+      <p id="auth-error" class="error" hidden></p>
+      <p id="auth-notice" class="notice" hidden></p>
+      <p class="auth-fallback">
+        <button type="button" class="link" id="auth-login">Sign in using browser instead</button>
+      </p>
+    </div>
+  </div>
+
+  <div id="profile" class="profile hidden">
+    <button type="button" id="profile-button" class="profile-seal" aria-haspopup="menu" aria-expanded="false" title="Account">
+      <span id="profile-initial" aria-hidden="true">·</span>
+      <span class="sr-only">Account</span>
+    </button>
+    <div id="profile-panel" class="profile-panel" role="menu" hidden>
+      <p class="profile-eyebrow">Signed in</p>
+      <p id="profile-email" class="profile-email"></p>
+      <p id="profile-plan" class="profile-plan"></p>
+      <div class="profile-meter" id="profile-meter" hidden>
+        <div class="profile-meter-fill" id="profile-meter-fill"></div>
+      </div>
+      <p id="quota-text" class="profile-quota"></p>
+      <p class="profile-privacy">Financial data transmitted: <strong>NONE</strong></p>
+      <button type="button" class="ghost profile-logout" id="auth-logout">Log out</button>
+    </div>
+  </div>
+
   <div id="login" class="screen hidden">
     <aside class="login-brand">
       <div class="brand brand--on-dark brand--lg">

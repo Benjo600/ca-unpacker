@@ -4,12 +4,10 @@ import base64
 import hashlib
 import json
 import platform
-import re
 import secrets
 import uuid
 from datetime import date, datetime, timedelta
 from typing import Any
-from urllib.parse import quote
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
@@ -41,17 +39,14 @@ _OFFLINE_EXPIRED = (
     "Connect to the internet to verify your plan before processing more files."
 )
 _SUSPENDED_MESSAGE = "Account suspended — contact support."
-_INVALID_CREDENTIALS = "Email or password is incorrect."
-_SIGN_IN_FAILED = "Could not sign in. Check your details and try again."
-_SIGN_UP_FAILED = "Could not create the account. Try again."
-_RESET_GENERIC = (
-    "If an account exists for this email, we'll send password reset instructions."
-)
-_RESET_SEND_FAILED = "Could not send reset instructions. Try again."
-_RESET_SAVE_FAILED = "Could not update the password. Try again."
+_INVALID_CREDENTIALS_MESSAGE = "Email or password is incorrect."
+_EMAIL_TAKEN_MESSAGE = "An account with this email already exists. Log in instead."
+_WEAK_PASSWORD_MESSAGE = "Password must be at least 6 characters."
+_RATE_LIMITED_MESSAGE = "Too many attempts. Wait a minute and try again."
+_NO_CONNECTION_MESSAGE = "Could not reach the server. Check your internet connection."
 _HTTP_TIMEOUT = 12.0
-_EMAIL_RE = re.compile(r"^[^@\s]+@[^@\s]+\.[^@\s]+$")
-_MIN_PASSWORD_LEN = 8
+_EXISTING_USER_HINTS = ("already registered", "already exists", "user_already_exists")
+_WEAK_PASSWORD_HINTS = ("weak_password", "should be at least", "password is too short")
 
 
 def device_fingerprint() -> str:
@@ -120,14 +115,11 @@ def _clear_session() -> None:
             "auth_access_token": "",
             "auth_refresh_token_enc": "",
             "auth_email": "",
-            "auth_recovery": False,
         }
     )
 
 
-def login_via_tokens(
-    access_token: str, refresh_token: str, *, recovery: bool = False
-) -> dict:
+def login_via_tokens(access_token: str, refresh_token: str) -> dict:
     access = (access_token or "").strip()
     refresh = (refresh_token or "").strip()
     if not access or not refresh:
@@ -138,146 +130,118 @@ def login_via_tokens(
             "auth_access_token": access,
             "auth_refresh_token_enc": _encrypt_refresh_token(refresh),
             "auth_email": email,
-            "auth_recovery": bool(recovery),
         }
     )
     return get_auth_state()
 
 
-def login_with_password(email: str, password: str) -> dict:
-    cleaned = (email or "").strip()
-    if not cleaned or not str(password or ""):
-        raise ValueError("Enter your email and password.")
+def sign_in_with_password(email: str, password: str) -> dict:
+    address = (email or "").strip()
+    secret = password or ""
+    if not address or not secret:
+        raise ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    payload = _post_password_auth(
+        "/auth/v1/token?grant_type=password",
+        {"email": address, "password": secret},
+    )
+    tokens = _session_tokens(payload)
+    if tokens is None:
+        raise ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    return login_via_tokens(tokens[0], tokens[1])
+
+
+def sign_up_with_password(email: str, password: str) -> dict:
+    address = (email or "").strip()
+    secret = password or ""
+    if not address:
+        raise ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    if len(secret) < 6:
+        raise ValueError(_WEAK_PASSWORD_MESSAGE)
+    payload = _post_password_auth(
+        "/auth/v1/signup",
+        {"email": address, "password": secret},
+        signup=True,
+    )
+    tokens = _session_tokens(payload)
+    if tokens is None:
+        return {
+            "signed_in": False,
+            "confirmation_required": True,
+            "email": address,
+        }
+    state = login_via_tokens(tokens[0], tokens[1])
+    state["confirmation_required"] = False
+    return state
+
+
+def send_password_reset(email: str) -> None:
+    address = (email or "").strip()
+    if not address:
+        return None
     try:
-        payload = _post_auth(
-            "/auth/v1/token?grant_type=password",
-            {"email": cleaned, "password": password},
-        )
-    except ValueError:
-        raise
-    except httpx.HTTPStatusError as exc:
-        status = exc.response.status_code if exc.response is not None else 0
-        if status in (400, 401, 422):
-            raise ValueError(_INVALID_CREDENTIALS) from None
-        raise ValueError(_SIGN_IN_FAILED) from None
-    except httpx.HTTPError:
-        raise ValueError(_SIGN_IN_FAILED) from None
-    access = str(payload.get("access_token") or "").strip()
-    refresh = str(payload.get("refresh_token") or "").strip()
+        _post_auth("/auth/v1/recover", {"email": address})
+    except (httpx.HTTPError, ValueError):
+        # Never reveal whether the address is registered.
+        return None
+    return None
+
+
+def _session_tokens(payload: dict) -> tuple[str, str] | None:
+    source: dict[str, Any] = payload
+    nested = payload.get("session")
+    if not payload.get("access_token") and isinstance(nested, dict):
+        source = nested
+    access = str(source.get("access_token") or "").strip()
+    refresh = str(source.get("refresh_token") or "").strip()
     if not access or not refresh:
-        raise ValueError(_SIGN_IN_FAILED)
-    return login_via_tokens(access, refresh)
+        return None
+    return access, refresh
 
 
-def _valid_email(email: str) -> bool:
-    return bool(_EMAIL_RE.match(email or ""))
-
-
-def _friendly_signup_error(exc: httpx.HTTPStatusError) -> str:
-    status = exc.response.status_code if exc.response is not None else 0
-    detail = ""
+def _auth_error_detail(response: httpx.Response) -> str:
     try:
-        body = exc.response.json() if exc.response is not None else {}
-        detail = str(body.get("msg") or body.get("message") or body.get("error") or "")
+        payload = response.json()
     except Exception:
-        detail = ""
-    lowered = detail.lower()
-    if status in (400, 422) and (
-        "already" in lowered or "registered" in lowered or "exists" in lowered
-    ):
-        return "An account with this email already exists."
-    if "password" in lowered and (
-        "weak" in lowered or "least" in lowered or "short" in lowered or "character" in lowered
-    ):
-        return "Choose a stronger password (at least 8 characters)."
-    if status in (400, 422) and "email" in lowered:
-        return "Enter a valid email address."
-    return _SIGN_UP_FAILED
+        return response.text or ""
+    if not isinstance(payload, dict):
+        return str(payload)
+    fields = (
+        "error_code",
+        "error",
+        "error_description",
+        "code",
+        "msg",
+        "message",
+    )
+    parts = [str(payload.get(field)) for field in fields if payload.get(field)]
+    return " ".join(parts)
 
 
-def sign_up(full_name: str, email: str, password: str, confirm_password: str) -> dict:
-    name = (full_name or "").strip()
-    cleaned = (email or "").strip()
-    secret = str(password or "")
-    confirm = str(confirm_password or "")
-    if not name:
-        raise ValueError("Enter your full name.")
-    if not cleaned or not _valid_email(cleaned):
-        raise ValueError("Enter a valid email address.")
-    if not secret:
-        raise ValueError("Enter a password.")
-    if secret != confirm:
-        raise ValueError("Passwords do not match.")
-    if len(secret) < _MIN_PASSWORD_LEN:
-        raise ValueError("Choose a stronger password (at least 8 characters).")
+def _password_auth_error(exc: httpx.HTTPStatusError, signup: bool) -> ValueError:
+    status = exc.response.status_code
+    detail = _auth_error_detail(exc.response).lower()
+    if status == 429 or "rate limit" in detail or "over_email_send_rate" in detail:
+        return ValueError(_RATE_LIMITED_MESSAGE)
+    if any(hint in detail for hint in _EXISTING_USER_HINTS):
+        return ValueError(_EMAIL_TAKEN_MESSAGE)
+    if any(hint in detail for hint in _WEAK_PASSWORD_HINTS):
+        return ValueError(_WEAK_PASSWORD_MESSAGE)
+    if status == 422:
+        return ValueError(_WEAK_PASSWORD_MESSAGE)
+    if status == 400:
+        if signup:
+            return ValueError(_EMAIL_TAKEN_MESSAGE)
+        return ValueError(_INVALID_CREDENTIALS_MESSAGE)
+    return ValueError(_NO_CONNECTION_MESSAGE)
+
+
+def _post_password_auth(path: str, body: dict[str, Any], signup: bool = False) -> dict:
     try:
-        payload = _post_auth(
-            "/auth/v1/signup",
-            {
-                "email": cleaned,
-                "password": secret,
-                "data": {"full_name": name, "firm_name": "My firm"},
-            },
-        )
-    except ValueError:
-        raise
+        return _post_auth(path, body)
     except httpx.HTTPStatusError as exc:
-        raise ValueError(_friendly_signup_error(exc)) from None
-    except httpx.HTTPError:
-        raise ValueError(_SIGN_UP_FAILED) from None
-    session = payload.get("session") if isinstance(payload.get("session"), dict) else {}
-    access = str(payload.get("access_token") or session.get("access_token") or "").strip()
-    refresh = str(payload.get("refresh_token") or session.get("refresh_token") or "").strip()
-    if access and refresh:
-        state = login_via_tokens(access, refresh)
-        return {"signed_in": True, "needs_confirmation": False, **state}
-    return {
-        "signed_in": False,
-        "needs_confirmation": True,
-        **get_auth_state(),
-    }
-
-
-def request_password_reset(email: str) -> dict:
-    cleaned = (email or "").strip()
-    if not cleaned or not _valid_email(cleaned):
-        raise ValueError("Enter a valid email address.")
-    redirect = "caunpacker://auth/callback"
-    try:
-        _post_auth(
-            f"/auth/v1/recover?redirect_to={quote(redirect, safe='')}",
-            {"email": cleaned},
-        )
-    except ValueError:
-        return {"ok": True, "message": _RESET_GENERIC}
-    except httpx.HTTPError:
-        raise ValueError(_RESET_SEND_FAILED) from None
-    return {"ok": True, "message": _RESET_GENERIC}
-
-
-def update_password(password: str, confirm_password: str) -> dict:
-    secret = str(password or "")
-    confirm = str(confirm_password or "")
-    if not secret:
-        raise ValueError("Enter a new password.")
-    if secret != confirm:
-        raise ValueError("Passwords do not match.")
-    if len(secret) < _MIN_PASSWORD_LEN:
-        raise ValueError("Choose a stronger password (at least 8 characters).")
-    session = get_session()
-    if session is None:
-        raise ValueError("This reset link is no longer valid. Request a new one.")
-    try:
-        _put_auth("/auth/v1/user", {"password": secret}, session=session)
-    except ValueError:
-        raise
-    except httpx.HTTPStatusError:
-        raise ValueError(_RESET_SAVE_FAILED) from None
-    except httpx.HTTPError:
-        raise ValueError(_RESET_SAVE_FAILED) from None
-    save_settings({"auth_recovery": False})
-    logout()
-    return {"ok": True, **get_auth_state()}
+        raise _password_auth_error(exc, signup) from None
+    except httpx.RequestError:
+        raise ValueError(_NO_CONNECTION_MESSAGE) from None
 
 
 def logout() -> None:
@@ -289,7 +253,10 @@ def logout() -> None:
                 {"refresh_token": session["refresh_token"]},
                 session=session,
             )
-        except httpx.HTTPError:
+        except Exception:
+            # Revoking server-side is best effort. A rejected or expired token
+            # (403 raises ValueError, not HTTPError) must never strand the user
+            # signed in locally, so the session is cleared either way.
             pass
     _clear_session()
 
@@ -458,7 +425,6 @@ def get_auth_state() -> dict:
         "offline": offline,
         "last_sync_at": cache.get("synced_at"),
         "auth_url": CA_UNPACKER_AUTH_URL,
-        "password_recovery": bool(load_settings().get("auth_recovery")) and session is not None,
     }
 
 
@@ -490,16 +456,6 @@ def _auth_headers(session: dict | None = None) -> dict[str, str]:
     return headers
 
 
-def _parse_json_object(response: httpx.Response) -> dict:
-    if not response.content:
-        return {}
-    try:
-        data = response.json()
-    except Exception:
-        return {}
-    return data if isinstance(data, dict) else {}
-
-
 def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> dict:
     _reject_document_keys(body)
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
@@ -511,21 +467,8 @@ def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> 
     if response.status_code == 403:
         raise ValueError(_SUSPENDED_MESSAGE)
     response.raise_for_status()
-    return _parse_json_object(response)
-
-
-def _put_auth(path: str, body: dict[str, Any], session: dict | None = None) -> dict:
-    _reject_document_keys(body)
-    with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
-        response = client.put(
-            f"{SUPABASE_URL}{path}",
-            headers=_auth_headers(session),
-            json=body,
-        )
-    if response.status_code == 403:
-        raise ValueError(_SUSPENDED_MESSAGE)
-    response.raise_for_status()
-    return _parse_json_object(response)
+    data = response.json()
+    return data if isinstance(data, dict) else {}
 
 
 def _call_function(name: str, body: dict[str, Any], session: dict) -> dict:

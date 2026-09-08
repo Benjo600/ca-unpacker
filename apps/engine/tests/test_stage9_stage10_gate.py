@@ -22,11 +22,17 @@ class Stage9LicenseGateTests(unittest.TestCase):
     def setUp(self) -> None:
         self._tmp = tempfile.TemporaryDirectory()
         os.environ["LOCALAPPDATA"] = self._tmp.name
+        os.environ["CA_UNPACKER_DEV"] = "1"
         from apps.engine.db import reset_engine
 
         reset_engine()
+        self._date_patcher = patch("apps.engine.license.date")
+        self._mock_date = self._date_patcher.start()
+        self._mock_date.today.return_value = date(2026, 8, 30)
+        self._mock_date.side_effect = lambda *args, **kwargs: date(*args, **kwargs)
 
     def tearDown(self) -> None:
+        self._date_patcher.stop()
         from apps.engine.db import reset_engine
 
         reset_engine()

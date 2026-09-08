@@ -39,5 +39,10 @@ Source: "..\dist\CAUnpacker\*"; DestDir: "{app}"; Flags: ignoreversion recursesu
 Name: "{autoprograms}\{#AppName}"; Filename: "{app}\{#AppExeName}"
 Name: "{autodesktop}\{#AppName}"; Filename: "{app}\{#AppExeName}"; Tasks: desktopicon
 
+[Registry]
+Root: hkcu; Subkey: "Software\Classes\caunpacker"; ValueType: string; ValueName: ""; ValueData: "URL:CA Unpacker Protocol"; Flags: uninsdeletekey
+Root: hkcu; Subkey: "Software\Classes\caunpacker"; ValueType: string; ValueName: "URL Protocol"; ValueData: ""; Flags: uninsdeletevalue
+Root: hkcu; Subkey: "Software\Classes\caunpacker\shell\open\command"; ValueType: string; ValueName: ""; ValueData: """{app}\{#AppExeName}"" ""%1"""; Flags: uninsdeletekey
+
 [Run]
 Filename: "{app}\{#AppExeName}"; Description: "Open CA Unpacker"; Flags: nowait postinstall skipifsilent

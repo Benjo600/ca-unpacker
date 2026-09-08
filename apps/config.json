@@ -1,0 +1,6 @@
+{
+  "_comment": "Production endpoints bundled into the desktop build. The anon key is a public client key protected by row-level security - NEVER put the service_role key here. Override any value with the matching environment variable (SUPABASE_URL, SUPABASE_ANON_KEY, CA_UNPACKER_AUTH_URL) when developing against local Supabase.",
+  "supabase_url": "https://ovcddryhcqgzmafutrha.supabase.co",
+  "supabase_anon_key": "eyJhbGciOiJIUzI1NiIsInR5cCI6IkpXVCJ9.eyJpc3MiOiJzdXBhYmFzZSIsInJlZiI6Im92Y2RkcnloY3Fnem1hZnV0cmhhIiwicm9sZSI6ImFub24iLCJpYXQiOjE3ODg0NDA2MzYsImV4cCI6MjEwNDAxNjYzNn0.2SBwLVN2AKlH86s6aXn3vFIQzQZj_fK50evgMG0EMmY",
+  "auth_url": "https://ca-unpacker-auth.netlify.app"
+}

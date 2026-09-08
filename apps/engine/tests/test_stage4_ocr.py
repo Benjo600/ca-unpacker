@@ -60,6 +60,7 @@ class DigitalExtractRegressionTests(unittest.TestCase):
                 extracted = extract_pdf(path)
                 self.assertGreater(len(extracted.lines), 3, path.name)
                 self.assertNotEqual(extracted.engine, "tesseract", path.name)
+                self.assertNotEqual(extracted.engine, "rapidocr", path.name)
                 self.assertNotEqual(extracted.pdf_type, "encrypted", path.name)
                 for line in extracted.lines:
                     self.assertGreaterEqual(line.page, 1)
@@ -69,15 +70,11 @@ class DigitalExtractRegressionTests(unittest.TestCase):
 
 class ScanOcrTests(unittest.TestCase):
     def test_image_only_pdf_uses_local_ocr_when_present(self) -> None:
-        from apps.engine.ocr import find_tesseract
+        from apps.engine.ocr import ocr_available
         from apps.engine.pdf_extract import extract_pdf
 
-        if find_tesseract() is None:
-            self.skipTest("tesseract.exe not found; local OCR skipped")
-        try:
-            import pytesseract  # noqa: F401
-        except ImportError:
-            self.skipTest("pytesseract not installed; local OCR skipped")
+        if not ocr_available():
+            self.skipTest("no local OCR engine (RapidOCR or Tesseract)")
 
         from apps.engine.tests.dump_paths import HDFC
 
@@ -88,10 +85,10 @@ class ScanOcrTests(unittest.TestCase):
             _write_image_only_pdf(source, scanned)
             extracted = extract_pdf(scanned)
             self.assertTrue(
-                extracted.engine == "tesseract" or bool(extracted.lines),
+                extracted.engine in {"tesseract", "rapidocr"} or bool(extracted.lines),
                 (extracted.engine, extracted.pdf_type, len(extracted.lines)),
             )
-            if extracted.engine == "tesseract":
+            if extracted.engine in {"tesseract", "rapidocr"}:
                 self.assertEqual(extracted.pdf_type, "scanned")
             for line in extracted.lines:
                 self.assertGreaterEqual(line.page, 1)
