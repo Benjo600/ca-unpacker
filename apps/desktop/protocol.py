@@ -59,21 +59,33 @@ def _read_registered_command() -> str | None:
     return str(value) if value else None
 
 
-def ensure_registered() -> bool:
-    """Register the scheme if missing or stale. Returns True when it wrote.
-
-    Never raises: a failure here must not stop the app from starting, since the
-    in-app sign-in form still works without the browser handoff.
-    """
+def is_registered() -> bool:
+    """Check if the caunpacker:// protocol is already registered correctly."""
     if sys.platform != "win32":
         return False
     try:
         desired = handler_command()
+        return _read_registered_command() == desired
+    except Exception:
+        return False
+
+
+def ensure_registered() -> tuple[bool, str | None]:
+    """Register the scheme if missing or stale.
+
+    Returns (success, error_message). Never raises: a failure here must not stop
+    the app from starting, since the in-app sign-in form still works without the
+    browser handoff.
+    """
+    if sys.platform != "win32":
+        return False, "Not on Windows"
+    try:
+        desired = handler_command()
         if _read_registered_command() == desired:
-            return False
+            return False, None  # Already registered correctly
         _write_registry_string(_ROOT_KEY, "", _DESCRIPTION)
         _write_registry_string(_ROOT_KEY, "URL Protocol", "")
         _write_registry_string(_COMMAND_KEY, "", desired)
-        return True
-    except Exception:
-        return False
+        return True, None
+    except Exception as exc:
+        return False, str(exc)

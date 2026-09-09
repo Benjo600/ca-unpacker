@@ -50,7 +50,7 @@ def test_source_command_falls_back_when_no_windowed_interpreter(tmp_path, monkey
 
 def test_registration_is_skipped_off_windows(monkeypatch):
     monkeypatch.setattr(sys, "platform", "linux")
-    assert protocol.ensure_registered() is False
+    assert protocol.ensure_registered() == (False, "Not on Windows")
 
 
 def test_registration_writes_expected_registry_values(monkeypatch):
@@ -63,7 +63,7 @@ def test_registration_writes_expected_registry_values(monkeypatch):
     monkeypatch.setattr(protocol, "_read_registered_command", lambda: None)
     monkeypatch.setattr(protocol, "_write_registry_string", fake_write)
 
-    assert protocol.ensure_registered() is True
+    assert protocol.ensure_registered() == (True, None)
 
     assert written[r"Software\Classes\caunpacker::"] == "URL:CA Unpacker Protocol"
     assert r"Software\Classes\caunpacker::URL Protocol" in written
@@ -81,7 +81,7 @@ def test_registration_is_skipped_when_already_correct(monkeypatch):
         lambda *a: calls.append("written"),
     )
 
-    assert protocol.ensure_registered() is False
+    assert protocol.ensure_registered() == (False, None)
     assert calls == [], "must not rewrite the registry when already correct"
 
 
@@ -97,7 +97,7 @@ def test_registration_rewrites_a_stale_command(monkeypatch):
         protocol, "_write_registry_string", lambda *a: calls.append("written")
     )
 
-    assert protocol.ensure_registered() is True
+    assert protocol.ensure_registered() == (True, None)
     assert calls, "stale handler command should be rewritten"
 
 
@@ -111,4 +111,23 @@ def test_failure_to_register_never_raises(monkeypatch):
     monkeypatch.setattr(protocol, "_read_registered_command", lambda: None)
     monkeypatch.setattr(protocol, "_write_registry_string", boom)
 
-    assert protocol.ensure_registered() is False
+    assert protocol.ensure_registered() == (False, "access denied")
+
+
+def test_is_registered_returns_true_when_correct(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(protocol, "_read_registered_command", protocol.handler_command)
+    assert protocol.is_registered() is True
+
+
+def test_is_registered_returns_false_when_stale(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "win32")
+    monkeypatch.setattr(
+        protocol, "_read_registered_command", lambda: '"C:\\old\\gone.exe" "%1"'
+    )
+    assert protocol.is_registered() is False
+
+
+def test_is_registered_returns_false_off_windows(monkeypatch):
+    monkeypatch.setattr(sys, "platform", "linux")
+    assert protocol.is_registered() is False

@@ -26,7 +26,7 @@ from apps.engine.dump import (
 )
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
-from apps.desktop.protocol import ensure_registered as register_protocol
+from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
 from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
@@ -87,6 +87,14 @@ class DesktopApi:
     def open_login(self) -> dict:
         webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
         return {"ok": True}
+
+    def check_protocol_registered(self) -> dict:
+        """Check if the caunpacker:// protocol is registered for browser handoff."""
+        try:
+            registered = is_registered()
+        except Exception:
+            registered = False
+        return {"ok": True, "registered": registered}
 
     def login_with_password(self, email: str, password: str) -> dict:
         address = str(email or "").strip()
@@ -619,7 +627,20 @@ def main() -> None:
         get_engine()
         # Claim caunpacker:// so browser sign-in can hand the session back.
         # Best effort: the in-app form still works if this fails.
-        register_protocol()
+        registered, err = ensure_registered()
+        if err:
+            # Log but don't fail - in-app form still works
+            import logging
+
+            logging.getLogger(__name__).warning(
+                "Failed to register caunpacker:// protocol: %s", err
+            )
+        elif registered:
+            import logging
+
+            logging.getLogger(__name__).info(
+                "Registered caunpacker:// protocol for browser handoff"
+            )
         _startup_auth_sync()
         global _WINDOW
         api = DesktopApi()
