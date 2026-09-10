@@ -270,7 +270,8 @@
           <a class="btn btn-ghost" href="#how">See the clicks</a>
         </div>
         <p class="fine">Setup is one file: <code>CAUnpacker-Setup.exe</code>. Test files are a zip — unzip, then Add folder on one numbered folder. Windows 10 or 11. No Python, no Docker.</p>
-        <p class="fine">Developers: <a id="dl-start" href="/start.bat" download="start.bat">download start.bat</a> after cloning the repo (loads .env + auto venv).</p>
+        <p class="fine"><strong>Latest source has strict in-app email/password sign up</strong> (no more browser redirect). The current downloadable binary is from before this update.</p>
+        <p class="fine">Developers: <a id="dl-start" href="/start.bat" download="start.bat">download start.bat</a> after cloning the repo (loads .env + auto venv) to test the new auth immediately.</p>
       </div>
       <aside class="docket" data-od-id="hero-docket">
         <p class="eyebrow">After Setup</p>
@@ -429,11 +430,11 @@
         </article>
         <article class="card">
           <h3>One Setup file</h3>
-          <p>Download <code>CAUnpacker-Setup.exe</code>. Run it. Engine, UI and Tesseract are inside. SmartScreen may warn because the build is not code-signed yet — More info → Run anyway on a machine you trust.</p>
+          <p>Download <code>CAUnpacker-Setup.exe</code>. Run it. Engine, UI and Tesseract are inside. <strong>Note:</strong> Current binary is pre-in-app-auth update. Sign in with email/password inside the app (strict gate before choosing folder).</p>
         </article>
         <article class="card">
-          <h3>A folder for Excels</h3>
-          <p>On first launch, pick where cleaned workbooks should land. Prefer a local disk, not a syncing Desktop/OneDrive path, while you test.</p>
+          <h3>Sign in on first run</h3>
+          <p>Create account or log in with email + password directly in the app. No browser tab. Then pick your Excel folder and firm name.</p>
         </article>
       </div>
     </div>
@@ -482,7 +483,7 @@
   <section class="closing" data-od-id="footer-cta">
     <div class="wrap">
       <h2>Install it on the firm laptop.</h2>
-      <p>One Setup file. Double-click. Download the test zip if you want a sample month first.</p>
+      <p>One Setup file. Double-click. Sign in with email/password inside the app (new strict auth). Download the test zip if you want a sample month first.</p>
       <div class="cta">
         <a class="btn btn-paper" id="dl-foot" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
         <a class="btn btn-ghost" id="dl-samples-foot" href="/CAUnpacker-Test-Files.zip" download="CAUnpacker-Test-Files.zip">Download test files</a>

@@ -6,16 +6,54 @@ if exist "%~dp0.env" (
     call :load_env "%%A" "%%B"
   )
 ) else (
-  echo No .env file found. Copy .env.example to .env and fill in the values from the production project.
+  echo No .env file found.
+  echo Will use baked production Supabase from apps/config.json for perfect direct in-app auth.
+  echo (This gives you the strict email/password flow with no browser needed.)
+  echo Copy .env.example to .env ONLY if testing against local Supabase.
 )
 
 set "URLCHK=MISSING"
-if defined SUPABASE_URL set "URLCHK=PRODUCTION"
-if defined SUPABASE_URL if not "%SUPABASE_URL:127.0.0.1=%"=="%SUPABASE_URL%" set "URLCHK=LOCALHOST"
-if defined SUPABASE_URL if /i not "%SUPABASE_URL:localhost=%"=="%SUPABASE_URL%" set "URLCHK=LOCALHOST"
+if defined SUPABASE_URL (
+  set "URLCHK=PRODUCTION (from .env)"
+  if not "%SUPABASE_URL:127.0.0.1=%"=="%SUPABASE_URL%" set "URLCHK=LOCALHOST (from .env)"
+  if /i not "%SUPABASE_URL:localhost=%"=="%SUPABASE_URL%" set "URLCHK=LOCALHOST (from .env)"
+) else (
+  if exist "apps\config.json" (
+    set "URLCHK=PRODUCTION (from apps/config.json)"
+  ) else (
+    set "URLCHK=MISSING (no .env and no config.json)"
+  )
+)
 echo SUPABASE_URL: %URLCHK%
-if defined SUPABASE_ANON_KEY (echo SUPABASE_ANON_KEY: PRESENT) else (echo SUPABASE_ANON_KEY: MISSING)
-if defined CA_UNPACKER_AUTH_URL (echo CA_UNPACKER_AUTH_URL: PRESENT) else (echo CA_UNPACKER_AUTH_URL: MISSING)
+
+if defined SUPABASE_ANON_KEY (
+  echo SUPABASE_ANON_KEY: PRESENT
+) else (
+  if exist "apps\config.json" (
+    echo SUPABASE_ANON_KEY: PRESENT (from apps/config.json - Python will load it)
+  ) else (
+    echo SUPABASE_ANON_KEY: MISSING
+  )
+)
+
+if defined CA_UNPACKER_AUTH_URL (
+  echo CA_UNPACKER_AUTH_URL: PRESENT (legacy - no longer used for auth)
+) else (
+  if exist "apps\config.json" (
+    echo CA_UNPACKER_AUTH_URL: PRESENT in config (legacy - ignored)
+  ) else (
+    echo CA_UNPACKER_AUTH_URL: MISSING (legacy)
+  )
+)
+
+echo.
+echo ================================================
+echo   CA Unpacker - Direct In-App Supabase Auth
+echo ================================================
+echo Auth mode: STRICT in-app email/password (no browser redirect)
+echo - Fresh users must sign up / log in before folder or firm setup.
+echo - Uses production Supabase from apps/config.json (unless .env overrides).
+echo.
 
 if exist "%~dp0dist\CAUnpacker\tesseract\tesseract.exe" (
   set "CAUNPACKER_TESSERACT=%~dp0dist\CAUnpacker\tesseract\tesseract.exe"
@@ -46,6 +84,14 @@ if not exist "%PY%" (
     pause
     exit /b 1
   )
+  echo.
+  echo Setup complete.
+  echo.
+  echo === Perfect Auth Baked In ===
+  echo - Direct Supabase connection (production keys from apps/config.json)
+  echo - Strict in-app auth gate (email + password only)
+  echo - No more automatic browser signup
+  echo - You will be required to sign in before choosing your Excel folder
 )
 
 "%PY%" -c "import cryptography" >nul 2>nul
@@ -54,7 +100,10 @@ if errorlevel 1 (
   "%PY%" -m pip install -r requirements.txt
 )
 
-echo Opening CA Unpacker...
+echo.
+echo Starting CA Unpacker...
+echo (Strict in-app Supabase auth - sign up or log in with email/password first)
+echo.
 "%PY%" -m apps.desktop
 if errorlevel 1 (
   echo The app closed with an error. See start-log.txt
@@ -88,6 +137,7 @@ for /l %%I in (1,1,8) do (
   if defined v if "!v:~-1!"==" " set "v=!v:~0,-1!"
 )
 if /i not "!k!"=="SUPABASE_URL" if /i not "!k!"=="SUPABASE_ANON_KEY" if /i not "!k!"=="CA_UNPACKER_AUTH_URL" (
+  rem CA_UNPACKER_AUTH_URL is legacy (browser flow removed). Still allow override for compatibility.
   endlocal
   exit /b 0
 )
