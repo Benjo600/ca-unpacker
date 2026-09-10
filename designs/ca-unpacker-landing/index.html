@@ -270,6 +270,7 @@
           <a class="btn btn-ghost" href="#how">See the clicks</a>
         </div>
         <p class="fine">Setup is one file: <code>CAUnpacker-Setup.exe</code>. Test files are a zip — unzip, then Add folder on one numbered folder. Windows 10 or 11. No Python, no Docker.</p>
+        <p class="fine">Developers: <a id="dl-start" href="/start.bat" download="start.bat">download start.bat</a> after cloning the repo (loads .env + auto venv).</p>
       </div>
       <aside class="docket" data-od-id="hero-docket">
         <p class="eyebrow">After Setup</p>
@@ -486,6 +487,7 @@
         <a class="btn btn-paper" id="dl-foot" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
         <a class="btn btn-ghost" id="dl-samples-foot" href="/CAUnpacker-Test-Files.zip" download="CAUnpacker-Test-Files.zip">Download test files</a>
       </div>
+      <p class="fine">Source: <a id="dl-start-foot" href="/start.bat" download="start.bat">start.bat</a> (clone repo first)</p>
     </div>
   </section>
 
@@ -494,6 +496,8 @@
       <span>CA Unpacker · Windows desktop · files stay on this PC</span>
       <span>
         <a href="https://github.com/Benjo600/ca-unpacker">Source</a>
+        ·
+        <a href="/start.bat" download="start.bat">start.bat</a>
         ·
         <a href="https://github.com/Benjo600/ca-unpacker/releases">Releases</a>
       </span>
@@ -507,7 +511,9 @@
         ["dl-hero", local ? "CAUnpacker-Setup.exe" : "/CAUnpacker-Setup.exe"],
         ["dl-foot", local ? "CAUnpacker-Setup.exe" : "/CAUnpacker-Setup.exe"],
         ["dl-samples", local ? "CAUnpacker-Test-Files.zip" : "/CAUnpacker-Test-Files.zip"],
-        ["dl-samples-foot", local ? "CAUnpacker-Test-Files.zip" : "/CAUnpacker-Test-Files.zip"]
+        ["dl-samples-foot", local ? "CAUnpacker-Test-Files.zip" : "/CAUnpacker-Test-Files.zip"],
+        ["dl-start", local ? "start.bat" : "/start.bat"],
+        ["dl-start-foot", local ? "start.bat" : "/start.bat"]
       ].forEach(function (pair) {
         var el = document.getElementById(pair[0]);
         if (el) el.setAttribute("href", pair[1]);

@@ -41,10 +41,15 @@ if exist "dist\CAUnpacker-Setup.exe" (
   copy /y "dist\CAUnpacker-Setup.exe" "designs\ca-unpacker-landing\CAUnpacker-Setup.exe" >nul
   echo Landing download file: designs\ca-unpacker-landing\CAUnpacker-Setup.exe
 )
+if exist "start.bat" (
+  copy /y "start.bat" "designs\ca-unpacker-landing\start.bat" >nul
+  echo Landing dev helper: designs\ca-unpacker-landing\start.bat
+)
 echo Give people the Setup exe (one file, double-click to install): dist\CAUnpacker-Setup.exe
 echo Zip is optional: dist\CAUnpacker-Windows.zip
 echo Inside it is one file: CAUnpacker-Setup.exe
-echo They double-click Setup, then open CA Unpacker from the Start menu.
+They double-click Setup, then open CA Unpacker from the Start menu.
+echo For source / developers: also copy start.bat to the landing folder.
 exit /b 0
 
 :fail
