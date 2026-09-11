@@ -663,6 +663,7 @@ function applyDevMode(license) {
 async function refreshAuthState() {
   const api = desktopApi();
   if (!api || !api.get_auth_state) return null;
+  const prevSigned = Boolean(authState && authState.signed_in);
   try {
     authState = await api.get_auth_state();
   } catch {
@@ -671,7 +672,36 @@ async function refreshAuthState() {
   const locked = !devMode && authState && !authState.signed_in;
   setAuthLocked(locked);
   renderQuotaBanner(authState);
+  if (!prevSigned && authState && authState.signed_in) {
+    const api2 = desktopApi();
+    if (api2 && api2.get_state) {
+      api2.get_state().then((s) => {
+        if (s && s.firm && s.output_path) showDesk(s);
+        else showSetup(s || lastAppState);
+      }).catch(() => {});
+    }
+  }
   return authState;
+}
+
+async function ensurePostAuth() {
+  try {
+    await refreshAuthState();
+    const api = desktopApi();
+    if (api && api.get_state) {
+      const state = await api.get_state();
+      if (state && state.firm && state.output_path) {
+        if (typeof showDesk === "function") showDesk(state);
+        else if (typeof showScreen === "function") showScreen("desk");
+      } else if (typeof showSetup === "function") {
+        showSetup(state || {});
+      }
+    }
+  } catch (e) {
+    if (typeof refreshAuthState === "function") {
+      try { await refreshAuthState(); } catch {}
+    }
+  }
 }
 
 function showDesk(state) {
@@ -1582,6 +1612,12 @@ async function boot() {
   authState = state.auth || null;
   applyDevMode(state.license);
   await refreshAuthState();
+  const isSignedIn = devMode || Boolean(authState && authState.signed_in);
+  if (!isSignedIn) {
+    // Strict in-app auth: gate is shown by refreshAuthState.
+    // Do not show folder/firm setup or desk until signed in.
+    return;
+  }
   if (state.firm && state.output_path) {
     showDesk(state);
   } else {
@@ -1766,20 +1802,27 @@ const authPasswordEl = document.getElementById("auth-password");
 const authSubmitBtn = document.getElementById("auth-submit");
 const authModeToggle = document.getElementById("auth-mode-toggle");
 const authForgotBtn = document.getElementById("auth-forgot");
-let authSignupMode = false;
 let authBusy = false;
+let authMode = "login"; // "login" | "signup"
 
 function renderAuthMode() {
-  if (!authSubmitBtn || !authModeToggle) return;
-  authSubmitBtn.textContent = authSignupMode ? "Create account" : "Log in";
-  authModeToggle.textContent = authSignupMode
-    ? "Already have an account? Log in"
-    : "New here? Create an account";
-  if (authPasswordEl) {
-    authPasswordEl.setAttribute(
-      "autocomplete",
-      authSignupMode ? "new-password" : "current-password"
-    );
+  if (!authSubmitBtn) return;
+  if (authMode === "signup") {
+    authSubmitBtn.textContent = "Create account";
+    if (authPasswordEl) authPasswordEl.setAttribute("autocomplete", "new-password");
+    if (authModeToggle) authModeToggle.textContent = "Already have an account? Log in";
+    const title = document.getElementById("auth-title");
+    const lede = document.getElementById("auth-lede");
+    if (title) title.textContent = "Create your account";
+    if (lede) lede.textContent = "Sign up with email and password. Processing stays on this PC.";
+  } else {
+    authSubmitBtn.textContent = "Log in";
+    if (authPasswordEl) authPasswordEl.setAttribute("autocomplete", "current-password");
+    if (authModeToggle) authModeToggle.textContent = "Create account instead";
+    const title = document.getElementById("auth-title");
+    const lede = document.getElementById("auth-lede");
+    if (title) title.textContent = "Sign in to CA Unpacker";
+    if (lede) lede.textContent = "Create an account or sign in to continue. All processing stays on this PC.";
   }
 }
 
@@ -1797,15 +1840,6 @@ function clearAuthPassword() {
   if (authPasswordEl) authPasswordEl.value = "";
 }
 
-if (authModeToggle) {
-  authModeToggle.addEventListener("click", () => {
-    authSignupMode = !authSignupMode;
-    showError(authErrorEl, "");
-    showError(authNoticeEl, "");
-    renderAuthMode();
-  });
-}
-
 if (authForm) {
   renderAuthMode();
   authForm.addEventListener("submit", async (event) => {
@@ -1816,38 +1850,48 @@ if (authForm) {
     const api = desktopApi();
     const email = authEmailEl ? authEmailEl.value : "";
     const password = authPasswordEl ? authPasswordEl.value : "";
-    const signup = authSignupMode;
-    if (!api || !api.login_with_password || !api.signup_with_password) {
+    if (!api) {
       showError(authErrorEl, "Update the app to sign in here.");
       return;
     }
-    setAuthBusy(true, signup ? "Creating account…" : "Signing in…");
+    const isSignup = authMode === "signup";
+    const fn = isSignup ? api.signup_with_password : api.login_with_password;
+    if (!fn) {
+      showError(authErrorEl, "Update the app to continue.");
+      return;
+    }
+    setAuthBusy(true, isSignup ? "Creating account…" : "Signing in…");
     let result;
     try {
-      result = signup
-        ? await api.signup_with_password(email, password)
-        : await api.login_with_password(email, password);
+      result = await fn(email, password);
     } catch {
-      result = { ok: false, error: "Could not reach the sign-in service. Try again." };
+      result = { ok: false, error: "Could not reach the service. Try again." };
     }
     clearAuthPassword();
     setAuthBusy(false);
     if (!result || !result.ok) {
-      showError(authErrorEl, (result && result.error) || "Could not sign in.");
+      showError(authErrorEl, (result && result.error) || "Failed.");
       return;
     }
     if (result.confirmation_required) {
-      showError(authNoticeEl, "Check your email to confirm your account, then log in.");
-      authSignupMode = false;
+      showError(authNoticeEl, "Account created. Check your email to confirm, then log in.");
+      // switch to login mode after signup that needs confirmation
+      authMode = "login";
       renderAuthMode();
       return;
     }
-    await refreshAuthState();
-    if (api.get_state) {
-      const state = await api.get_state();
-      if (state.firm && state.output_path) showDesk(state);
-      else showSetup(state);
-    }
+    await ensurePostAuth();
+  });
+}
+
+if (authModeToggle) {
+  authModeToggle.addEventListener("click", () => {
+    if (authBusy) return;
+    showError(authErrorEl, "");
+    showError(authNoticeEl, "");
+    authMode = (authMode === "login") ? "signup" : "login";
+    renderAuthMode();
+    if (authPasswordEl) authPasswordEl.focus();
   });
 }
 
@@ -1868,17 +1912,6 @@ if (authForgotBtn) {
       // Never reveal whether the address exists.
     }
     showError(authNoticeEl, "If that email has an account, a reset link is on its way.");
-  });
-}
-
-const authLoginBtn = document.getElementById("auth-login");
-if (authLoginBtn) {
-  authLoginBtn.addEventListener("click", async () => {
-    showError(authErrorEl, "");
-    const api = desktopApi();
-    if (!api || !api.open_login) return;
-    const result = await api.open_login();
-    if (!result.ok) showError(authErrorEl, result.error || "Could not open login page.");
   });
 }
 if (profileButtonEl && profilePanelEl) {
@@ -1907,10 +1940,7 @@ if (authLogoutBtn) {
     if (!api || !api.logout) return;
     closeProfilePanel();
     await api.logout();
-    await refreshAuthState();
-    const state = await api.get_state();
-    if (state.firm && state.output_path) showDesk(state);
-    else showSetup(state);
+    await ensurePostAuth();
   });
 }
 

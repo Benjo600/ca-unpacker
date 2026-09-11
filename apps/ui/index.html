@@ -10,9 +10,9 @@
 <body>
   <div id="auth-gate" class="auth-gate hidden">
     <div class="auth-card">
-      <p class="eyebrow">Sign in</p>
-      <h1>Sign in to use CA Unpacker.</h1>
-      <p class="lede">Your client files stay on this PC. We only sync account and usage metadata.</p>
+      <p class="eyebrow">Account</p>
+      <h1 id="auth-title">Sign in to CA Unpacker</h1>
+      <p class="lede" id="auth-lede">Create an account or sign in to continue. All processing stays on this PC.</p>
       <form id="auth-form" autocomplete="on">
         <label for="auth-email">Email</label>
         <input id="auth-email" type="email" autocomplete="email" placeholder="you@firm.in" />
@@ -21,14 +21,12 @@
         <button type="submit" id="auth-submit">Log in</button>
       </form>
       <p class="auth-links">
-        <button type="button" class="link" id="auth-mode-toggle">New here? Create an account</button>
         <button type="button" class="link" id="auth-forgot">Forgot password?</button>
+        <span> · </span>
+        <button type="button" class="link" id="auth-mode-toggle">Create account instead</button>
       </p>
       <p id="auth-error" class="error" hidden></p>
       <p id="auth-notice" class="notice" hidden></p>
-      <p class="auth-fallback">
-        <button type="button" class="link" id="auth-login">Sign in using browser instead</button>
-      </p>
     </div>
   </div>
 

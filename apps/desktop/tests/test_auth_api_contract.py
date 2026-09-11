@@ -55,18 +55,16 @@ class DesktopAuthApiContractTests(unittest.TestCase):
         self.assertTrue(result["signed_in"])
         self.assertEqual(api.get_auth_state()["signed_in"], True)
 
-    def test_open_signup_and_login_return_ok(self) -> None:
-        from unittest.mock import patch
-
+    def test_legacy_browser_auth_methods_direct_users_to_in_app_form(self) -> None:
         from apps.desktop.app import DesktopApi
 
         api = DesktopApi()
-        with patch("webbrowser.open") as opener:
-            signup = api.open_signup()
-            login = api.open_login()
-        self.assertTrue(signup["ok"])
-        self.assertTrue(login["ok"])
-        self.assertEqual(opener.call_count, 2)
+        signup = api.open_signup()
+        login = api.open_login()
+        self.assertFalse(signup["ok"])
+        self.assertEqual(signup["error"], "Use the in-app sign up form.")
+        self.assertFalse(login["ok"])
+        self.assertEqual(login["error"], "Use the in-app login form.")
 
     def test_logout_clears_session(self) -> None:
         from unittest.mock import patch

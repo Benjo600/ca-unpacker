@@ -6,7 +6,6 @@ import subprocess
 import sys
 import threading
 import time
-import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -28,7 +27,6 @@ from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
-from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import (
@@ -81,12 +79,12 @@ class DesktopApi:
         return auth.get_auth_state()
 
     def open_signup(self) -> dict:
-        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/signup?redirect=desktop")
-        return {"ok": True}
+        # Browser signup flow removed. Use in-app signup_with_password.
+        return {"ok": False, "error": "Use the in-app sign up form."}
 
     def open_login(self) -> dict:
-        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/login?redirect=desktop")
-        return {"ok": True}
+        # Browser login flow removed. Use in-app login_with_password.
+        return {"ok": False, "error": "Use the in-app login form."}
 
     def check_protocol_registered(self) -> dict:
         """Check if the caunpacker:// protocol is registered for browser handoff."""
@@ -159,21 +157,36 @@ class DesktopApi:
 
     def handle_auth_callback(self, url: str) -> dict:
         parsed = urlparse(str(url or ""))
-        fragment = parsed.fragment or parsed.query
-        params = parse_qs(fragment)
+        frag_or_q = (parsed.fragment or parsed.query or "").lstrip("?#")
+        params = parse_qs(frag_or_q)
         access = (params.get("access_token") or [None])[0]
         refresh = (params.get("refresh_token") or [None])[0]
-        if not access or not refresh:
-            return {"ok": False, "error": "Sign-in callback did not include tokens."}
         try:
-            auth.login_via_tokens(str(access), str(refresh))
+            if access and refresh:
+                auth.login_via_tokens(str(access), str(refresh))
+            else:
+                # tolerate callbacks without tokens (e.g. some confirmation redirects); refresh any session
+                try:
+                    auth.refresh_session()
+                except Exception:
+                    pass
             try:
                 auth.fetch_quota()
             except Exception:
                 pass
-            return {"ok": True, **auth.get_auth_state()}
+            state = auth.get_auth_state()
+            if not state.get("signed_in"):
+                return {"ok": False, "error": "Sign-in callback did not include tokens and no active session."}
+            return {"ok": True, **state}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def check_pending_auth_callback(self) -> dict:
+        """Manual check for pending deep-link auth (e.g. browser signup complete button in gate)."""
+        pending = _read_pending_deep_link()
+        if pending:
+            return _process_deep_link(self, pending)
+        return {"ok": False, "error": "No pending auth callback found."}
 
     def get_state(self) -> dict:
         init_library()
@@ -557,34 +570,78 @@ def _acquire_single_instance_mutex() -> bool:
 def _delegate_deep_link_to_running_instance(url: str) -> None:
     path = _pending_deep_link_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    path.write_text(url, encoding="utf-8")
+    tmp = path.with_suffix(".tmp")
+    tmp.write_text(url, encoding="utf-8")
+    tmp.replace(path)
 
 
 def _read_pending_deep_link() -> str | None:
     path = _pending_deep_link_path()
     if not path.is_file():
         return None
+    for _ in range(6):
+        try:
+            if not path.is_file():
+                return None
+            url = path.read_text(encoding="utf-8").strip()
+            if url and url.startswith("caunpacker://"):
+                path.unlink(missing_ok=True)
+                return url
+            if url:
+                # non matching content, discard
+                path.unlink(missing_ok=True)
+                return None
+            # empty, retry shortly
+            time.sleep(0.04)
+        except OSError:
+            time.sleep(0.04)
     try:
-        url = path.read_text(encoding="utf-8").strip()
         path.unlink(missing_ok=True)
-    except OSError:
-        return None
-    return url if url.startswith("caunpacker://") else None
+    except Exception:
+        pass
+    return None
 
 
 def _notify_auth_ui_refresh(result: dict) -> None:
-    if _WINDOW is None:
+    if not result:
         return
-    try:
-        if result.get("ok"):
-            _WINDOW.evaluate_js("refreshAuthState().catch(() => {})")
-        elif result.get("error"):
-            message = json.dumps(str(result["error"]))
-            _WINDOW.evaluate_js(
-                f"showError(document.getElementById('auth-error'), {message})"
-            )
-    except Exception:
-        pass
+
+    def _do_js() -> None:
+        if _WINDOW is None:
+            return
+        try:
+            if result.get("ok"):
+                # robust: full state refresh + redecide screen (setup for fresh post-signup)
+                # also ensures quota/auth UI fully updated even if window was loading
+                js = (
+                    "(async () => { try { "
+                    "if (typeof ensurePostAuth === 'function') { await ensurePostAuth(); } "
+                    "else if (typeof refreshAuthState === 'function') { await refreshAuthState(); "
+                    "const api = (window.pywebview && window.pywebview.api) || null; "
+                    "if (api && api.get_state) { "
+                    "const s = await api.get_state(); "
+                    "if (s && s.firm && s.output_path && typeof showDesk === 'function') showDesk(s); "
+                    "else if (typeof showSetup === 'function') showSetup(s || {}); "
+                    "} } "
+                    "} catch (e) {} })();"
+                )
+                _WINDOW.evaluate_js(js)
+            elif result.get("error"):
+                message = json.dumps(str(result["error"]))
+                _WINDOW.evaluate_js(
+                    f"showError(document.getElementById('auth-error'), {message})"
+                )
+        except Exception:
+            pass
+
+    if _WINDOW is None:
+        # window not assigned yet (rare timing), retry shortly
+        def _delayed() -> None:
+            time.sleep(0.7)
+            _do_js()
+        threading.Thread(target=_delayed, daemon=True).start()
+    else:
+        _do_js()
 
 
 def _process_deep_link(api: DesktopApi, url: str) -> dict:
@@ -593,10 +650,19 @@ def _process_deep_link(api: DesktopApi, url: str) -> dict:
     return result
 
 
+def _check_pending_now(api: DesktopApi) -> None:
+    try:
+        pending = _read_pending_deep_link()
+        if pending:
+            _process_deep_link(api, pending)
+    except Exception:
+        pass
+
+
 def _start_deep_link_poller(api: DesktopApi) -> None:
     def poll() -> None:
         while True:
-            time.sleep(1.5)
+            time.sleep(0.5)
             pending = _read_pending_deep_link()
             if pending:
                 _process_deep_link(api, pending)
@@ -608,7 +674,20 @@ def _on_window_shown(api: DesktopApi) -> None:
     _bind_explorer_drop(api)
     if _startup_deep_link:
         _process_deep_link(api, _startup_deep_link)
+    # immediate pending check (handles race between poller start and arrival / shown timing)
+    try:
+        pending = _read_pending_deep_link()
+        if pending:
+            _process_deep_link(api, pending)
+    except Exception:
+        pass
     _start_deep_link_poller(api)
+    # also check on load (helps if deep link processed after initial render)
+    if _WINDOW is not None:
+        try:
+            _WINDOW.events.loaded += lambda: _check_pending_now(api)
+        except Exception:
+            pass
 
 
 def main() -> None:

@@ -12,7 +12,7 @@ from typing import Any
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 
-from apps.engine.auth_config import CA_UNPACKER_AUTH_URL, SUPABASE_ANON_KEY, SUPABASE_URL
+from apps.engine.auth_config import SUPABASE_ANON_KEY, SUPABASE_URL
 from apps.engine.license import STARTER_LIMIT, _QUOTA_MESSAGE
 from apps.engine.settings import load_settings, save_settings
 
@@ -273,11 +273,13 @@ def refresh_session() -> dict | None:
             {"refresh_token": session["refresh_token"]},
         )
     except httpx.HTTPError:
-        return session
+        _clear_session()
+        return None
     access = str(payload.get("access_token") or "").strip()
     refresh = str(payload.get("refresh_token") or session["refresh_token"]).strip()
     if not access:
-        return session
+        _clear_session()
+        return None
     email = _email_from_jwt(access) or session.get("email") or ""
     save_settings(
         {
@@ -424,7 +426,6 @@ def get_auth_state() -> dict:
         "file_limit": file_limit,
         "offline": offline,
         "last_sync_at": cache.get("synced_at"),
-        "auth_url": CA_UNPACKER_AUTH_URL,
     }
 
 
