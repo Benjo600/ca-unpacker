@@ -79,6 +79,29 @@ class MonthNameDateTests(unittest.TestCase):
             )
             self.assertEqual(check["status"], "match", check)
 
+    def test_kotak_scanned_serial_day_rows(self) -> None:
+        from apps.engine.parsers.bank.parser import _rows_from_lines
+        from apps.engine.parsers.bank.profiles import detect_profile
+        from apps.engine.pdf_extract import LineBox
+
+        lines = [
+            LineBox(page=1, text="Account Statement 01 Jul 2026 - 31 Jul 2026", x=36, y=650, width=200, height=12),
+            LineBox(page=1, text="CRN 12345 IFSC Code KKBK0008120", x=36, y=550, width=200, height=12),
+            LineBox(page=1, text="1 05 B UPI-618682727471 4,000.00", x=39, y=386, width=400, height=12),
+            LineBox(page=1, text="2 05 Jul2026 C/YESB/UPI UPI-618682731260 3,800.00 2.71", x=39, y=361, width=500, height=12),
+            LineBox(page=1, text="3 05 Jul2026 170.00", x=39, y=352, width=300, height=12),
+            LineBox(page=1, text="4 06 8 UPI-618755590821 200.00", x=39, y=333, width=400, height=12),
+            LineBox(page=1, text="6 08 B UPI-618968789730 100.00", x=39, y=298, width=400, height=12),
+        ]
+        profile = detect_profile("IFSC Code KKBK0008120", "statement.pdf")
+        self.assertEqual(profile.key, "kotak")
+        rows, cands = _rows_from_lines(lines, profile, "statement.pdf", default_ym="2026-07")
+        self.assertEqual(len(rows), 5)
+        self.assertEqual(rows[1]["debit"], 3800.0)
+        self.assertEqual(rows[1]["balance"], 2.71)
+        self.assertEqual(rows[3]["date"], "2026-07-06")
+        self.assertEqual(rows[4]["date"], "2026-07-08")
+
 
 class MarkdownTableTests(unittest.TestCase):
     def test_kotak_markdown_table_maps_debit_credit(self) -> None:

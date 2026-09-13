@@ -10,7 +10,7 @@ DATE_RE = re.compile(
     r"\b("
     r"\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}"
     r"|"
-    r"\d{1,2}\s*[A-Za-z]{3,9}\.?\s*\d{2,4}"
+    r"\d{1,2}[.\s]*[A-Za-z]{3,9}\.?\s*\d{2,4}"
     r")\b"
 )
 _MONTHS = {
@@ -50,22 +50,30 @@ def amounts_in(text: str) -> list[Decimal]:
     return found
 
 
-def normalize_date(raw: str) -> str:
+def normalize_date(raw: str, default_year: int | str | None = None) -> str:
     text = (raw or "").strip()
-    named = re.fullmatch(r"(\d{1,2})\s*([A-Za-z]{3,9})\.?\s*(\d{2,4})", text)
+    named = re.fullmatch(r"(\d{1,2})[.\s]*([A-Za-z]{3,9})\.?\s*(\d{2,4})?", text)
     if named:
         day, month_raw, year = named.groups()
         month = _MONTHS.get(month_raw.lower()[:3])
         if month:
-            if len(year) == 2:
-                year = f"20{year}"
-            return f"{int(year):04d}-{month:02d}-{int(day):02d}"
+            if not year and default_year:
+                year = str(default_year)
+            if year:
+                if len(year) == 2:
+                    year = f"20{year}"
+                return f"{int(year):04d}-{month:02d}-{int(day):02d}"
+        return text
+    if is_plausible_iso_date(text):
         return text
     parts = re.split(r"[/\-.]", text)
     if len(parts) != 3:
         return text
+    if len(parts[0]) == 4 and parts[0].isdigit() and parts[1].isdigit() and parts[2].isdigit():
+        year, month, day = parts
+        return f"{int(year):04d}-{int(month):02d}-{int(day):02d}"
     day, month, year = parts
-    if not month.isdigit():
+    if not month.isdigit() or not day.isdigit() or not year.isdigit():
         return text
     if len(year) == 2:
         year = f"20{year}"

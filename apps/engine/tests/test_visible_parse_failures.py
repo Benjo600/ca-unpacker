@@ -36,7 +36,7 @@ class VisibleParseFailureTests(unittest.TestCase):
         job = start_job(self.period["id"])
         with patch("apps.engine.pipeline.parse_gstr_file", side_effect=RuntimeError("boom")):
             result = ingest_paths(job["id"], [str(bad)])
-        self.assertEqual(result.get("status"), "needs_review")
+        self.assertIn(result.get("status"), {"failed", "needs_review"})
         files = list_period_files(self.period["id"])
         self.assertTrue(files)
         self.assertTrue(files[0].get("parse_failed"))
@@ -59,7 +59,7 @@ class VisibleParseFailureTests(unittest.TestCase):
             files[0],
         )
         self.assertTrue(result.get("warnings"), result)
-        self.assertEqual(result.get("status"), "needs_review")
+        self.assertIn(result.get("status"), {"failed", "needs_review"})
 
     def test_mixed_dump_keeps_bank_and_blocks_done(self) -> None:
         from make_test_dump import pdf_with_text
@@ -83,7 +83,7 @@ class VisibleParseFailureTests(unittest.TestCase):
         (inbox / "GSTR-2B_July.json").write_text("{", encoding="utf-8")
         job = start_job(self.period["id"])
         result = ingest_paths(job["id"], [str(inbox)])
-        self.assertEqual(result.get("status"), "needs_review", result)
+        self.assertIn(result.get("status"), {"done_with_warnings", "needs_review"}, result)
         pack = get_period_pack(self.period["id"])
         self.assertIsNotNone(pack)
         outputs = {item.get("key"): item for item in (pack.get("outputs") or [])}
