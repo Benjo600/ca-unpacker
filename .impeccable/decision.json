@@ -1,0 +1,155 @@
+{
+  "title": "Choose the visual world",
+  "question": "Fresh hand. The roll assigned Registry Room for the new app shell \u2014 keep it, take an alternate, or re-roll again.",
+  "options": [
+    {
+      "id": "assigned",
+      "label": "Registry Room",
+      "kicker": "THE ROLL",
+      "lineage": "the CA firm's record almirah and inward/outward register",
+      "thesis": "The workspace is the firm's record room: steel drawers of tied client folders, ruled against a bound inward/outward register.",
+      "palette": ["#4E5652", "#CBB98E", "#F1ECDF", "#1C2430", "#96322A", "#4E3E7A"],
+      "materials": ["brushed steel drawer", "manila folder board", "red cloth tying tape", "rubber stamp pad", "ruled register paper"],
+      "viewport": "A steel drawer column down the left for the firm's sections, one ruled register sheet carrying the working rows, a token-slip rail for open items, and a wide annotation margin holding cross-reference ticks and stamps.",
+      "risk": "Reads institutional and cold if the register ruling and the red tape stop doing real work.",
+      "raised": [
+        { "from": "medium-native-crt-arcade-pixel-glow", "raise": "One integer scale rules every dimension and figure \u2014 nothing sits off-grid, and the palette is a fixed law rather than a mood." },
+        { "from": "kinetic-sculpture-automata-tensegrity-breathing-column", "raise": "Every cross-reference is a leader line back to its source document, and the page's structure follows the reference network, not decorative panels." },
+        { "from": "rw-centre-rail-reference-setting", "raise": "A wide persistent annotation margin holds the apparatus \u2014 ticks, brackets, stamps \u2014 and absorbs width before the register sheds a column." }
+      ],
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          { "label": "drawer column / sections", "x": 0, "y": 0, "w": 2, "h": 10, "accent": true },
+          { "label": "register head", "x": 2, "y": 0, "w": 10, "h": 1 },
+          { "label": "ruled register (rows)", "x": 2, "y": 1, "w": 7, "h": 9 },
+          { "label": "token-slip rail", "x": 9, "y": 1, "w": 1, "h": 9 },
+          { "label": "annotation margin", "x": 10, "y": 1, "w": 2, "h": 9, "accent": true }
+        ]
+      },
+      "comp": ".impeccable/mocks/decision/assigned.webp"
+    },
+    {
+      "id": "model-pick",
+      "label": "Accounts Workstation",
+      "kicker": "IMPECCABLE\u2019S PICK",
+      "lineage": "the Tally-era Windows accounting workstation",
+      "thesis": "The shell behaves like the accounting software the firm already trusts: menu bar, dockable panes, a ledger tree, and a keyboard footer.",
+      "palette": ["#2A3B54", "#E9EDF2", "#B2392F", "#C79A3C", "#4C6B4A"],
+      "materials": ["docked panel", "menu bar", "keyboard command footer", "ledger tree"],
+      "viewport": "A menu bar and command footer bracketing three docked panes: a ledger tree, a dense working grid, and a detail panel \u2014 keyboard-first, no pointer required.",
+      "risk": "The familiar one \u2014 the direction most runs in this category land on.",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          { "label": "menu bar", "x": 0, "y": 0, "w": 12, "h": 1, "accent": true },
+          { "label": "ledger tree", "x": 0, "y": 1, "w": 3, "h": 8 },
+          { "label": "working grid", "x": 3, "y": 1, "w": 6, "h": 8, "accent": true },
+          { "label": "detail panel", "x": 9, "y": 1, "w": 3, "h": 8 },
+          { "label": "command footer", "x": 0, "y": 9, "w": 12, "h": 1 }
+        ]
+      },
+      "comp": ".impeccable/mocks/decision/model-pick.webp"
+    },
+    {
+      "id": "challenger-cutting-bench",
+      "label": "Cutting-Bench Rail",
+      "verdict": "competitive",
+      "lineage": "film cutting bench and its perforated select rail",
+      "thesis": "Every document is a frame pinned to one perforated rail, and the stage you stopped at is flagged.",
+      "palette": ["#0C0C0C", "#E7E2D8", "#E4681E"],
+      "materials": ["punched film frame", "steel pin", "folded tape flag", "grease pencil"],
+      "viewport": "One perforated rail crosses the sheet, frames strung along it in stage order, deferred items hanging on pins below, the stopped frame flagged in orange.",
+      "case": "Fuses cleanly \u2014 a parsing pipeline is a select rail \u2014 and loses narrowly on identification.",
+      "risk": "The scrub-only rail fights a wide desktop workspace with parallel columns.",
+      "hero": "https://impeccable.style/worlds/cards/operate-a-cutting-bench-select-rail-hero.webp",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          { "label": "pinned bin (deferred)", "x": 0, "y": 0, "w": 12, "h": 3 },
+          { "label": "perforated rail", "x": 0, "y": 3, "w": 12, "h": 1, "accent": true },
+          { "label": "frames (stages)", "x": 0, "y": 4, "w": 12, "h": 6, "accent": true }
+        ]
+      }
+    },
+    {
+      "id": "challenger-cdrom-console",
+      "label": "CD-ROM Console",
+      "verdict": "competitive",
+      "lineage": "mid-nineties rendered CD-ROM console chrome",
+      "thesis": "The app is a fixed rendered machine: embossed toggles ranged around one bright working window.",
+      "palette": ["#9AA3A8", "#2F5F63", "#6B5A8C", "#F7F9FA"],
+      "materials": ["brushed gray panel", "beveled embossed toggle", "teal and violet inlay", "small live window"],
+      "viewport": "A fixed console frame with beveled section toggles and a single bright window carrying the working data.",
+      "case": "Holds identification through native-feeling desktop chrome, and clarity through hard-framed navigation.",
+      "risk": "Reads nostalgic novelty when the bevels stop signalling real press states.",
+      "hero": "https://impeccable.style/worlds/cards/digital-design-canon-cdrom-chrome-navigation-hero.webp",
+      "wireframe": {
+        "cols": 12,
+        "rows": 10,
+        "regions": [
+          { "label": "console frame", "x": 0, "y": 0, "w": 12, "h": 10 },
+          { "label": "embossed toggles", "x": 0, "y": 1, "w": 2, "h": 8, "accent": true },
+          { "label": "live window", "x": 2, "y": 1, "w": 10, "h": 8, "accent": true }
+        ]
+      }
+    },
+    {
+      "id": "challenger-arcade-glow",
+      "label": "Arcade Pixel Glow",
+      "verdict": "declined",
+      "lineage": "240-line CRT arcade cabinet",
+      "thesis": "The tool renders as a sixteen-colour sprite stage on phosphor black.",
+      "palette": ["#0B0B0F", "#F2E9D0", "#E4B23C", "#3FA34D"],
+      "materials": ["fat luminous pixel", "scanline gap", "phosphor bloom"],
+      "viewport": "Eight-by-eight pixel caps along the top edge over a whole-tile playfield.",
+      "case": "Fuses poorly: the tile grid costs legibility on long financial columns.",
+      "kept": "Strict palette law and an integer scale nothing is allowed off.",
+      "risk": "Reads playful where the firm needs authority.",
+      "hero": "https://impeccable.style/worlds/cards/medium-native-crt-arcade-pixel-glow-hero.webp"
+    },
+    {
+      "id": "challenger-tensegrity",
+      "label": "Tensegrity Force Column",
+      "verdict": "declined",
+      "lineage": "tensegrity kinetic sculpture",
+      "thesis": "Layout obeys a real network of tension and compression paths between records.",
+      "palette": ["#1A1A1A", "#E8E6E1", "#C0392B", "#9AA0A0"],
+      "materials": ["matte carbon rod", "red tension cord", "concrete ground"],
+      "viewport": "Floating members joined by cords, force values labelled on leader lines.",
+      "case": "Fuses poorly: a force network obscures a straight reconciliation table.",
+      "kept": "Annotations pinned to nodes on leader lines, and layout that follows real structure.",
+      "risk": "The spatial network collapses into noise at realdense row counts.",
+      "hero": "https://impeccable.style/worlds/cards/kinetic-sculpture-automata-tensegrity-breathing-column-hero.webp"
+    },
+    {
+      "id": "challenger-reference-setting",
+      "label": "Reference-Setting Page",
+      "verdict": "declined",
+      "lineage": "wide-margin reference edition ruled by a ruling engine",
+      "thesis": "Two short-measure columns twin around a centre key rail inside a wide annotation margin.",
+      "palette": ["#EDE6D6", "#1A1714", "#C0362C"],
+      "materials": ["unbleached bone paper", "iron-black ink", "vermilion rubric", "hairline detent"],
+      "viewport": "A small dense block held in a wide margin where apparatus hangs over the edge.",
+      "case": "Fuses poorly: a reading page under-serves a operate surface's scanning task.",
+      "kept": "The wide annotation margin where apparatus hangs and overlaps the block.",
+      "risk": "The two-column measure wastes a wide desktop window.",
+      "hero": "https://impeccable.style/worlds/cards/rw-centre-rail-reference-setting-hero.webp"
+    }
+  ],
+  "reroll": { "registers": ["safer", "bolder"] },
+  "buildPath": { "value": "code", "toggle": false },
+  "canon": true,
+  "canonCard": {
+    "label": "The category standard",
+    "thesis": "The icon-rail SaaS dashboard, executed impeccably.",
+    "palette": ["#FFFFFF", "#111827", "#2563EB"],
+    "materials": ["clean grid", "card shadows"],
+    "viewport": "Left icon rail, top bar, a KPI card grid over a data table.",
+    "risk": "Indistinguishable from the competition by design."
+  },
+  "steer": true
+}

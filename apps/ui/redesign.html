@@ -1,0 +1,833 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CA Unpacker — Practice Studio (Redesign)</title>
+  <link rel="icon" href="app-icon.png" />
+  <link rel="stylesheet" href="redesign.css" />
+</head>
+<body>
+  <div class="app-container">
+    <!-- ====================================================================
+         LEFT SIDEBAR / FIRM COMMAND RAIL
+         ==================================================================== -->
+    <aside class="sidebar">
+      <div class="sidebar-header">
+        <!-- Brand Badge -->
+        <div class="brand-badge">
+          <div class="brand-icon">CA</div>
+          <div class="brand-info">
+            <span class="brand-title">CA UNPACKER</span>
+            <span class="brand-subtitle">Practice Studio • Local Engine</span>
+          </div>
+        </div>
+
+        <!-- Practice Switcher -->
+        <div class="practice-card">
+          <div class="practice-details">
+            <span class="practice-label">Firm Workspace</span>
+            <span class="practice-name" id="firm-display-name">Mehta &amp; Associates</span>
+          </div>
+          <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--text-tertiary);"><path d="m6 9 6 6 6-6"/></svg>
+        </div>
+
+        <!-- Core Navigation -->
+        <div class="nav-section">
+          <span class="nav-section-title">Core Desk</span>
+          
+          <button type="button" class="nav-item active" data-view="clients">
+            <div class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/><path d="M22 21v-2a4 4 0 0 0-3-3.87"/><path d="M16 3.13a4 4 0 0 1 0 7.75"/></svg>
+              <span>Client Master</span>
+            </div>
+            <span class="nav-counter" id="nav-client-count">24</span>
+          </button>
+
+          <button type="button" class="nav-item" data-view="intake">
+            <div class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+              <span>Intake &amp; Dropzone</span>
+            </div>
+            <span class="nav-counter" id="nav-intake-count">3 Files</span>
+          </button>
+
+          <button type="button" class="nav-item" data-view="recon">
+            <div class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M12 2v20"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+              <span>Reconciliation Desk</span>
+            </div>
+            <span class="nav-counter" style="color: var(--amber-base);">3 Diff</span>
+          </button>
+
+          <button type="button" class="nav-item" data-view="preview">
+            <div class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+              <span>Document Preview</span>
+            </div>
+            <span class="nav-counter">Live</span>
+          </button>
+        </div>
+
+        <!-- Extraction Modules -->
+        <div class="nav-section">
+          <span class="nav-section-title">Automated Engines</span>
+          <div class="nav-item" style="cursor: default; opacity: 0.9;">
+            <div class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="16" y1="13" x2="8" y2="13"/><line x1="16" y1="17" x2="8" y2="17"/></svg>
+              <span>20+ Bank Parsers</span>
+            </div>
+            <span class="status-pill success">v1.2</span>
+          </div>
+          <div class="nav-item" style="cursor: default; opacity: 0.9;">
+            <div class="nav-item-left">
+              <svg class="nav-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M4 22h16a2 2 0 0 0 2-2V4a2 2 0 0 0-2-2H8a2 2 0 0 0-2 2v16a2 2 0 0 1-2 2Zm0 0a2 2 0 0 1-2-2v-9c0-1.1.9-2 2-2h2"/><path d="M18 14h-8"/><path d="M15 18h-5"/><path d="M10 6h8v4h-8V6Z"/></svg>
+              <span>Tally / Zoho Daybook</span>
+            </div>
+            <span class="status-pill success">Ready</span>
+          </div>
+        </div>
+      </div>
+
+      <!-- Footer: Local Air-Gap & Settings -->
+      <div class="sidebar-footer">
+        <div class="airgap-card">
+          <div class="airgap-status-row">
+            <span class="status-indicator">
+              <span class="status-dot"></span> AIR-GAPPED ON PC
+            </span>
+            <span class="badge-gstin font-mono" style="font-size: 11px;">SQLITE LOCAL</span>
+          </div>
+          <div class="airgap-metric">
+            <span>Disk Repository:</span>
+            <strong>142 MB</strong>
+          </div>
+          <div class="airgap-metric">
+            <span>Cloud Egress:</span>
+            <strong style="color: var(--emerald-base);">0 KB (Disabled)</strong>
+          </div>
+        </div>
+
+        <div class="sidebar-controls">
+          <button type="button" class="theme-toggle-btn" id="theme-toggle">
+            <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" id="theme-icon"><circle cx="12" cy="12" r="4"/><path d="M12 2v2"/><path d="M12 20v2"/><path d="m4.93 4.93 1.41 1.41"/><path d="m17.66 17.66 1.41 1.41"/><path d="M2 12h2"/><path d="M20 12h2"/><path d="m6.34 17.66-1.41 1.41"/><path d="m19.07 4.93-1.41 1.41"/></svg>
+            <span id="theme-label">Theme</span>
+          </button>
+          <span class="font-mono" style="font-size: 11px; color: var(--text-tertiary);">PRO TIER</span>
+        </div>
+      </div>
+    </aside>
+
+    <!-- ====================================================================
+         MAIN STAGE CANVAS
+         ==================================================================== -->
+    <div class="main-stage">
+      <!-- Top Command Header -->
+      <header class="top-header">
+        <div class="breadcrumb-bar">
+          <span class="breadcrumb-item">Practice Desk</span>
+          <span class="breadcrumb-sep">/</span>
+          <span class="breadcrumb-item active" id="breadcrumb-current">Client Master Ledger</span>
+        </div>
+
+        <!-- Search Bar (Cmd+K) -->
+        <div class="search-container">
+          <svg class="search-icon-pos" width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+          <input type="text" class="command-search" id="global-search" placeholder="Search clients, GSTIN, or run commands..." />
+          <kbd class="search-shortcut">⌘K</kbd>
+        </div>
+
+        <!-- Header Actions -->
+        <div class="header-actions">
+          <button type="button" class="btn btn-secondary btn-sm" id="btn-open-output">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M20 20a2 2 0 0 0 2-2V8a2 2 0 0 0-2-2h-7.9a2 2 0 0 1-1.69-.9L9.6 3.9A2 2 0 0 0 8 3H4a2 2 0 0 0-2 2v13a2 2 0 0 0 2 2Z"/></svg>
+            <span>Output Directory</span>
+          </button>
+          <button type="button" class="btn btn-primary btn-sm" id="btn-export-excel">
+            <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/><polyline points="14 2 14 8 20 8"/><line x1="8" y1="13" x2="16" y2="13"/><line x1="8" y1="17" x2="16" y2="17"/></svg>
+            <span>Export Cleaned Pack ↗</span>
+          </button>
+        </div>
+      </header>
+
+      <!-- Viewport Stage -->
+      <main class="viewport-content" id="viewport-stage">
+        
+        <!-- KPI METRICS ROW -->
+        <div class="kpi-grid">
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Active Practice Clients</span>
+              <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 21v-2a4 4 0 0 0-4-4H6a4 4 0 0 0-4 4v2"/><circle cx="9" cy="7" r="4"/></svg>
+            </div>
+            <div class="kpi-value num-tabular">24</div>
+            <div class="kpi-footnote">
+              <span class="kpi-tag-success">● 100% Mounted</span>
+              <span>on local SQLite</span>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Parsed Transactions</span>
+              <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><line x1="12" y1="1" x2="12" y2="23"/><path d="M17 5H9.5a3.5 3.5 0 0 0 0 7h5a3.5 3.5 0 0 1 0 7H6"/></svg>
+            </div>
+            <div class="kpi-value num-tabular">14,820</div>
+            <div class="kpi-footnote">
+              <span class="kpi-tag-success">✓ 0 Errors</span>
+              <span>across 62 statements</span>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">ITC At Risk (GSTR-2B)</span>
+              <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><line x1="12" y1="8" x2="12" y2="12"/><line x1="12" y1="16" x2="12.01" y2="16"/></svg>
+            </div>
+            <div class="kpi-value num-tabular" style="color: var(--amber-base);">₹32,150</div>
+            <div class="kpi-footnote">
+              <span class="kpi-tag-warn">3 Invoices</span>
+              <span>missing in Tally daybook</span>
+            </div>
+          </div>
+
+          <div class="kpi-card">
+            <div class="kpi-header">
+              <span class="kpi-title">Audit Hours Saved</span>
+              <svg class="kpi-icon" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><circle cx="12" cy="12" r="10"/><polyline points="12 6 12 12 16 14"/></svg>
+            </div>
+            <div class="kpi-value num-tabular">48.5 hrs</div>
+            <div class="kpi-footnote">
+              <span class="kpi-tag-success">⚡ 94% faster</span>
+              <span>vs manual entry</span>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================================================================
+             VIEW 1: CLIENT MASTER LEDGER (ACTIVE VIEW BY DEFAULT)
+             ================================================================ -->
+        <div class="view-panel" id="view-clients">
+          <div class="section-panel">
+            <div class="panel-header">
+              <div class="panel-header-left">
+                <span class="panel-title">Client Master Ledger</span>
+                <span class="panel-description">Directory of all client accounts and local statement repositories on this workstation.</span>
+              </div>
+              <div class="header-actions">
+                <span class="status-pill neutral font-mono">24 REGISTERED</span>
+              </div>
+            </div>
+
+            <!-- Quick Client Registration Strip -->
+            <form class="registration-strip" id="quick-register-form">
+              <div class="form-group flex-2">
+                <label class="form-label" for="reg-client-name">CLIENT LEGAL ENTITY</label>
+                <input type="text" id="reg-client-name" class="input-box" placeholder="e.g. Reliance Logistics &amp; Infra LLP" required />
+              </div>
+              <div class="form-group flex-1">
+                <label class="form-label" for="reg-client-gstin">GSTIN NUMBER <span style="color: var(--text-tertiary);">(OPTIONAL)</span></label>
+                <input type="text" id="reg-client-gstin" class="input-box font-mono" maxlength="15" placeholder="27AAACR1234F1Z8" />
+              </div>
+              <button type="submit" class="btn btn-primary" style="height: 36px;">
+                <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5"><line x1="12" y1="5" x2="12" y2="19"/><line x1="5" y1="12" x2="19" y2="12"/></svg>
+                <span>Register Client</span>
+              </button>
+            </form>
+
+            <!-- Clients Table -->
+            <table class="data-table" id="clients-table">
+              <thead>
+                <tr>
+                  <th>Client Legal Name</th>
+                  <th>GSTIN</th>
+                  <th>State / Jurisdiction</th>
+                  <th>Statements</th>
+                  <th>Extraction State</th>
+                  <th style="text-align: right;">Action</th>
+                </tr>
+              </thead>
+              <tbody id="clients-tbody">
+                <!-- Pre-populated realistic demo rows -->
+                <tr data-client-id="1">
+                  <td>
+                    <div class="entity-primary">
+                      <span>Rajesh Trading Corporation</span>
+                    </div>
+                  </td>
+                  <td><span class="badge-gstin">27AABCR1234F1Z5</span></td>
+                  <td>Maharashtra (27)</td>
+                  <td class="num-tabular">4 Banks • 1,284 Rows</td>
+                  <td><span class="status-pill success">● Cleaned Pack Ready</span></td>
+                  <td style="text-align: right;">
+                    <button type="button" class="btn btn-secondary btn-sm drill-client-btn">Open Periods →</button>
+                  </td>
+                </tr>
+                <tr data-client-id="2">
+                  <td>
+                    <div class="entity-primary">
+                      <span>Mehta Textiles &amp; Silks Pvt Ltd</span>
+                    </div>
+                  </td>
+                  <td><span class="badge-gstin">24AAECM5678B1Z2</span></td>
+                  <td>Gujarat (24)</td>
+                  <td class="num-tabular">6 Banks • 3,490 Rows</td>
+                  <td><span class="status-pill warn">● Recon Needs Review</span></td>
+                  <td style="text-align: right;">
+                    <button type="button" class="btn btn-secondary btn-sm drill-client-btn">Open Periods →</button>
+                  </td>
+                </tr>
+                <tr data-client-id="3">
+                  <td>
+                    <div class="entity-primary">
+                      <span>Apex Global Logistics LLP</span>
+                    </div>
+                  </td>
+                  <td><span class="badge-gstin">29AALFA9012C1Z8</span></td>
+                  <td>Karnataka (29)</td>
+                  <td class="num-tabular">2 Banks • 812 Rows</td>
+                  <td><span class="status-pill success">● Cleaned Pack Ready</span></td>
+                  <td style="text-align: right;">
+                    <button type="button" class="btn btn-secondary btn-sm drill-client-btn">Open Periods →</button>
+                  </td>
+                </tr>
+                <tr data-client-id="4">
+                  <td>
+                    <div class="entity-primary">
+                      <span>Vardhman Steel &amp; Forgings</span>
+                    </div>
+                  </td>
+                  <td><span class="badge-gstin">03AABCV3456D1Z1</span></td>
+                  <td>Punjab (03)</td>
+                  <td class="num-tabular">3 Banks • 940 Rows</td>
+                  <td><span class="status-pill neutral">○ Ready for Intake</span></td>
+                  <td style="text-align: right;">
+                    <button type="button" class="btn btn-secondary btn-sm drill-client-btn">Open Periods →</button>
+                  </td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ================================================================
+             VIEW 2: INTAKE & DROPZONE
+             ================================================================ -->
+        <div class="view-panel hidden" id="view-intake">
+          <div class="section-panel">
+            <div class="panel-header">
+              <div class="panel-header-left">
+                <span class="panel-title">Statement Intake &amp; Extraction Tray</span>
+                <span class="panel-description">Drop messy bank statements (PDF/Excel), GSTR-2B JSON, and Tally Daybooks. Deterministic offline parsing.</span>
+              </div>
+              <div class="header-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-simulate-drop">⚡ Load Sample Client Pack</button>
+              </div>
+            </div>
+
+            <div style="padding: var(--space-5);">
+              <div class="dropzone-container" id="main-dropzone">
+                <div class="dropzone-icon-circle">
+                  <svg width="24" height="24" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/><polyline points="17 8 12 3 7 8"/><line x1="12" y1="3" x2="12" y2="15"/></svg>
+                </div>
+                <div class="dropzone-title">Drag &amp; Drop Client Documents or Folders Here</div>
+                <p class="dropzone-subtitle">All nested directories are scanned recursively. Files stay 100% on this PC with zero cloud telemetry.</p>
+                
+                <div class="bank-badges-row">
+                  <span class="bank-tag"><span class="bank-tag-dot hdfc"></span> HDFC Bank</span>
+                  <span class="bank-tag"><span class="bank-tag-dot sbi"></span> State Bank of India</span>
+                  <span class="bank-tag"><span class="bank-tag-dot icici"></span> ICICI Bank</span>
+                  <span class="bank-tag"><span class="bank-tag-dot axis"></span> Axis Bank</span>
+                  <span class="bank-tag"><span class="bank-tag-dot kotak"></span> Kotak Mahindra</span>
+                  <span class="bank-tag"><span class="bank-tag-dot gst"></span> GSTR-2B JSON</span>
+                  <span class="bank-tag"><span class="bank-tag-dot tally"></span> Tally XML Daybook</span>
+                </div>
+
+                <div style="display: flex; gap: var(--space-3); margin-top: var(--space-2);">
+                  <button type="button" class="btn btn-primary" id="btn-browse-files">Browse Files</button>
+                  <button type="button" class="btn btn-secondary" id="btn-browse-folder">Browse Entire Folder</button>
+                </div>
+              </div>
+            </div>
+
+            <!-- Ingestion Live Manifest Table -->
+            <div style="padding: 0 var(--space-5) var(--space-5) var(--space-5);">
+              <div style="display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--space-3);">
+                <span style="font-weight: 700; font-size: 13px; color: var(--text-primary);">Ingested Documents in Current Tray</span>
+                <span class="font-mono" style="font-size: 11.5px; color: var(--text-tertiary);">3 Documents • 100% Parsed</span>
+              </div>
+
+              <table class="data-table">
+                <thead>
+                  <tr>
+                    <th>Filename</th>
+                    <th>Document Type</th>
+                    <th>Extracted Lines</th>
+                    <th>Balance Integrity</th>
+                    <th>Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr>
+                    <td class="font-mono"><strong>HDFC_Current_Account_Aug2026.pdf</strong></td>
+                    <td><span class="badge-gstin">PDF (Digital)</span></td>
+                    <td class="num-tabular">412 Transactions</td>
+                    <td><span class="status-pill success">✓ Balance Matches</span></td>
+                    <td><span class="status-pill success">Normalized</span></td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono"><strong>GSTR2B_27AABCR1234F1Z5_082026.json</strong></td>
+                    <td><span class="badge-gstin">GST Portal JSON</span></td>
+                    <td class="num-tabular">153 Invoices</td>
+                    <td><span class="status-pill success">✓ Hash Validated</span></td>
+                    <td><span class="status-pill success">Ready for Recon</span></td>
+                  </tr>
+                  <tr>
+                    <td class="font-mono"><strong>Tally_Sales_Purchase_Daybook.xml</strong></td>
+                    <td><span class="badge-gstin">TallyPrime XML</span></td>
+                    <td class="num-tabular">148 Entries</td>
+                    <td><span class="status-pill success">✓ Normalized</span></td>
+                    <td><span class="status-pill success">Loaded</span></td>
+                  </tr>
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+
+        <!-- ================================================================
+             VIEW 3: RECONCILIATION DESK (GSTR-2B vs BOOKS)
+             ================================================================ -->
+        <div class="view-panel hidden" id="view-recon">
+          <div class="section-panel">
+            <div class="panel-header">
+              <div class="panel-header-left">
+                <span class="panel-title">GSTR-2B vs Books Reconciliation Desk</span>
+                <span class="panel-description">Automated side-by-side reconciliation between supplier GST portal filings and Tally purchase ledgers.</span>
+              </div>
+              <div class="header-actions">
+                <button type="button" class="btn btn-secondary btn-sm" id="btn-export-recon">Export Recon Sheet ↗</button>
+              </div>
+            </div>
+
+            <!-- Recon Filter Toolbar -->
+            <div class="recon-toolbar">
+              <div class="filter-pills-group">
+                <button type="button" class="filter-btn active" data-recon-filter="all">All Invoices (153)</button>
+                <button type="button" class="filter-btn" data-recon-filter="matched">Matched (142)</button>
+                <button type="button" class="filter-btn" data-recon-filter="unmatched" style="color: var(--rose-base);">Missing in Books (8)</button>
+                <button type="button" class="filter-btn" data-recon-filter="amount_diff" style="color: var(--amber-base);">Amount Mismatch (3)</button>
+              </div>
+              <div style="font-size: 11.5px; color: var(--text-tertiary);">
+                Eligible ITC: <strong style="color: var(--emerald-base); font-family: var(--font-mono);">₹4,82,910</strong>
+              </div>
+            </div>
+
+            <!-- Master Reconciliation Table -->
+            <table class="data-table" id="recon-table">
+              <thead>
+                <tr>
+                  <th>Vendor Legal Name</th>
+                  <th>Invoice No &amp; Date</th>
+                  <th>GSTR-2B Taxable</th>
+                  <th>Books Taxable</th>
+                  <th>ITC Tax Total</th>
+                  <th>Status &amp; Variance</th>
+                  <th style="text-align: right;">Proof</th>
+                </tr>
+              </thead>
+              <tbody id="recon-tbody">
+                <tr data-status="matched">
+                  <td><strong>Tata Steel Processing Ltd</strong></td>
+                  <td class="font-mono">INV-2026-901<br><span style="color: var(--text-tertiary);">14-Aug-2026</span></td>
+                  <td class="num-tabular">₹1,24,000.00</td>
+                  <td class="num-tabular">₹1,24,000.00</td>
+                  <td class="num-tabular">₹22,320.00</td>
+                  <td><span class="status-pill success">● Exact Match</span></td>
+                  <td style="text-align: right;"><button type="button" class="btn btn-ghost btn-sm inspect-crop-btn">Crop ↗</button></td>
+                </tr>
+                <tr data-status="amount_diff">
+                  <td><strong>Godrej Agrovet Corporation</strong></td>
+                  <td class="font-mono">GA-4402<br><span style="color: var(--text-tertiary);">18-Aug-2026</span></td>
+                  <td class="num-tabular">₹85,000.00</td>
+                  <td class="num-tabular" style="color: var(--amber-base);">₹80,800.00</td>
+                  <td class="num-tabular">₹15,300.00</td>
+                  <td><span class="status-pill warn">● Diff ₹4,200 (Taxable)</span></td>
+                  <td style="text-align: right;"><button type="button" class="btn btn-ghost btn-sm inspect-crop-btn">Crop ↗</button></td>
+                </tr>
+                <tr data-status="unmatched">
+                  <td><strong>Larsen &amp; Toubro Electricals</strong></td>
+                  <td class="font-mono">LT-8819<br><span style="color: var(--text-tertiary);">21-Aug-2026</span></td>
+                  <td class="num-tabular">₹1,50,000.00</td>
+                  <td class="num-tabular" style="color: var(--rose-base);">MISSING IN TALLY</td>
+                  <td class="num-tabular" style="color: var(--rose-base);">₹27,000.00</td>
+                  <td><span class="status-pill danger">● ITC At Risk</span></td>
+                  <td style="text-align: right;"><button type="button" class="btn btn-ghost btn-sm inspect-crop-btn">Crop ↗</button></td>
+                </tr>
+                <tr data-status="matched">
+                  <td><strong>Ultratech Cement Limited</strong></td>
+                  <td class="font-mono">UC-10294<br><span style="color: var(--text-tertiary);">25-Aug-2026</span></td>
+                  <td class="num-tabular">₹45,500.00</td>
+                  <td class="num-tabular">₹45,500.00</td>
+                  <td class="num-tabular">₹8,190.00</td>
+                  <td><span class="status-pill success">● Exact Match</span></td>
+                  <td style="text-align: right;"><button type="button" class="btn btn-ghost btn-sm inspect-crop-btn">Crop ↗</button></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+
+        <!-- ================================================================
+             VIEW 4: INTEGRATED DUAL-PANE DOCUMENT PREVIEWER
+             ================================================================ -->
+        <div class="view-panel hidden" id="view-preview">
+          <div class="preview-split-stage">
+            <!-- Left: Document Manifest -->
+            <div class="manifest-column">
+              <div class="manifest-header">
+                <span>Period Documents</span>
+                <span class="num-tabular">4 Files</span>
+              </div>
+              <div class="manifest-list" id="manifest-list">
+                <div class="manifest-item active" data-doc-type="pdf" data-doc-name="HDFC_Bank_Aug2026.pdf" data-doc-size="1.4 MB">
+                  <div class="file-info-group">
+                    <div class="file-type-icon pdf">PDF</div>
+                    <div>
+                      <div class="file-name-text">HDFC_Bank_Aug2026.pdf</div>
+                      <div class="file-meta-text">Digital Bank Statement • 1.4 MB</div>
+                    </div>
+                  </div>
+                  <span class="status-pill success">PARSED</span>
+                </div>
+
+                <div class="manifest-item" data-doc-type="xlsx" data-doc-name="ICICI_OD_Statement.xlsx" data-doc-size="840 KB">
+                  <div class="file-info-group">
+                    <div class="file-type-icon xlsx">XLS</div>
+                    <div>
+                      <div class="file-name-text">ICICI_OD_Statement.xlsx</div>
+                      <div class="file-meta-text">Overdraft Account • 840 KB</div>
+                    </div>
+                  </div>
+                  <span class="status-pill success">PARSED</span>
+                </div>
+
+                <div class="manifest-item" data-doc-type="json" data-doc-name="GSTR2B_Aug2026.json" data-doc-size="320 KB">
+                  <div class="file-info-group">
+                    <div class="file-type-icon json">JSON</div>
+                    <div>
+                      <div class="file-name-text">GSTR2B_Aug2026.json</div>
+                      <div class="file-meta-text">GST Portal Data • 320 KB</div>
+                    </div>
+                  </div>
+                  <span class="status-pill success">RECON</span>
+                </div>
+
+                <div class="manifest-item" data-doc-type="xml" data-doc-name="Tally_Purchase_Register.xml" data-doc-size="512 KB">
+                  <div class="file-info-group">
+                    <div class="file-type-icon xml">XML</div>
+                    <div>
+                      <div class="file-name-text">Tally_Purchase_Register.xml</div>
+                      <div class="file-meta-text">Tally Prime Export • 512 KB</div>
+                    </div>
+                  </div>
+                  <span class="status-pill success">LOADED</span>
+                </div>
+              </div>
+            </div>
+
+            <!-- Right: Document Viewport -->
+            <div class="preview-viewer-column">
+              <div class="viewer-toolbar">
+                <span class="viewer-file-title" id="preview-active-title">HDFC_Bank_Aug2026.pdf</span>
+                <div class="viewer-controls-group">
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-zoom-out">-</button>
+                  <span class="font-mono" style="font-size: 11px; color: var(--text-tertiary);" id="zoom-level">100%</span>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-zoom-in">+</button>
+                  <button type="button" class="btn btn-secondary btn-sm" id="btn-toggle-ocr">Toggle OCR Text</button>
+                  <button type="button" class="btn btn-primary btn-sm" id="btn-open-os">Open in Excel ↗</button>
+                </div>
+              </div>
+
+              <div class="viewer-canvas" id="viewer-canvas">
+                <!-- Rendered Realistic Bank Statement Mockup -->
+                <div class="mock-statement-page" id="statement-mock-page">
+                  <div class="statement-mock-header">
+                    <div>
+                      <strong style="font-size: 14px; color: #004C8F;">HDFC BANK LIMITED</strong><br>
+                      <span style="font-size: 11px; color: #64748B;">FORT BRANCH, MUMBAI • IFSC: HDFC0000060</span>
+                    </div>
+                    <div style="text-align: right;">
+                      <strong>ACCOUNT STATEMENT</strong><br>
+                      <span class="font-mono" style="font-size: 11px;">A/C: 50200018294012</span>
+                    </div>
+                  </div>
+
+                  <div style="margin-bottom: 12px; font-size: 11px; color: #475569;">
+                    <strong>Customer:</strong> RAJESH TRADING CORPORATION | Period: 01-Aug-2026 to 31-Aug-2026
+                  </div>
+
+                  <table class="statement-mock-table">
+                    <thead>
+                      <tr>
+                        <th>Date</th>
+                        <th>Narration / Reference</th>
+                        <th>Debit (Dr)</th>
+                        <th>Credit (Cr)</th>
+                        <th>Balance</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      <tr>
+                        <td>02/08/2026</td>
+                        <td>NEFT CR-CITI000002-RELIANCE IND-SETTL</td>
+                        <td>-</td>
+                        <td style="color: #059669;">₹1,85,400.00</td>
+                        <td>₹4,12,900.00</td>
+                      </tr>
+                      <tr>
+                        <td>05/08/2026</td>
+                        <td class="highlight-crop" title="Click to view OCR source crop">RTGS DR-HDFC00001-TATA STEEL PR-PAYMENT</td>
+                        <td style="color: #DC2626;">₹1,24,000.00</td>
+                        <td>-</td>
+                        <td>₹2,88,900.00</td>
+                      </tr>
+                      <tr>
+                        <td>12/08/2026</td>
+                        <td>UPI-9820194821@okaxis-OFFICE SUPPLIES</td>
+                        <td style="color: #DC2626;">₹4,250.00</td>
+                        <td>-</td>
+                        <td>₹2,84,650.00</td>
+                      </tr>
+                      <tr>
+                        <td>18/08/2026</td>
+                        <td>CHQ DEP-002914-GODREJ AGROVET</td>
+                        <td>-</td>
+                        <td style="color: #059669;">₹85,000.00</td>
+                        <td>₹3,69,650.00</td>
+                      </tr>
+                      <tr>
+                        <td>28/08/2026</td>
+                        <td>GST PAYMENT-PMT06-MAHARASHTRA STATE</td>
+                        <td style="color: #DC2626;">₹42,800.00</td>
+                        <td>-</td>
+                        <td>₹3,26,850.00</td>
+                      </tr>
+                    </tbody>
+                  </table>
+                  <div style="margin-top: 12px; font-size: 11px; color: #475569; text-align: right;">
+                    Deterministic Parse Verified • Local SQLite Checksum Valid
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </main>
+    </div>
+  </div>
+
+  <!-- TOAST SHELF -->
+  <div class="toast-shelf" id="toast-shelf"></div>
+
+  <!-- ====================================================================
+       INTERACTIVE CLIENT-SIDE JAVASCRIPT
+       ==================================================================== -->
+  <script>
+    (function() {
+      // Toast notification helper
+      function showToast(title, subtitle) {
+        const shelf = document.getElementById('toast-shelf');
+        const toast = document.createElement('div');
+        toast.className = 'toast';
+        toast.innerHTML = `
+          <svg width="16" height="16" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" style="color: var(--emerald-base);"><path d="M22 11.08V12a10 10 0 1 1-5.93-9.14"/><polyline points="22 4 12 14.01 9 11.01"/></svg>
+          <div>
+            <div style="font-weight: 600;">${title}</div>
+            <div style="font-size: 11px; color: var(--text-secondary);">${subtitle}</div>
+          </div>
+        `;
+        shelf.appendChild(toast);
+        setTimeout(() => {
+          toast.style.opacity = '0';
+          toast.style.transform = 'translateY(8px)';
+          toast.style.transition = 'all 0.2s ease';
+          setTimeout(() => toast.remove(), 200);
+        }, 3200);
+      }
+
+      // View Navigation
+      const navItems = document.querySelectorAll('.nav-item[data-view]');
+      const viewPanels = {
+        clients: document.getElementById('view-clients'),
+        intake: document.getElementById('view-intake'),
+        recon: document.getElementById('view-recon'),
+        preview: document.getElementById('view-preview')
+      };
+      const breadcrumbCurrent = document.getElementById('breadcrumb-current');
+
+      const viewTitles = {
+        clients: 'Client Master Ledger',
+        intake: 'Intake & Dropzone Tray',
+        recon: 'Reconciliation Desk (GSTR-2B vs Books)',
+        preview: 'Document & Statement Previewer'
+      };
+
+      function switchView(viewKey) {
+        navItems.forEach(item => {
+          item.classList.toggle('active', item.getAttribute('data-view') === viewKey);
+        });
+
+        Object.keys(viewPanels).forEach(key => {
+          if (viewPanels[key]) {
+            viewPanels[key].classList.toggle('hidden', key !== viewKey);
+          }
+        });
+
+        if (breadcrumbCurrent && viewTitles[viewKey]) {
+          breadcrumbCurrent.textContent = viewTitles[viewKey];
+        }
+      }
+
+      navItems.forEach(btn => {
+        btn.addEventListener('click', () => {
+          const target = btn.getAttribute('data-view');
+          if (target && viewPanels[target]) {
+            switchView(target);
+          }
+        });
+      });
+
+      // Drilldown from client table to intake
+      document.querySelectorAll('.drill-client-btn').forEach(btn => {
+        btn.addEventListener('click', (e) => {
+          e.stopPropagation();
+          switchView('intake');
+          showToast('Client Workspace Opened', 'Viewing August 2026 accounting intake tray.');
+        });
+      });
+
+      // Quick Client Registration
+      const regForm = document.getElementById('quick-register-form');
+      const clientsTbody = document.getElementById('clients-tbody');
+      const navClientCount = document.getElementById('nav-client-count');
+
+      if (regForm) {
+        regForm.addEventListener('submit', (e) => {
+          e.preventDefault();
+          const nameInput = document.getElementById('reg-client-name');
+          const gstinInput = document.getElementById('reg-client-gstin');
+          const name = nameInput.value.trim();
+          const gstin = gstinInput.value.trim() || 'NOT SPECIFIED';
+
+          if (!name) return;
+
+          const tr = document.createElement('tr');
+          tr.innerHTML = `
+            <td><div class="entity-primary"><span>${name}</span></div></td>
+            <td><span class="badge-gstin">${gstin}</span></td>
+            <td>Maharashtra (27)</td>
+            <td class="num-tabular">0 Banks • New</td>
+            <td><span class="status-pill neutral">○ Ready for Intake</span></td>
+            <td style="text-align: right;">
+              <button type="button" class="btn btn-secondary btn-sm drill-client-btn">Open Periods →</button>
+            </td>
+          `;
+
+          clientsTbody.prepend(tr);
+          nameInput.value = '';
+          gstinInput.value = '';
+          
+          const curCount = parseInt(navClientCount.textContent, 10) || 24;
+          navClientCount.textContent = curCount + 1;
+
+          showToast('Client Registered', `${name} added to local SQLite database.`);
+          
+          tr.querySelector('.drill-client-btn').addEventListener('click', () => {
+            switchView('intake');
+          });
+        });
+      }
+
+      // Theme Toggle (Dark Obsidian / Swiss Clean Paper Light)
+      const themeToggleBtn = document.getElementById('theme-toggle');
+      const htmlEl = document.documentElement;
+
+      themeToggleBtn.addEventListener('click', () => {
+        const isDark = htmlEl.getAttribute('data-theme') === 'dark';
+        const newTheme = isDark ? 'light' : 'dark';
+        htmlEl.setAttribute('data-theme', newTheme);
+        showToast('Theme Changed', `Switched to ${newTheme === 'dark' ? 'Obsidian Dark' : 'Clean Light'} mode.`);
+      });
+
+      // Simulate Dropzone Pack Loading
+      const simulateDropBtn = document.getElementById('btn-simulate-drop');
+      if (simulateDropBtn) {
+        simulateDropBtn.addEventListener('click', () => {
+          showToast('Sample Client Pack Ingested', 'Loaded 3 statements into August 2026 tray.');
+        });
+      }
+
+      // Document Manifest Item Switching
+      const manifestItems = document.querySelectorAll('.manifest-item');
+      const previewTitle = document.getElementById('preview-active-title');
+
+      manifestItems.forEach(item => {
+        item.addEventListener('click', () => {
+          manifestItems.forEach(i => i.classList.remove('active'));
+          item.classList.add('active');
+          const docName = item.getAttribute('data-doc-name');
+          if (previewTitle && docName) {
+            previewTitle.textContent = docName;
+          }
+          showToast('Loaded in Preview', docName);
+        });
+      });
+
+      // Quick shortcut Cmd+K / Ctrl+K
+      window.addEventListener('keydown', (e) => {
+        if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === 'k') {
+          e.preventDefault();
+          const searchInput = document.getElementById('global-search');
+          if (searchInput) searchInput.focus();
+        }
+      });
+
+      // Export Buttons
+      document.getElementById('btn-export-excel').addEventListener('click', () => {
+        showToast('Normalized Excel Pack Exported', 'Cleaned workpaper written to local disk.');
+      });
+
+      // Recon Filter Buttons
+      const reconFilters = document.querySelectorAll('.filter-btn[data-recon-filter]');
+      const reconRows = document.querySelectorAll('#recon-tbody tr');
+
+      reconFilters.forEach(btn => {
+        btn.addEventListener('click', () => {
+          reconFilters.forEach(b => b.classList.remove('active'));
+          btn.classList.add('active');
+          const filter = btn.getAttribute('data-recon-filter');
+
+          reconRows.forEach(row => {
+            const status = row.getAttribute('data-status');
+            if (filter === 'all' || status === filter) {
+              row.style.display = '';
+            } else {
+              row.style.display = 'none';
+            }
+          });
+        });
+      });
+
+      // Crop Inspection Buttons
+      document.querySelectorAll('.inspect-crop-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+          showToast('Audit Proof Inspected', 'Source statement coordinates verified.');
+        });
+      });
+
+      console.log('CA Unpacker Redesign Studio Loaded.');
+    })();
+  </script>
+</body>
+</html>
