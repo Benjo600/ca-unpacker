@@ -1,0 +1,241 @@
+{
+  "schemaVersion": 2,
+  "generatedAt": "2026-09-15T00:00:00Z",
+  "title": "Design System: CA Unpacker App Shell",
+  "extensions": {
+    "colorMeta": {
+      "bg": { "role": "neutral", "displayName": "Ground Graphite", "canonical": "#0b0d0f", "tonalRamp": ["oklch(0.15 0.005 250)", "oklch(0.20 0.006 250)", "oklch(0.28 0.008 250)", "oklch(0.40 0.010 250)", "oklch(0.55 0.012 250)", "oklch(0.70 0.015 250)", "oklch(0.84 0.010 250)", "oklch(0.95 0.005 250)"] },
+      "panel": { "role": "neutral", "displayName": "Panel", "canonical": "#111417", "tonalRamp": ["oklch(0.17 0.005 250)", "oklch(0.22 0.006 250)", "oklch(0.30 0.008 250)", "oklch(0.42 0.010 250)", "oklch(0.56 0.012 250)", "oklch(0.71 0.015 250)", "oklch(0.85 0.010 250)", "oklch(0.96 0.005 250)"] },
+      "panel-2": { "role": "neutral", "displayName": "Panel Raised", "canonical": "#171b1f", "tonalRamp": ["oklch(0.19 0.005 250)", "oklch(0.24 0.006 250)", "oklch(0.32 0.008 250)", "oklch(0.44 0.010 250)", "oklch(0.58 0.012 250)", "oklch(0.72 0.015 250)", "oklch(0.86 0.010 250)", "oklch(0.97 0.005 250)"] },
+      "elevated": { "role": "neutral", "displayName": "Elevated", "canonical": "#1c2126", "tonalRamp": ["oklch(0.21 0.006 250)", "oklch(0.26 0.007 250)", "oklch(0.34 0.009 250)", "oklch(0.46 0.011 250)", "oklch(0.60 0.013 250)", "oklch(0.73 0.015 250)", "oklch(0.87 0.010 250)", "oklch(0.97 0.005 250)"] },
+      "text": { "role": "neutral", "displayName": "Primary Ink", "canonical": "#eceef1", "tonalRamp": ["oklch(0.20 0.004 250)", "oklch(0.32 0.005 250)", "oklch(0.46 0.005 250)", "oklch(0.60 0.005 250)", "oklch(0.74 0.004 250)", "oklch(0.86 0.003 250)", "oklch(0.93 0.003 250)", "oklch(0.98 0.002 250)"] },
+      "text-2": { "role": "neutral", "displayName": "Secondary Ink", "canonical": "#98a2ad", "tonalRamp": ["oklch(0.20 0.010 250)", "oklch(0.32 0.012 250)", "oklch(0.44 0.014 250)", "oklch(0.56 0.015 250)", "oklch(0.70 0.015 250)", "oklch(0.82 0.012 250)", "oklch(0.90 0.008 250)", "oklch(0.96 0.004 250)"] },
+      "text-3": { "role": "neutral", "displayName": "Tertiary Ink", "canonical": "#7c8794", "tonalRamp": ["oklch(0.20 0.010 250)", "oklch(0.30 0.012 250)", "oklch(0.42 0.014 250)", "oklch(0.54 0.015 250)", "oklch(0.65 0.015 250)", "oklch(0.78 0.012 250)", "oklch(0.88 0.008 250)", "oklch(0.96 0.004 250)"] },
+      "hairline": { "role": "neutral", "displayName": "Hairline", "canonical": "rgba(255,255,255,0.08)", "tonalRamp": ["oklch(0.20 0.004 250)", "oklch(0.34 0.004 250)", "oklch(0.48 0.004 250)", "oklch(0.62 0.004 250)", "oklch(0.76 0.003 250)", "oklch(0.86 0.003 250)", "oklch(0.92 0.002 250)", "oklch(0.97 0.001 250)"] },
+      "hairline-strong": { "role": "neutral", "displayName": "Hairline Strong", "canonical": "rgba(255,255,255,0.14)", "tonalRamp": ["oklch(0.22 0.004 250)", "oklch(0.36 0.004 250)", "oklch(0.50 0.004 250)", "oklch(0.64 0.004 250)", "oklch(0.78 0.003 250)", "oklch(0.87 0.003 250)", "oklch(0.93 0.002 250)", "oklch(0.98 0.001 250)"] },
+      "accent": { "role": "primary", "displayName": "Action Cobalt", "canonical": "#4c7dff", "tonalRamp": ["oklch(0.20 0.06 264)", "oklch(0.28 0.10 264)", "oklch(0.36 0.14 264)", "oklch(0.44 0.17 264)", "oklch(0.52 0.19 264)", "oklch(0.62 0.19 264)", "oklch(0.74 0.14 264)", "oklch(0.90 0.06 264)"] },
+      "accent-hover": { "role": "primary", "displayName": "Action Cobalt Hover", "canonical": "#6b93ff", "tonalRamp": ["oklch(0.22 0.06 264)", "oklch(0.32 0.10 264)", "oklch(0.42 0.14 264)", "oklch(0.52 0.17 264)", "oklch(0.62 0.19 264)", "oklch(0.72 0.17 264)", "oklch(0.82 0.12 264)", "oklch(0.92 0.06 264)"] },
+      "accent-ink": { "role": "primary", "displayName": "On-Cobalt Ink", "canonical": "#0b0d0f", "tonalRamp": ["oklch(0.15 0.005 250)", "oklch(0.22 0.006 250)", "oklch(0.34 0.007 250)", "oklch(0.48 0.008 250)", "oklch(0.62 0.009 250)", "oklch(0.76 0.008 250)", "oklch(0.88 0.006 250)", "oklch(0.97 0.003 250)"] },
+      "accent-wash": { "role": "primary", "displayName": "Cobalt Wash", "canonical": "rgba(76,125,255,0.14)", "tonalRamp": ["oklch(0.20 0.03 264)", "oklch(0.28 0.05 264)", "oklch(0.38 0.07 264)", "oklch(0.48 0.09 264)", "oklch(0.58 0.10 264)", "oklch(0.70 0.09 264)", "oklch(0.82 0.06 264)", "oklch(0.93 0.03 264)"] },
+      "ok": { "role": "secondary", "displayName": "State Green", "canonical": "#3fb950", "tonalRamp": ["oklch(0.18 0.05 145)", "oklch(0.28 0.09 145)", "oklch(0.38 0.13 145)", "oklch(0.48 0.16 145)", "oklch(0.58 0.17 145)", "oklch(0.70 0.17 145)", "oklch(0.80 0.13 145)", "oklch(0.92 0.06 145)"] },
+      "warn": { "role": "secondary", "displayName": "Attention Amber", "canonical": "#e0a33e", "tonalRamp": ["oklch(0.20 0.04 75)", "oklch(0.30 0.07 75)", "oklch(0.42 0.10 75)", "oklch(0.54 0.12 75)", "oklch(0.66 0.13 75)", "oklch(0.77 0.13 75)", "oklch(0.86 0.10 75)", "oklch(0.94 0.05 75)"] },
+      "bad": { "role": "secondary", "displayName": "State Red", "canonical": "#f85149", "tonalRamp": ["oklch(0.20 0.06 27)", "oklch(0.30 0.11 27)", "oklch(0.40 0.16 27)", "oklch(0.50 0.19 27)", "oklch(0.58 0.20 27)", "oklch(0.66 0.20 27)", "oklch(0.78 0.14 27)", "oklch(0.92 0.06 27)"] },
+      "paper": { "role": "neutral", "displayName": "Document Paper", "canonical": "#e9ebed", "tonalRamp": ["oklch(0.16 0.004 250)", "oklch(0.27 0.005 250)", "oklch(0.40 0.005 250)", "oklch(0.54 0.005 250)", "oklch(0.68 0.005 250)", "oklch(0.80 0.004 250)", "oklch(0.90 0.003 250)", "oklch(0.97 0.002 250)"] },
+      "paper-ink": { "role": "neutral", "displayName": "Document Ink", "canonical": "#22262b", "tonalRamp": ["oklch(0.18 0.006 250)", "oklch(0.28 0.007 250)", "oklch(0.42 0.007 250)", "oklch(0.56 0.006 250)", "oklch(0.70 0.005 250)", "oklch(0.82 0.004 250)", "oklch(0.91 0.003 250)", "oklch(0.97 0.002 250)"] },
+      "paper-rule": { "role": "neutral", "displayName": "Paper Rule", "canonical": "rgba(34,38,43,0.16)", "tonalRamp": ["oklch(0.20 0.005 250)", "oklch(0.32 0.005 250)", "oklch(0.46 0.005 250)", "oklch(0.60 0.005 250)", "oklch(0.72 0.004 250)", "oklch(0.83 0.003 250)", "oklch(0.91 0.002 250)", "oklch(0.97 0.001 250)"] },
+      "paper-hi": { "role": "secondary", "displayName": "Paper Tie Highlight", "canonical": "rgba(224,163,62,0.24)", "tonalRamp": ["oklch(0.22 0.03 75)", "oklch(0.34 0.05 75)", "oklch(0.46 0.07 75)", "oklch(0.58 0.09 75)", "oklch(0.70 0.10 75)", "oklch(0.80 0.09 75)", "oklch(0.88 0.06 75)", "oklch(0.95 0.03 75)"] },
+      "paper-debit": { "role": "secondary", "displayName": "Paper Debit Red", "canonical": "#8a2b22", "tonalRamp": ["oklch(0.18 0.06 27)", "oklch(0.28 0.11 27)", "oklch(0.38 0.15 27)", "oklch(0.46 0.17 27)", "oklch(0.54 0.16 27)", "oklch(0.66 0.13 27)", "oklch(0.80 0.08 27)", "oklch(0.93 0.04 27)"] },
+      "paper-tie": { "role": "secondary", "displayName": "Paper Tie Ink", "canonical": "#8a5a12", "tonalRamp": ["oklch(0.18 0.05 75)", "oklch(0.28 0.08 75)", "oklch(0.38 0.10 75)", "oklch(0.46 0.12 75)", "oklch(0.56 0.12 75)", "oklch(0.68 0.11 75)", "oklch(0.82 0.07 75)", "oklch(0.94 0.04 75)"] },
+      "focus": { "role": "primary", "displayName": "Focus Ring", "canonical": "#4c7dff", "tonalRamp": ["oklch(0.20 0.06 264)", "oklch(0.28 0.10 264)", "oklch(0.36 0.14 264)", "oklch(0.44 0.17 264)", "oklch(0.52 0.19 264)", "oklch(0.62 0.19 264)", "oklch(0.74 0.14 264)", "oklch(0.90 0.06 264)"] }
+    },
+    "typographyMeta": {
+      "display": { "displayName": "Display", "purpose": "The one work-surface title — the client name. One per screen." },
+      "headline": { "displayName": "Headline", "purpose": "Brand name and the selected source/inspector filename." },
+      "title": { "displayName": "Title", "purpose": "Card titles, rail title, buttons, tabs, segmented controls." },
+      "body": { "displayName": "Body", "purpose": "App base size — table cells, prose, inputs." },
+      "label": { "displayName": "Label", "purpose": "Status, counts, meta, footer, hints; the most common size in the shell." },
+      "figure": { "displayName": "Figure", "purpose": "Amounts, row counts, confidence, differences — always tabular." },
+      "mono": { "displayName": "Mono", "purpose": "GSTINs, invoice numbers, checksums, source line text, keyboard chips." }
+    },
+    "shadows": [
+      { "name": "ambient-low", "value": "0 1px 2px rgba(0, 0, 0, 0.4)", "purpose": "The single selected control in a group (segmented filter)." },
+      { "name": "floating", "value": "0 12px 32px -8px rgba(0, 0, 0, 0.6)", "purpose": "Genuinely floating layers only — command palette, and the inspector when it overlays below 1120px." }
+    ],
+    "motion": [
+      { "name": "ease-standard", "value": "cubic-bezier(0.2, 0.8, 0.2, 1)", "purpose": "Shared easing for stage-fill scale and tie-out marker slide." },
+      { "name": "duration-fast", "value": "200ms", "purpose": "Stage progress fill and tie-out sweep." },
+      { "name": "duration-tie", "value": "240ms", "purpose": "Tie-out marker opacity/translate entrance." },
+      { "name": "pulse", "value": "1.6s ease-in-out infinite", "purpose": "Running-state dot opacity pulse (1 to 0.35)." },
+      { "name": "reduced-motion", "value": "animation-duration: 0.001ms !important; animation-iteration-count: 1 !important; transition-duration: 0.001ms !important", "purpose": "prefers-reduced-motion override applied globally." }
+    ],
+    "breakpoints": [
+      { "name": "wide", "value": "1360px", "purpose": "Columns tighten to 244px / 1fr / 340px." },
+      { "name": "medium", "value": "1120px", "purpose": "Inspector leaves the grid and becomes a fixed overlay; command field narrows." },
+      { "name": "narrow", "value": "860px", "purpose": "Rail 200px, command field hidden, stages wrap, defs-4 to two columns." },
+      { "name": "compact", "value": "640px", "purpose": "Rail hidden, single-column body, work actions wrap, footer pruned." }
+    ],
+    "themeOverrides": {
+      "light": {
+        "bg": "#f4f5f7",
+        "panel": "#ffffff",
+        "panel-2": "#f7f8fa",
+        "elevated": "#ffffff",
+        "row-hover": "#f2f4f6",
+        "hairline": "rgba(15, 23, 42, 0.1)",
+        "hairline-strong": "rgba(15, 23, 42, 0.2)",
+        "text": "#0e1216",
+        "text-2": "#56606b",
+        "text-3": "#6f7a86",
+        "accent": "#2a5bd7",
+        "accent-hover": "#2450c2",
+        "accent-ink": "#ffffff",
+        "accent-wash": "rgba(42, 91, 215, 0.1)",
+        "ok": "#1a7f37",
+        "ok-wash": "rgba(26, 127, 55, 0.1)",
+        "warn": "#9a6700",
+        "warn-wash": "rgba(154, 103, 0, 0.12)",
+        "bad": "#cf222e",
+        "bad-wash": "rgba(207, 34, 46, 0.1)",
+        "focus": "#2a5bd7",
+        "shadow-1": "0 1px 2px rgba(15, 23, 42, 0.08)",
+        "shadow-2": "0 12px 32px -8px rgba(15, 23, 42, 0.18)",
+        "paper": "#f6f7f8",
+        "paper-ink": "#22262b",
+        "paper-rule": "rgba(34, 38, 43, 0.14)",
+        "paper-hi": "rgba(154, 103, 0, 0.18)"
+      }
+    },
+    "browserSurface": {
+      "colorScheme": "color-scheme: dark on [data-theme=dark], light on [data-theme=light], so native form chrome and scrollbars follow.",
+      "selection": "::selection { background: var(--accent-wash); color: var(--text); }",
+      "caret": "input, button, select { caret-color: var(--accent); }",
+      "scrollbar": "scrollbar-width: thin; scrollbar-color: var(--hairline-strong) transparent; WebKit thumb is a 10px track with a 6px-radius thumb drawn by a 3px transparent border and background-clip: content-box, brightening to var(--text-3) on hover.",
+      "focusRing": ":focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; border-radius: 3px; }",
+      "numerals": "Every figure carries font-variant-numeric: tabular-nums and font-feature-settings: \"tnum\" 1.",
+      "reducedMotion": "* animation/transition durations collapse to 0.001ms under prefers-reduced-motion: reduce."
+    }
+  },
+  "components": [
+    {
+      "name": "Primary Button",
+      "kind": "button",
+      "refersTo": "button-primary",
+      "description": "The one committing action on the work surface (Export pack). Cobalt fill, on-cobalt ink.",
+      "html": "<button class=\"ds-btn-primary\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\"><path d=\"M12 4v11\"/><path d=\"m7.5 10.5 4.5 4.5 4.5-4.5\"/><path d=\"M5 19.5h14\"/></svg>Export pack</button>",
+      "css": ".ds-btn-primary { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border: 1px solid transparent; border-radius: 6px; background: var(--accent); color: var(--accent-ink); font: 500 12px/1 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; cursor: pointer; white-space: nowrap; transition: background 200ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-btn-primary:hover { background: var(--accent-hover); } .ds-btn-primary:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; } .ds-btn-primary .ds-ico { width: 14px; height: 14px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }"
+    },
+    {
+      "name": "Default Button",
+      "kind": "button",
+      "refersTo": "button-default",
+      "description": "Bounded secondary action (Re-run). Panel fill with a strong hairline; hover fills panel-raised.",
+      "html": "<button class=\"ds-btn\">Re-run</button>",
+      "css": ".ds-btn { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border: 1px solid var(--hairline-strong); border-radius: 6px; background: var(--panel); color: var(--text); font: 500 12px/1 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; cursor: pointer; white-space: nowrap; transition: background 200ms cubic-bezier(0.2, 0.8, 0.2, 1); } .ds-btn:hover { background: var(--panel-2); } .ds-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }"
+    },
+    {
+      "name": "Ghost Button",
+      "kind": "button",
+      "refersTo": "button-ghost",
+      "description": "Low-weight action (Add folder, Tie-out toggle). Transparent until hover.",
+      "html": "<button class=\"ds-btn-ghost\" aria-pressed=\"true\">Tie-out on</button>",
+      "css": ".ds-btn-ghost { display: inline-flex; align-items: center; gap: 7px; height: 28px; padding: 0 11px; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-2); font: 500 12px/1 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; cursor: pointer; white-space: nowrap; transition: background 200ms cubic-bezier(0.2, 0.8, 0.2, 1), color 200ms; } .ds-btn-ghost:hover { background: var(--panel-2); color: var(--text); } .ds-btn-ghost:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; }"
+    },
+    {
+      "name": "Icon Toggle",
+      "kind": "button",
+      "description": "28px square icon button; the pressed state takes the cobalt wash (theme toggle, inspector toggle).",
+      "html": "<button class=\"ds-icon-btn\" aria-pressed=\"true\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\"><rect x=\"3.5\" y=\"4.5\" width=\"17\" height=\"15\" rx=\"2\"/><path d=\"M15 4.5v15\"/></svg></button>",
+      "css": ".ds-icon-btn { width: 28px; height: 28px; display: grid; place-items: center; border: 1px solid transparent; border-radius: 6px; background: transparent; color: var(--text-2); cursor: pointer; transition: background 200ms, color 200ms; } .ds-icon-btn:hover { background: var(--panel-2); color: var(--text); } .ds-icon-btn[aria-pressed=\"true\"] { background: var(--accent-wash); color: var(--accent); } .ds-icon-btn:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; } .ds-icon-btn .ds-ico { width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }"
+    },
+    {
+      "name": "Search Field",
+      "kind": "input",
+      "refersTo": "input-search",
+      "description": "Filter field on the graphite ground; hairline border that turns cobalt on focus-within.",
+      "html": "<label class=\"ds-search\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\"><circle cx=\"11\" cy=\"11\" r=\"6.5\"/><path d=\"m20 20-4.2-4.2\"/></svg><input type=\"text\" placeholder=\"Filter clients\" /></label>",
+      "css": ".ds-search { display: flex; align-items: center; gap: 7px; height: 28px; padding: 0 9px; background: var(--bg); border: 1px solid var(--hairline); border-radius: 6px; transition: border-color 200ms; } .ds-search:focus-within { border-color: var(--accent); } .ds-search input { flex: 1; min-width: 0; background: none; border: 0; outline: none; color: var(--text); caret-color: var(--accent); font: 400 12px/1.45 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; } .ds-search input::placeholder { color: var(--text-3); } .ds-search .ds-ico { width: 14px; height: 14px; color: var(--text-3); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; }"
+    },
+    {
+      "name": "Workspace Tab",
+      "kind": "nav",
+      "description": "30px tab; selected tab is primary ink with a cobalt 2px underline inset 8px from each edge.",
+      "html": "<div class=\"ds-tabs\"><button class=\"ds-tab\">Intake <span class=\"ds-count\">8</span></button><button class=\"ds-tab\" aria-selected=\"true\">Reconcile <span class=\"ds-count\">3</span></button></div>",
+      "css": ".ds-tabs { display: flex; align-items: center; gap: 2px; border-bottom: 1px solid var(--hairline); } .ds-tab { position: relative; height: 30px; padding: 0 10px; border: 0; background: none; color: var(--text-2); font: 500 12px/1 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; cursor: pointer; } .ds-tab:hover { color: var(--text); } .ds-tab[aria-selected=\"true\"] { color: var(--text); } .ds-tab[aria-selected=\"true\"]::after { content: \"\"; position: absolute; left: 8px; right: 8px; bottom: -1px; height: 2px; background: var(--accent); border-radius: 2px 2px 0 0; } .ds-tab:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; } .ds-count { margin-left: 6px; font: 400 11px/1 \"Spline Sans Mono\", monospace; color: var(--text-3); }"
+    },
+    {
+      "name": "Attention Tag",
+      "kind": "chip",
+      "refersTo": "chip-tag",
+      "description": "Semantic chip with a wash fill and no border — amber for ITC mismatch, green for matched.",
+      "html": "<span class=\"ds-tag warn\">In books only</span>",
+      "css": ".ds-tag { display: inline-flex; align-items: center; height: 18px; padding: 0 6px; border-radius: 4px; font: 500 11px/1 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; border: 1px solid var(--hairline-strong); color: var(--text-2); background: var(--panel-2); } .ds-tag.warn { color: var(--warn); border-color: transparent; background: var(--warn-wash); } .ds-tag.ok { color: var(--ok); border-color: transparent; background: var(--ok-wash); } .ds-tag.bad { color: var(--bad); border-color: transparent; background: var(--bad-wash); } .ds-tag.acc { color: var(--accent); border-color: transparent; background: var(--accent-wash); }"
+    },
+    {
+      "name": "Client Rail Row",
+      "kind": "nav",
+      "refersTo": "rail-item",
+      "description": "Dense two-line client row led by a state-colored square; current row takes panel-raised plus hairlines.",
+      "html": "<button class=\"ds-client\" aria-current=\"true\"><span class=\"ds-client-mark\"></span><span class=\"ds-client-main\"><span class=\"ds-client-name\">Sree Traders</span><span class=\"ds-client-meta\">29ABCDE1234F1Z5 · Aug 2026</span></span><span class=\"ds-client-side\"><span class=\"ds-client-files\">8 files</span><span class=\"ds-client-state\">2 to review</span></span></button>",
+      "css": ".ds-client { width: 100%; display: grid; grid-template-columns: 12px minmax(0, 1fr) auto; align-items: center; gap: 9px; padding: 7px 12px 7px 10px; background: none; border: 0; border-top: 1px solid transparent; border-bottom: 1px solid transparent; text-align: left; cursor: pointer; color: var(--text); } .ds-client:hover { background: var(--row-hover); } .ds-client[aria-current=\"true\"] { background: var(--panel-2); border-top-color: var(--hairline); border-bottom-color: var(--hairline); } .ds-client:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; } .ds-client-mark { width: 8px; height: 8px; border-radius: 2px; background: var(--warn); justify-self: center; } .ds-client-main { min-width: 0; } .ds-client-name { display: block; font: 500 12.5px/1.3 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-client-meta { display: block; font: 400 11px/1.4 \"Spline Sans Mono\", monospace; font-variant-numeric: tabular-nums; color: var(--text-3); white-space: nowrap; overflow: hidden; text-overflow: ellipsis; } .ds-client-side { text-align: right; } .ds-client-files { display: block; font: 400 11px/1.4 \"Spline Sans Mono\", monospace; color: var(--text-2); } .ds-client-state { display: block; font: 400 11px/1.4 \"Archivo\", system-ui, sans-serif; color: var(--text-3); }"
+    },
+    {
+      "name": "Panel Card",
+      "kind": "card",
+      "refersTo": "card",
+      "description": "The standard panel container — flat, hairline-bordered, 6px radius, header rule.",
+      "html": "<div class=\"ds-card\"><div class=\"ds-card-head\"><span class=\"ds-card-title\">GSTR-2B against purchase books</span><span class=\"ds-card-note\">Computed 14:22, offline</span></div><div class=\"ds-card-body\">Matched ITC ₹4,82,910</div></div>",
+      "css": ".ds-card { border: 1px solid var(--hairline); border-radius: 6px; background: var(--panel); overflow: hidden; } .ds-card-head { display: flex; align-items: center; justify-content: space-between; gap: 10px; padding: 9px 12px; border-bottom: 1px solid var(--hairline); } .ds-card-title { font: 600 12px/1.4 \"Archivo\", \"Segoe UI\", system-ui, sans-serif; color: var(--text); } .ds-card-note { font: 400 11px/1.4 \"Spline Sans Mono\", monospace; color: var(--text-3); } .ds-card-body { padding: 12px; font: 400 12px/1.5 \"Archivo\", system-ui, sans-serif; color: var(--text-2); }"
+    },
+    {
+      "name": "Checkbox",
+      "kind": "input",
+      "refersTo": "checkbox",
+      "description": "15px role=checkbox span; checked fills cobalt with an on-cobalt check glyph.",
+      "html": "<span class=\"ds-checkbox\" role=\"checkbox\" aria-checked=\"true\" tabindex=\"0\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\"><path d=\"m5 12.5 4.5 4.5L19 7\"/></svg></span>",
+      "css": ".ds-checkbox { width: 15px; height: 15px; border: 1px solid var(--hairline-strong); border-radius: 4px; display: grid; place-items: center; background: var(--bg); flex: none; cursor: pointer; } .ds-checkbox:focus-visible { outline: 2px solid var(--focus); outline-offset: 1px; } .ds-checkbox[aria-checked=\"true\"] { background: var(--accent); border-color: var(--accent); color: var(--accent-ink); } .ds-checkbox .ds-ico { width: 11px; height: 11px; fill: none; stroke: currentColor; stroke-width: 2.5; stroke-linecap: round; stroke-linejoin: round; opacity: 0; } .ds-checkbox[aria-checked=\"true\"] .ds-ico { opacity: 1; }"
+    },
+    {
+      "name": "Command Palette",
+      "kind": "custom",
+      "refersTo": "command-palette",
+      "description": "The keyboard-first overlay: dim backdrop, elevated box, floating shadow, 44px input, keyboard footer.",
+      "html": "<div class=\"ds-palette\"><div class=\"ds-palette-box\"><div class=\"ds-palette-input\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\"><path d=\"M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9Zm0 0v6m0-6h6M9 15v2.5A2.5 2.5 0 1 1 6.5 15H9Zm6-6V6.5A2.5 2.5 0 1 1 17.5 9H15Zm0 6v2.5a2.5 2.5 0 1 0 2.5-2.5H15Z\"/></svg><input type=\"text\" placeholder=\"Run a command or jump to a client\" /></div><div class=\"ds-palette-list\"><button class=\"ds-palette-item\"><svg class=\"ds-ico\" viewBox=\"0 0 24 24\"><path d=\"M7 5.5 18.5 12 7 18.5Z\"/></svg>Run extraction for this client<span class=\"ds-where\">Intake</span></button></div><div class=\"ds-palette-foot\"><span>Enter open</span><span>Esc close</span></div></div></div>",
+      "css": ".ds-palette { background: rgba(0, 0, 0, 0.45); padding: 24px; display: grid; place-items: start center; } .ds-palette-box { width: min(560px, 92vw); background: var(--elevated); border: 1px solid var(--hairline-strong); border-radius: 6px; box-shadow: 0 12px 32px -8px rgba(0, 0, 0, 0.6); overflow: hidden; } .ds-palette-input { display: flex; align-items: center; gap: 9px; padding: 0 14px; height: 44px; border-bottom: 1px solid var(--hairline); } .ds-palette-input input { flex: 1; background: none; border: 0; outline: none; color: var(--text); caret-color: var(--accent); font: 400 13px/1.45 \"Archivo\", system-ui, sans-serif; } .ds-palette-input .ds-ico { color: var(--text-3); fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; } .ds-palette-list { padding: 6px; } .ds-palette-item { width: 100%; display: flex; align-items: center; gap: 10px; padding: 8px 10px; border: 0; border-radius: 6px; background: none; color: var(--text); text-align: left; cursor: pointer; font: 400 12.5px/1.3 \"Archivo\", system-ui, sans-serif; } .ds-palette-item:hover, .ds-palette-item[data-active=\"true\"] { background: var(--accent-wash); } .ds-palette-item .ds-ico { color: var(--text-3); width: 16px; height: 16px; fill: none; stroke: currentColor; stroke-width: 1.5; stroke-linecap: round; stroke-linejoin: round; } .ds-palette-item .ds-where { margin-left: auto; font: 400 11px/1 \"Spline Sans Mono\", monospace; color: var(--text-3); } .ds-palette-foot { display: flex; gap: 14px; padding: 8px 14px; border-top: 1px solid var(--hairline); font: 400 11px/1.4 \"Archivo\", system-ui, sans-serif; color: var(--text-3); }"
+    },
+    {
+      "name": "Tie-Out Source Line",
+      "kind": "custom",
+      "description": "The signature interaction: the source line that produced the selected figure, highlighted in amber on paper with an animated TIE-OUT chip.",
+      "html": "<div class=\"ds-src\"><div class=\"ds-src-line\"><span class=\"ds-src-no\">4</span><span class=\"ds-src-tx\">Date     Particulars    Amount</span></div><div class=\"ds-src-line tie\"><span class=\"ds-src-no\">5</span><span class=\"ds-src-tx\">01-08-26 UPI/408112 1,24,500.00</span><span class=\"ds-tie-marker\">TIE-OUT</span></div></div>",
+      "css": ".ds-src { background: var(--paper); color: var(--paper-ink); border: 1px solid var(--hairline); border-radius: 6px; padding: 10px 6px; font: 400 11px/1.85 \"Spline Sans Mono\", monospace; } .ds-src-line { display: flex; gap: 6px; padding: 0 4px; border-radius: 3px; position: relative; } .ds-src-no { width: 14px; color: rgba(35, 39, 43, 0.45); text-align: right; flex: none; } .ds-src-tx { flex: 1; white-space: pre; overflow: hidden; text-overflow: ellipsis; } .ds-src-line.tie { background: var(--paper-hi); padding-right: 54px; animation: ds-tie-sweep 200ms ease-out both; } .ds-tie-marker { position: absolute; right: 6px; top: 50%; transform: translateY(-50%); font: 600 11px/1.4 \"Spline Sans Mono\", monospace; letter-spacing: 0.04em; color: var(--paper-tie); background: var(--paper); padding: 0 3px; border: 1px solid rgba(180, 118, 31, 0.5); border-radius: 3px; animation: ds-tie-chip 240ms cubic-bezier(0.2, 0.8, 0.2, 1) both; } @keyframes ds-tie-sweep { from { background: transparent; } to { background: var(--paper-hi); } } @keyframes ds-tie-chip { from { opacity: 0; transform: translateY(-50%) translateX(8px); } to { opacity: 1; transform: translateY(-50%) translateX(0); } }"
+    }
+  ],
+  "narrative": {
+    "northStar": "The Practice Desk",
+    "overview": "The Practice Desk is the surface a CA actually works at during filing week: a graphite workbench, not a dashboard and not a costume. The client's folder is the primary object, held in a persistent left rail; the work surface in the middle is where files classify, parse, and reconcile; the right side is a source inspector that keeps every parsed figure one keystroke from the document it came from. The interface is dense on purpose — 28px rows, 11–13px type, hairlines instead of gaps — because the person using it is scanning hundreds of figures per period and cannot afford decoration.\n\nThe world is dark-first: a near-black ground, three closely-stepped panel grays, and 8% white hairlines do the structural work. Color is strictly functional. One cobalt signal marks action and selection; amber is attention only; green and red are state only. Nothing else is colored. Documents are the single exception — source previews and the output sheet sit on a neutral paper ground with dark ink, so a document never reads as application chrome and is never confused with it.\n\nThis shell was built code-led: there are no comps, plates, or rasters. Every icon is an authored inline SVG on a 24px viewBox with a 1.5px stroke, every background is a CSS color, and the only binary assets are four self-hosted woff2 font files. It deliberately refuses the two nearest defaults named in its direction contract: the KPI-card SaaS dashboard and the physical-world costume (printout spools, film rails, record almirahs).",
+    "keyCharacteristics": [
+      "Dark-first graphite ground (#0b0d0f) with a parallel light theme; both are first-class.",
+      "One cobalt action signal (#4c7dff / #2a5bd7 in light), used sparsely.",
+      "Amber attention (#e0a33e) reserved for ITC mismatch, held items, and the tie-out marker.",
+      "Neutral paper document ground (#e9ebed) for all source and output previews.",
+      "Archivo for UI, Spline Sans Mono for every figure and identifier; both self-hosted woff2.",
+      "Square and hairline form language with a hard 6px radius ceiling; no glass, no gradients.",
+      "Keyboard-first: Ctrl K command palette, `T` tie-out, visible focus rings."
+    ],
+    "rules": [
+      { "name": "The One Signal Rule", "body": "Cobalt is the only interactive color and appears on well under 10% of any screen. If something is cobalt, it can be clicked or it is selected; nothing else may be cobalt.", "section": "colors" },
+      { "name": "The Amber Means Attention Rule", "body": "Amber is reserved for ITC mismatch, held/attention states, and the tie-out marker. It is never used for decoration, branding, or a secondary accent.", "section": "colors" },
+      { "name": "The Document Ground Rule", "body": "Any surface that represents a source document or an export sits on the paper ground with paper ink and paper rules. Document previews never adopt panel chrome.", "section": "colors" },
+      { "name": "The Two-Theme Parity Rule", "body": "Every token has a dark and a light value. A new color is not added to the system until it has both; the light theme is not an afterthought filter.", "section": "colors" },
+      { "name": "The Figures Are Mono Rule", "body": "Every monetary amount, GSTIN, invoice number, checksum, row count, confidence score, and line number is set in Spline Sans Mono with tabular numerals. Proportional figures are never used for data.", "section": "typography" },
+      { "name": "The Two-Family Rule", "body": "The system has exactly two typefaces. No third face, no system display substitute, no serif headline, no glyph icon font — icons are authored SVG.", "section": "typography" },
+      { "name": "The Small-Size Rule", "body": "The shell runs at 13px body with an 11px label floor. Type does not go below 11px, and density is bought with spacing and hairlines rather than smaller text.", "section": "typography" },
+      { "name": "The 28px Row Rule", "body": "Interactive rows, buttons, search fields, and toggles are 28px tall (22px for the segmented control, 24px for pills and the avatar, 30px for tabs). Row height is a system constant, not a per-view choice.", "section": "layout" },
+      { "name": "The Internal-Scroll Rule", "body": "The page itself never scrolls. The rail, work surface, and inspector each own their scroll, so the top bar, tabs, and status bar never leave the viewport.", "section": "layout" },
+      { "name": "The Flat-By-Default Rule", "body": "Surfaces are flat at rest. A shadow appears only when an element genuinely floats above the page (a dialog, an overlay panel) or is the single selected control in a group.", "section": "elevation" },
+      { "name": "The Hairline-Not-Fill Rule", "body": "Structure between regions is a 1px border at 8% white (14% for controls that need to read as bounded). Never a filled divider band, never a rule you can see at a glance.", "section": "elevation" },
+      { "name": "The 6px Ceiling Rule", "body": "No corner radius exceeds 6px anywhere in the shell. When in doubt, go squarer.", "section": "shapes" },
+      { "name": "The Squared-State Rule", "body": "State marks in the client rail are 8px squares (2px radius); state dots in tables are 6px circles. Status glyphs are outlined SVG at a 1.5px stroke, never filled or emoji.", "section": "shapes" }
+    ],
+    "dos": [
+      "Do keep every figure, identifier, checksum, and count in Spline Sans Mono with tabular numerals.",
+      "Do separate regions with 1px hairlines (8% white / 14% strong in dark) and tonal steps, and keep every surface flat at rest.",
+      "Do cap all radii at 6px and buy density with 28px rows, 6–8px control gaps, and 11–13px type.",
+      "Do put any source or export preview on the neutral paper ground (#e9ebed ink #22262b) so it reads as a document.",
+      "Do reserve cobalt for action/selection, amber for attention, green/red for state — and give every color both a dark and a light value.",
+      "Do route every control through the shared :focus-visible cobalt ring and keep Ctrl K and `T` as live keyboard paths."
+    ],
+    "donts": [
+      "Don't introduce a third typeface, a serif display face, a glyph icon font, or a filled icon — icons are authored SVG at a 1.5px stroke.",
+      "Don't add glass, blur, gradients, neumorphism, or any shadow beyond the two recorded tokens; depth is tonal.",
+      "Don't use rounded-full cards, pill buttons, or radii above 6px, and don't lift cards on hover — hover is a panel-raised fill, not a shadow.",
+      "Don't let cobalt carry meaning or amber decorate; the One Signal Rule and the Amber Means Attention Rule are absolute.",
+      "Don't style a document preview with panel chrome, and don't use the app palette inside a paper surface.",
+      "Don't let the page itself scroll — the rail, work surface, and inspector each own their scroll."
+    ],
+    "openItems": [
+      "Tie animation replays on inspector re-render: every inspector re-render rebuilds the source lines, so tie-sweep and tie-chip fire again on unrelated updates (file selection, client switch, tie toggle) rather than only when the tied line changes.",
+      "The synthetic-data marker is hidden at ≤640px: the footer's .sbar .grp:nth-of-type(n + 3) rule prunes the 'Sample data — synthetic' group along with the engine, quota, and command hints, so the sample-data disclosure disappears at narrow widths."
+    ]
+  }
+}

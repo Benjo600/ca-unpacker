@@ -1,0 +1,315 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>CA Unpacker — Practice Desk</title>
+  <link rel="icon" href="app-icon.png" />
+  <link rel="stylesheet" href="shell.css" />
+</head>
+<body>
+  <svg width="0" height="0" aria-hidden="true" style="position:absolute">
+    <defs>
+      <symbol id="i-lock" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2"/><rect x="4.5" y="10" width="15" height="10" rx="2"/></symbol>
+      <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+      <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+      <symbol id="i-search" viewBox="0 0 24 24"><circle cx="11" cy="11" r="6.5"/><path d="m20 20-4.2-4.2"/></symbol>
+      <symbol id="i-bank" viewBox="0 0 24 24"><path d="M3 9.5 12 4l9 5.5"/><path d="M5 10v9M9.5 10v9M14.5 10v9M19 10v9"/><path d="M3 21h18"/></symbol>
+      <symbol id="i-sheet" viewBox="0 0 24 24"><rect x="4" y="3.5" width="16" height="17" rx="2"/><path d="M4 9h16M4 14.5h16M10 9v11.5"/></symbol>
+      <symbol id="i-braces" viewBox="0 0 24 24"><path d="M8.5 4C6.5 4 6 5 6 6.5v3C6 11 5.5 12 4 12c1.5 0 2 1 2 2.5v3C6 19 6.5 20 8.5 20"/><path d="M15.5 4c2 0 2.5 1 2.5 2.5v3c0 1.5.5 2.5 2 2.5-1.5 0-2 1-2 2.5v3c0 1.5-.5 2.5-2.5 2.5"/></symbol>
+      <symbol id="i-doc" viewBox="0 0 24 24"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V9Z"/><path d="M13.5 3.5V9H18"/></symbol>
+      <symbol id="i-archive" viewBox="0 0 24 24"><rect x="3.5" y="4" width="17" height="4.5" rx="1"/><path d="M5 8.5V19a1.5 1.5 0 0 0 1.5 1.5h11A1.5 1.5 0 0 0 19 19V8.5"/><path d="M10 12.5h4"/></symbol>
+      <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+      <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.5 21 19.5H3Z"/><path d="M12 10v4M12 17h.01"/></symbol>
+      <symbol id="i-x" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+      <symbol id="i-folder" viewBox="0 0 24 24"><path d="M4 7.5A1.5 1.5 0 0 1 5.5 6h3.4l2 2.5h7.6A1.5 1.5 0 0 1 20 10v8a1.5 1.5 0 0 1-1.5 1.5h-13A1.5 1.5 0 0 1 4 18Z"/></symbol>
+      <symbol id="i-download" viewBox="0 0 24 24"><path d="M12 4v11"/><path d="m7.5 10.5 4.5 4.5 4.5-4.5"/><path d="M5 19.5h14"/></symbol>
+      <symbol id="i-play" viewBox="0 0 24 24"><path d="M7 5.5 18.5 12 7 18.5Z"/></symbol>
+      <symbol id="i-cmd" viewBox="0 0 24 24"><path d="M9 9V6.5A2.5 2.5 0 1 0 6.5 9H9Zm0 0v6m0-6h6M9 15v2.5A2.5 2.5 0 1 1 6.5 15H9Zm6-6V6.5A2.5 2.5 0 1 1 17.5 9H15Zm0 6v2.5a2.5 2.5 0 1 0 2.5-2.5H15Z"/></symbol>
+      <symbol id="i-chev" viewBox="0 0 24 24"><path d="m9 6 6 6-6 6"/></symbol>
+      <symbol id="i-refresh" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4.5V10h-5.5"/></symbol>
+      <symbol id="i-panel" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M15 4.5v15"/></symbol>
+      <symbol id="i-more" viewBox="0 0 24 24"><circle cx="6" cy="12" r="1.2"/><circle cx="12" cy="12" r="1.2"/><circle cx="18" cy="12" r="1.2"/></symbol>
+      <symbol id="i-plus" viewBox="0 0 24 24"><path d="M12 5v14M5 12h14"/></symbol>
+      <symbol id="i-tie" viewBox="0 0 24 24"><path d="M9 7H6a2 2 0 0 0-2 2v6a2 2 0 0 0 2 2h3"/><path d="M15 7h3a2 2 0 0 1 2 2v6a2 2 0 0 1-2 2h-3"/><path d="M12 4v16"/></symbol>
+    </defs>
+  </svg>
+
+  <header class="tbar">
+    <div class="brand">
+      <span class="brand-mark">CA</span>
+      <span class="brand-name">CA Unpacker</span>
+    </div>
+    <div class="crumbs">
+      <span>Mehta &amp; Associates</span>
+      <span class="sep"><svg class="ico" style="width:12px;height:12px"><use href="#i-chev"/></svg></span>
+      <span class="cur" id="crumb-client">Sree Traders</span>
+      <span class="sep"><svg class="ico" style="width:12px;height:12px"><use href="#i-chev"/></svg></span>
+      <span class="mono num" id="crumb-period">Aug 2026</span>
+    </div>
+    <button type="button" class="cmd" id="cmd-open">
+      <svg class="ico"><use href="#i-search"/></svg>
+      <span class="cmd-label">Search clients, files, commands</span>
+      <span class="kbd">Ctrl K</span>
+    </button>
+    <div class="tbar-right">
+      <span class="pill" title="No client data leaves this computer">
+        <svg class="ico"><use href="#i-lock"/></svg> Local only
+      </span>
+      <button type="button" class="icon-btn" id="theme-toggle" aria-pressed="false" title="Switch to light mode">
+        <svg class="ico"><use href="#i-moon"/></svg>
+      </button>
+      <button type="button" class="icon-btn" id="rail-toggle" aria-pressed="false" title="Toggle source inspector">
+        <svg class="ico"><use href="#i-panel"/></svg>
+      </button>
+      <span class="avatar" title="Signed in as partner@mehta.in">MA</span>
+    </div>
+  </header>
+
+  <div class="body" id="body">
+    <nav class="rail" aria-label="Clients">
+      <div class="rail-head">
+        <span class="rail-title">Clients</span>
+        <span class="rail-count num">8 active</span>
+      </div>
+      <div class="rail-search">
+        <svg class="ico"><use href="#i-search"/></svg>
+        <input id="client-search" type="text" placeholder="Filter clients" />
+      </div>
+      <div class="seg" role="group" aria-label="Client filter">
+        <button type="button" data-filter="all" aria-pressed="true">All</button>
+        <button type="button" data-filter="attention" aria-pressed="false">Attention</button>
+        <button type="button" data-filter="ready" aria-pressed="false">Ready</button>
+      </div>
+      <div class="rail-scroll" id="client-list"></div>
+    </nav>
+
+    <main class="work" id="work">
+      <div class="work-head">
+        <div class="work-title-row">
+          <div class="work-id">
+            <h1 class="work-name" id="work-name">Sree Traders</h1>
+            <div class="work-sub">
+              <span class="mono num" id="work-gstin">29ABCDE1234F1Z5</span>
+              <span class="dot">·</span>
+              <span id="work-period">Aug 2026</span>
+              <span class="dot">·</span>
+              <span id="work-source">D:\Clients\Sree_Traders\Aug2026</span>
+            </div>
+          </div>
+          <div class="work-actions">
+            <button type="button" class="btn btn-ghost" id="add-folder">
+              <svg class="ico"><use href="#i-folder"/></svg> Add folder
+            </button>
+            <button type="button" class="btn" id="rerun">
+              <svg class="ico"><use href="#i-refresh"/></svg> Re-run
+            </button>
+            <button type="button" class="btn btn-primary" id="export-primary">
+              <svg class="ico"><use href="#i-download"/></svg> Export pack
+            </button>
+          </div>
+        </div>
+
+        <div class="stages" id="stages">
+          <div class="stage" data-state="done">
+            <div class="stage-bar"><span class="stage-fill"></span></div>
+            <div class="stage-label"><span class="stage-name">Intake</span><span class="stage-val num">8 files</span></div>
+          </div>
+          <div class="stage" data-state="done">
+            <div class="stage-bar"><span class="stage-fill"></span></div>
+            <div class="stage-label"><span class="stage-name">Parse</span><span class="stage-val num">7,412 rows</span></div>
+          </div>
+          <div class="stage" data-state="held">
+            <div class="stage-bar"><span class="stage-fill" style="--fill:0.74"></span></div>
+            <div class="stage-label"><span class="stage-name">Reconcile</span><span class="stage-val num">3 open</span></div>
+          </div>
+          <div class="stage" data-state="idle">
+            <div class="stage-bar"><span class="stage-fill"></span></div>
+            <div class="stage-label"><span class="stage-name">Export</span><span class="stage-val">Not started</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="tabs" role="tablist" aria-label="Workspace views">
+        <button class="tab" role="tab" aria-selected="true" data-view="intake">Intake <span class="count num">8</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-view="recon">Reconcile <span class="count num">3</span></button>
+        <button class="tab" role="tab" aria-selected="false" data-view="preview">Preview &amp; Export</button>
+        <div class="tabs-end">
+          <span class="hint">Press <span class="kbd">T</span> to tie a figure to its source</span>
+        </div>
+      </div>
+
+      <div class="work-scroll">
+        <section class="view" id="view-intake" role="tabpanel">
+          <div class="grid-wrap">
+            <table class="grid" id="file-grid">
+              <thead>
+                <tr>
+<th style="width:36%">File</th>
+<th style="width:14%">Kind</th>
+<th class="r" style="width:9%">Rows</th>
+<th style="width:14%">Period</th>
+<th class="r" style="width:13%">Confidence</th>
+<th style="width:14%">Status</th>
+                </tr>
+              </thead>
+              <tbody id="file-rows"></tbody>
+            </table>
+          </div>
+        </section>
+
+        <section class="view" id="view-recon" role="tabpanel" hidden>
+          <div class="stack">
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">GSTR-2B against purchase books</span>
+                <span class="card-note num" id="recon-stamp">Computed 14:22, offline</span>
+              </div>
+              <table class="grid">
+                <thead>
+                  <tr>
+                    <th style="width:18%">Supplier</th>
+                    <th style="width:16%">Invoice</th>
+                    <th class="r" style="width:16%">2B value</th>
+                    <th class="r" style="width:16%">Books value</th>
+                    <th class="r" style="width:14%">Difference</th>
+                    <th style="width:20%">Action</th>
+                  </tr>
+                </thead>
+                <tbody id="recon-rows"></tbody>
+              </table>
+              <div class="recon-sum">
+                <div>
+                  <div class="recon-k">Matched ITC</div>
+                  <div class="recon-v ok num">₹4,82,910</div>
+                </div>
+                <div>
+                  <div class="recon-k">In books, not in 2B</div>
+                  <div class="recon-v warn num">₹18,240</div>
+                </div>
+                <div>
+                  <div class="recon-k">In 2B, not in books</div>
+                  <div class="recon-v warn num">₹6,780</div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span class="card-title">Exceptions</span><span class="card-note num">3 open</span></div>
+              <div class="card-body">
+                <div class="defs-4">
+                  <div class="def"><dt>Missing invoice no.</dt><dd>2</dd></div>
+                  <div class="def"><dt>Rate mismatch</dt><dd>1</dd></div>
+                  <div class="def"><dt>Duplicate credit</dt><dd>0</dd></div>
+                  <div class="def"><dt>Period covered</dt><dd>01–31 Aug</dd></div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        <section class="view" id="view-preview" role="tabpanel" hidden>
+          <div class="stack">
+            <div class="card">
+              <div class="card-head">
+                <span class="card-title">Normalized pack — HDFC current account</span>
+                <span class="card-note num">412 rows</span>
+              </div>
+              <div class="card-body">
+                <div class="preview-sheet">
+                  <div class="r head"><span>Date</span><span>Narration</span><span class="amt">Debit</span><span class="amt">Credit</span></div>
+                  <div class="r"><span>01-08-2026</span><span>UPI/408112/SREE ENTERPRISES</span><span class="amt dr">1,24,500.00</span><span class="amt">0.00</span></div>
+                  <div class="r"><span>03-08-2026</span><span>NEFT CR KAVERI AGRO FOODS</span><span class="amt">0.00</span><span class="amt">2,86,400.00</span></div>
+                  <div class="r"><span>07-08-2026</span><span>RTGS DR ANAND TEXTILES</span><span class="amt dr">88,120.00</span><span class="amt">0.00</span></div>
+                  <div class="r"><span>11-08-2026</span><span>CHQ 004512 CLEARED</span><span class="amt dr">42,000.00</span><span class="amt">0.00</span></div>
+                  <div class="r"><span>19-08-2026</span><span>IMPS CR METRO AUTO SPARES</span><span class="amt">0.00</span><span class="amt">1,05,750.00</span></div>
+                  <div class="r"><span>27-08-2026</span><span>GST CHALLAN 29AAACR</span><span class="amt dr">36,900.00</span><span class="amt">0.00</span></div>
+                </div>
+              </div>
+            </div>
+            <div class="card">
+              <div class="card-head"><span class="card-title">Export</span><span class="card-note">Pick a format</span></div>
+              <div class="export-row">
+                <span class="checkbox" role="checkbox" aria-checked="true" tabindex="0"><svg class="ico"><use href="#i-check"/></svg></span>
+                <div class="export-main"><div class="export-name">Tally import (XML)</div><div class="export-desc">Day book vouchers, ledgers mapped</div></div>
+                <span class="export-meta num">412 KB</span>
+              </div>
+              <div class="export-row">
+                <span class="checkbox" role="checkbox" aria-checked="true" tabindex="0"><svg class="ico"><use href="#i-check"/></svg></span>
+                <div class="export-main"><div class="export-name">Excel pack</div><div class="export-desc">One workbook per source document</div></div>
+                <span class="export-meta num">1.2 MB</span>
+              </div>
+              <div class="export-row">
+                <span class="checkbox" role="checkbox" aria-checked="false" tabindex="0"><svg class="ico"><use href="#i-check"/></svg></span>
+                <div class="export-main"><div class="export-name">Zoho Books</div><div class="export-desc">CSV per module</div></div>
+                <span class="export-meta num">286 KB</span>
+              </div>
+              <div class="export-row">
+                <span class="checkbox" role="checkbox" aria-checked="false" tabindex="0"><svg class="ico"><use href="#i-check"/></svg></span>
+                <div class="export-main"><div class="export-name">Reconciliation master</div><div class="export-desc">2B vs books, ticked lines only</div></div>
+                <span class="export-meta num">64 KB</span>
+              </div>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <aside class="inspect" aria-label="Source inspector">
+      <div class="inspect-head">
+        <div class="inspect-file mono" id="insp-file">HDFC_Bank_Aug2026.pdf</div>
+        <div class="inspect-sub" id="insp-sub">Bank statement · 412 parsed rows · page 3 of 11</div>
+        <div class="inspect-tools">
+          <button type="button" class="btn btn-ghost" id="tie-btn" aria-pressed="true">
+            <svg class="ico"><use href="#i-tie"/></svg> Tie-out on
+          </button>
+        </div>
+      </div>
+      <div class="inspect-scroll">
+        <div class="src" id="src-view"></div>
+        <div class="defs">
+          <div class="def"><dt>Matched line</dt><dd id="insp-line">line 41</dd></div>
+          <div class="def"><dt>Parsed value</dt><dd id="insp-val">1,24,500.00</dd></div>
+          <div class="def"><dt>Rule</dt><dd>hdfc-current-v3</dd></div>
+          <div class="def"><dt>Checksum</dt><dd id="insp-sum">9f2a41c8</dd></div>
+        </div>
+      </div>
+      <div class="inspect-foot">
+        <div class="prov"><span>Read locally</span><b>no upload</b></div>
+        <div class="prov"><span>Original</span><b class="mono" style="font-weight:500">unchanged on disk</b></div>
+      </div>
+    </aside>
+  </div>
+
+  <footer class="sbar">
+    <span class="grp g-files"><b class="num">42</b> files</span>
+    <span class="dot d-files">·</span>
+    <span class="grp g-rows"><b class="num">8,914</b> rows parsed</span>
+    <span class="dot d-rows">·</span>
+    <span class="grp g-held" style="color:var(--warn)"><b class="num" style="color:var(--warn)">3</b> held for review</span>
+    <span class="dot d-held">·</span>
+    <span class="grp g-sample">Sample data — synthetic</span>
+    <span class="spacer"></span>
+    <span class="grp g-engine"><svg class="ico"><use href="#i-lock"/></svg> Engine: deterministic Python, offline</span>
+    <span class="dot d-engine">·</span>
+    <span class="grp g-packs">Packs this month <span class="quota-bar"><span class="quota-fill"></span></span> <b class="num">18 / 25</b></span>
+    <span class="dot d-packs">·</span>
+    <span class="grp g-cmd"><span class="kbd">Ctrl K</span> commands</span>
+  </footer>
+
+  <div class="palette" id="palette" hidden>
+    <div class="palette-box" role="dialog" aria-modal="true" aria-label="Command palette">
+      <div class="palette-input">
+        <svg class="ico"><use href="#i-cmd"/></svg>
+        <input id="palette-input" type="text" placeholder="Run a command or jump to a client" />
+      </div>
+      <div class="palette-list" id="palette-list"></div>
+      <div class="palette-foot">
+        <span><span class="kbd">Enter</span> open</span>
+        <span><span class="kbd">Esc</span> close</span>
+      </div>
+    </div>
+  </div>
+
+  <script src="shell.js"></script>
+</body>
+</html>

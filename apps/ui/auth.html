@@ -1,0 +1,726 @@
+<!DOCTYPE html>
+<html lang="en" data-theme="dark">
+<head>
+<meta charset="UTF-8" />
+<meta name="viewport" content="width=device-width, initial-scale=1.0" />
+<title>CA Unpacker — Sign in</title>
+<link rel="icon" href="app-icon.png" />
+<style>
+@font-face{font-family:"Archivo";font-style:normal;font-weight:400 600;font-display:swap;src:url("fonts/archivo-latin-ext.woff2") format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Archivo";font-style:normal;font-weight:400 600;font-display:swap;src:url("fonts/archivo-latin.woff2") format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+@font-face{font-family:"Spline Sans Mono";font-style:normal;font-weight:400 600;font-display:swap;src:url("fonts/splinemono-latin-ext.woff2") format("woff2");unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+@font-face{font-family:"Spline Sans Mono";font-style:normal;font-weight:400 600;font-display:swap;src:url("fonts/splinemono-latin.woff2") format("woff2");unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+
+:root,[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#0b0d0f;--panel:#111417;--panel-2:#171b1f;--elevated:#1c2126;--row-hover:#171b1f;
+  --hairline:rgba(255,255,255,.08);--hairline-strong:rgba(255,255,255,.14);
+  --text:#eceef1;--text-2:#98a2ad;--text-3:#7c8794;
+  --accent:#4c7dff;--accent-hover:#6b93ff;--accent-ink:#0b0d0f;--accent-wash:rgba(76,125,255,.14);
+  --ok:#3fb950;--ok-wash:rgba(63,185,80,.14);
+  --warn:#e0a33e;--warn-wash:rgba(224,163,62,.14);
+  --bad:#f85149;--bad-wash:rgba(248,81,73,.14);
+  --focus:#4c7dff;
+  --shadow-1:0 1px 2px rgba(0,0,0,.4);
+  --shadow-2:0 12px 32px -8px rgba(0,0,0,.6);
+}
+[data-theme="light"]{
+  color-scheme:light;
+  --bg:#f4f5f7;--panel:#ffffff;--panel-2:#f7f8fa;--elevated:#ffffff;--row-hover:#f2f4f6;
+  --hairline:rgba(15,23,42,.1);--hairline-strong:rgba(15,23,42,.2);
+  --text:#0e1216;--text-2:#56606b;--text-3:#6f7a86;
+  --accent:#2a5bd7;--accent-hover:#2450c2;--accent-ink:#ffffff;--accent-wash:rgba(42,91,215,.1);
+  --ok:#1a7f37;--ok-wash:rgba(26,127,55,.1);
+  --warn:#9a6700;--warn-wash:rgba(154,103,0,.12);
+  --bad:#cf222e;--bad-wash:rgba(207,34,46,.1);
+  --focus:#2a5bd7;
+  --shadow-1:0 1px 2px rgba(15,23,42,.08);
+  --shadow-2:0 12px 32px -8px rgba(15,23,42,.18);
+}
+
+*{box-sizing:border-box;margin:0;padding:0}
+html,body{height:100%}
+body{
+  background:var(--bg);color:var(--text);
+  font-family:"Archivo","Segoe UI",system-ui,sans-serif;
+  font-size:13px;line-height:1.45;
+  -webkit-font-smoothing:antialiased;text-rendering:optimizeLegibility;
+  display:grid;grid-template-columns:minmax(0,1fr);grid-template-rows:minmax(0,1fr) 28px;
+  height:100vh;overflow:hidden;
+}
+::selection{background:var(--accent-wash);color:var(--text)}
+input,button{caret-color:var(--accent);font:inherit;color:inherit}
+:focus-visible{outline:2px solid var(--focus);outline-offset:2px;border-radius:4px}
+a{color:var(--accent);text-underline-offset:2px}
+.mono{font-family:"Spline Sans Mono",ui-monospace,Consolas,monospace;font-variant-numeric:tabular-nums;font-feature-settings:"tnum" 1}
+.ico{width:16px;height:16px;flex:none;fill:none;stroke:currentColor;stroke-width:1.5;stroke-linecap:round;stroke-linejoin:round}
+.sr{position:absolute;width:1px;height:1px;overflow:hidden;clip:rect(0 0 0 0);white-space:nowrap}
+
+/* ---------- boot ---------- */
+.boot{
+  position:fixed;inset:0;z-index:60;background:var(--bg);
+  display:grid;place-items:center;
+  transition:opacity 280ms ease,transform 280ms ease;
+}
+.boot[hidden]{display:none}
+.boot.leaving{opacity:0;transform:translateY(-6px);pointer-events:none}
+.boot-inner{width:min(460px,88vw);display:grid;justify-items:center;text-align:center}
+.boot-mark{
+  width:52px;height:52px;border-radius:6px;background:var(--text);color:var(--bg);
+  display:grid;place-items:center;font-weight:600;font-size:17px;letter-spacing:.02em;
+  animation:mark-in 620ms cubic-bezier(.2,.8,.2,1) both;
+}
+@keyframes mark-in{from{opacity:0;transform:scale(.72) rotate(-4deg)}to{opacity:1;transform:none}}
+.boot-word{margin-top:16px;font-size:17px;font-weight:600;letter-spacing:-.015em;animation:fade-up 420ms ease-out 180ms both}
+.boot-sub{margin-top:5px;font-size:11.5px;color:var(--text-3);animation:fade-up 420ms ease-out 260ms both}
+.boot-rule{
+  width:260px;height:2px;border-radius:2px;background:var(--hairline-strong);
+  margin-top:22px;overflow:hidden;
+}
+.boot-fill{display:block;height:100%;background:var(--accent);border-radius:2px;transform:scaleX(0);transform-origin:left center;transition:transform 240ms linear}
+.boot-fill[data-state="done"]{background:var(--ok)}
+.boot-log{
+  list-style:none;width:100%;margin-top:20px;display:grid;gap:3px;
+  font-family:"Spline Sans Mono",ui-monospace,Consolas,monospace;
+  font-size:11px;font-variant-numeric:tabular-nums;
+}
+.boot-log li{display:flex;align-items:baseline;gap:8px;opacity:0;animation:line-in 200ms ease-out both}
+@keyframes line-in{from{opacity:0;transform:translateY(3px)}to{opacity:1;transform:none}}
+@keyframes fade-up{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+.bl-label{color:var(--text-2);white-space:nowrap;text-align:left}
+.bl-lead{flex:1;border-bottom:1px dotted var(--hairline-strong);transform:translateY(-3px)}
+.bl-state{color:var(--text-3);white-space:nowrap}
+.boot-log li[data-state="ok"] .bl-state{color:var(--ok)}
+.boot-log li[data-state="ready"] .bl-label{color:var(--text);font-weight:600}
+.boot-skip{
+  position:absolute;bottom:22px;left:0;right:0;text-align:center;
+  font-size:11px;color:var(--text-3);
+}
+.kbd{
+  font-family:"Spline Sans Mono",monospace;font-size:11px;color:var(--text-2);
+  border:1px solid var(--hairline);border-radius:4px;padding:1px 5px;background:var(--panel-2);
+}
+
+/* ---------- auth layout ---------- */
+.auth{display:grid;grid-template-columns:minmax(320px,400px) minmax(0,1fr);min-height:0}
+.auth[hidden]{display:none}
+.facts{
+  border-right:1px solid var(--hairline);background:var(--panel);
+  padding:28px 30px;display:flex;flex-direction:column;gap:22px;overflow-y:auto;
+}
+.brand{display:flex;align-items:center;gap:9px}
+.brand-mark{width:24px;height:24px;border-radius:6px;background:var(--text);color:var(--bg);display:grid;place-items:center;font-size:11px;font-weight:600}
+.brand-name{font-size:13px;font-weight:600;letter-spacing:-.01em}
+.pill{
+  display:inline-flex;align-items:center;gap:6px;align-self:flex-start;
+  height:24px;padding:0 9px;border:1px solid var(--hairline);border-radius:6px;
+  font-size:11px;color:var(--text-2);
+}
+.pill .ico{width:13px;height:13px;color:var(--ok)}
+.facts-lede{font-size:12.5px;color:var(--text-2);max-width:34ch}
+.facts-lede b{color:var(--text);font-weight:500}
+.readout{display:grid;gap:0;border:1px solid var(--hairline);border-radius:6px;overflow:hidden}
+.readout div{display:flex;justify-content:space-between;gap:12px;padding:7px 10px;border-bottom:1px solid var(--hairline);font-size:11px}
+.readout div:last-child{border-bottom:0}
+.readout dt{color:var(--text-3);white-space:nowrap}
+.readout dd{color:var(--text-2);font-family:"Spline Sans Mono",monospace;font-variant-numeric:tabular-nums;text-align:right}
+.facts-foot{font-size:11px;color:var(--text-3);margin-top:auto}
+
+.pane{display:flex;flex-direction:column;min-width:0;min-height:0}
+.pane-top{display:flex;align-items:center;gap:8px;padding:14px 18px 0;justify-content:flex-end}
+.pane-scroll{flex:1;overflow-y:auto;display:flex;align-items:center;justify-content:center;padding:24px}
+.card{
+  width:min(392px,100%);background:var(--panel);border:1px solid var(--hairline);
+  border-radius:6px;padding:26px 26px 22px;box-shadow:var(--shadow-1);margin:auto;
+  animation:card-in 240ms cubic-bezier(.2,.8,.2,1) both;
+}
+.card[hidden]{display:none}
+@keyframes card-in{from{opacity:0;transform:translateY(8px)}to{opacity:1;transform:none}}
+.card h1{font-size:17px;font-weight:600;letter-spacing:-.015em}
+.card .lede{margin-top:6px;font-size:12.5px;color:var(--text-2)}
+
+.field{margin-top:16px;display:grid;gap:6px}
+.field label{font-size:12px;font-weight:500;color:var(--text-2)}
+.control{
+  display:flex;align-items:center;gap:8px;height:38px;padding:0 10px;
+  background:var(--bg);border:1px solid var(--hairline-strong);border-radius:6px;
+  transition:border-color 140ms ease,box-shadow 140ms ease;
+}
+.control:hover{border-color:var(--text-3)}
+.control:focus-within{border-color:var(--accent);box-shadow:0 0 0 3px var(--accent-wash)}
+.control .ico{color:var(--text-3);width:15px;height:15px}
+.control input{flex:1;min-width:0;background:none;border:0;outline:none;font-size:13px;height:100%}
+.control input::placeholder{color:var(--text-3)}
+.control.invalid{border-color:var(--bad)}
+.control.invalid:focus-within{box-shadow:0 0 0 3px var(--bad-wash)}
+.reveal{
+  width:26px;height:26px;display:grid;place-items:center;border:0;border-radius:6px;
+  background:transparent;color:var(--text-3);cursor:pointer;flex:none;
+}
+.reveal:hover{background:var(--panel-2);color:var(--text)}
+.hint{margin-top:6px;font-size:11px;color:var(--text-3)}
+.hint.bad{color:var(--bad)}
+
+.strength{display:flex;align-items:center;gap:8px;margin-top:8px}
+.strength-bars{display:flex;gap:4px;flex:1}
+.strength-bars span{height:3px;flex:1;border-radius:2px;background:var(--hairline-strong);transition:background 160ms ease}
+.strength[data-level="1"] .strength-bars span:nth-child(1){background:var(--bad)}
+.strength[data-level="2"] .strength-bars span:nth-child(-n+2){background:var(--warn)}
+.strength[data-level="3"] .strength-bars span{background:var(--ok)}
+.strength-label{font-size:11px;color:var(--text-3);min-width:52px;text-align:right}
+
+.row{display:flex;align-items:center;justify-content:space-between;gap:12px;margin-top:16px}
+.check{display:inline-flex;align-items:center;gap:8px;font-size:12px;color:var(--text-2);cursor:pointer;user-select:none}
+.check input{position:absolute;opacity:0;width:1px;height:1px}
+.box{
+  width:15px;height:15px;border:1px solid var(--hairline-strong);border-radius:4px;background:var(--bg);
+  display:grid;place-items:center;flex:none;
+}
+.box .ico{width:11px;height:11px;stroke-width:2.5;opacity:0;color:var(--accent-ink)}
+.check input:checked + .box{background:var(--accent);border-color:var(--accent)}
+.check input:checked + .box .ico{opacity:1}
+.check input:focus-visible + .box{outline:2px solid var(--focus);outline-offset:2px}
+.link-btn{background:none;border:0;padding:0;font-size:12px;color:var(--accent);cursor:pointer}
+.link-btn:hover{text-decoration:underline}
+
+.btn{
+  display:inline-flex;align-items:center;justify-content:center;gap:8px;height:38px;padding:0 14px;
+  border:1px solid var(--hairline-strong);border-radius:6px;background:var(--panel);
+  color:var(--text);font-size:13px;font-weight:500;cursor:pointer;white-space:nowrap;
+}
+.btn:hover{background:var(--panel-2)}
+.btn:disabled{opacity:.6;cursor:default}
+.btn-block{width:100%;margin-top:18px}
+.btn-primary{background:var(--accent);border-color:transparent;color:var(--accent-ink)}
+.btn-primary:hover:not(:disabled){background:var(--accent-hover)}
+.btn-ghost{border-color:transparent;background:transparent;color:var(--text-2);height:28px;padding:0 10px;font-size:12px}
+.btn-ghost:hover{background:var(--panel-2);color:var(--text)}
+.icon-btn{width:28px;height:28px;display:grid;place-items:center;border:1px solid transparent;border-radius:6px;background:transparent;color:var(--text-2);cursor:pointer}
+.icon-btn:hover{background:var(--panel-2);color:var(--text)}
+.spinner{width:15px;height:15px;animation:spin 800ms linear infinite}
+.spinner circle{fill:none;stroke:currentColor;stroke-width:2.5;stroke-linecap:round;stroke-dasharray:28 44}
+@keyframes spin{to{transform:rotate(360deg)}}
+
+.alert{
+  display:flex;gap:9px;align-items:flex-start;margin-top:16px;padding:10px 11px;
+  border:1px solid var(--bad);border-radius:6px;background:var(--bad-wash);
+  font-size:12px;color:var(--text);
+}
+.alert[hidden]{display:none}
+.alert .ico{color:var(--bad);margin-top:1px}
+.alert b{display:block;font-weight:600;margin-bottom:2px}
+.alert.ok{border-color:var(--ok);background:var(--ok-wash)}
+.alert.ok .ico{color:var(--ok)}
+
+.foot{margin-top:18px;padding-top:16px;border-top:1px solid var(--hairline);font-size:12px;color:var(--text-2);text-align:center}
+.done{text-align:center;padding:4px 0}
+.done-head{display:flex;align-items:center;justify-content:center;gap:8px}
+.done-head .ico{width:18px;height:18px;color:var(--ok);stroke-width:2.2}
+.done h2{font-size:17px;font-weight:600;letter-spacing:-.01em}
+.done p{margin-top:6px;font-size:12.5px;color:var(--text-2)}
+.done .btn-block{margin-top:20px}
+
+.authbar{
+  display:flex;align-items:center;gap:14px;padding:0 14px;min-width:0;overflow:hidden;
+  background:var(--panel);border-top:1px solid var(--hairline);
+  font-size:11px;color:var(--text-3);
+}
+.authbar .grp{display:flex;align-items:center;gap:6px;white-space:nowrap}
+.authbar .grp .ico{width:13px;height:13px}
+.authbar .grp.secure .ico{color:var(--ok)}
+.authbar .spacer{margin-left:auto}
+.authbar .dot{color:var(--text-3)}
+
+@media (max-width:860px){
+  body{height:auto;min-height:100vh;overflow:auto;grid-template-rows:auto 28px}
+  .auth{grid-template-columns:minmax(0,1fr);overflow:visible}
+  .facts{border-right:0;border-bottom:1px solid var(--hairline);padding:20px 22px;gap:14px;overflow:visible}
+  .readout{flex:none}
+  .facts-foot{margin-top:4px}
+  .pane-scroll{overflow:visible;align-items:flex-start;justify-content:flex-start;padding:20px 22px 32px}
+  .card{margin:0 auto}
+  .authbar{position:sticky;bottom:0;z-index:5}
+  .authbar .grp.optional,.authbar .dot.optional{display:none}
+}
+@media (max-width:520px){
+  .card{padding:22px 18px 18px}
+}
+@media (prefers-reduced-motion:reduce){
+  *,*::before,*::after{animation-duration:.001ms !important;animation-iteration-count:1 !important;transition-duration:.001ms !important}
+}
+</style>
+</head>
+<body>
+<svg width="0" height="0" aria-hidden="true" style="position:absolute">
+  <defs>
+    <symbol id="i-mail" viewBox="0 0 24 24"><rect x="3" y="5.5" width="18" height="13" rx="2"/><path d="m3.8 6.8 8.2 6 8.2-6"/></symbol>
+    <symbol id="i-lock" viewBox="0 0 24 24"><path d="M7 10V8a5 5 0 0 1 10 0v2"/><rect x="4.5" y="10" width="15" height="10" rx="2"/></symbol>
+    <symbol id="i-building" viewBox="0 0 24 24"><path d="M5 20.5V5a1.5 1.5 0 0 1 1.5-1.5h7A1.5 1.5 0 0 1 15 5v15.5"/><path d="M15 10h3.5A1.5 1.5 0 0 1 20 11.5v9"/><path d="M3 20.5h18M8 7.5h4M8 11h4M8 14.5h4"/></symbol>
+    <symbol id="i-eye" viewBox="0 0 24 24"><path d="M2.5 12S6 6.5 12 6.5 21.5 12 21.5 12 18 17.5 12 17.5 2.5 12 2.5 12Z"/><circle cx="12" cy="12" r="3"/></symbol>
+    <symbol id="i-eye-off" viewBox="0 0 24 24"><path d="M4 4.5 20 19.5"/><path d="M9.6 9.7A3 3 0 0 0 12 15a3 3 0 0 0 2.4-1.2"/><path d="M6.3 6.9C4 8.5 2.5 12 2.5 12s3.5 5.5 9.5 5.5c1.6 0 3-.4 4.2-1"/><path d="M10 6.7A9.6 9.6 0 0 1 12 6.5c6 0 9.5 5.5 9.5 5.5a17 17 0 0 1-2.4 2.9"/></symbol>
+    <symbol id="i-check" viewBox="0 0 24 24"><path d="m5 12.5 4.5 4.5L19 7"/></symbol>
+    <symbol id="i-alert" viewBox="0 0 24 24"><path d="M12 4.5 21 19.5H3Z"/><path d="M12 10v4M12 17h.01"/></symbol>
+    <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M5 12h13"/><path d="m13 7 5 5-5 5"/></symbol>
+    <symbol id="i-sun" viewBox="0 0 24 24"><circle cx="12" cy="12" r="4"/><path d="M12 2.5v2M12 19.5v2M4.9 4.9l1.4 1.4M17.7 17.7l1.4 1.4M2.5 12h2M19.5 12h2M4.9 19.1l1.4-1.4M17.7 6.3l1.4-1.4"/></symbol>
+    <symbol id="i-moon" viewBox="0 0 24 24"><path d="M20 14.5A8 8 0 0 1 9.5 4a8 8 0 1 0 10.5 10.5Z"/></symbol>
+    <symbol id="i-replay" viewBox="0 0 24 24"><path d="M20 12a8 8 0 1 1-2.3-5.6"/><path d="M20 4.5V10h-5.5"/></symbol>
+    <symbol id="i-shield" viewBox="0 0 24 24"><path d="M12 3.5 19.5 6v6c0 4.2-3 7.2-7.5 8.5C7.5 19.2 4.5 16.2 4.5 12V6Z"/><path d="m9 12 2 2 4-4.5"/></symbol>
+    <symbol id="i-drive" viewBox="0 0 24 24"><rect x="3.5" y="4.5" width="17" height="15" rx="2"/><path d="M3.5 14h17M7 17.5h.01M10 17.5h.01"/></symbol>
+    <symbol id="i-key" viewBox="0 0 24 24"><circle cx="8" cy="15" r="3.5"/><path d="m10.5 12.5 8-8M16 7l2 2M14 9l2 2"/></symbol>
+    <symbol id="i-doc" viewBox="0 0 24 24"><path d="M13.5 3.5H7A1.5 1.5 0 0 0 5.5 5v14A1.5 1.5 0 0 0 7 20.5h10a1.5 1.5 0 0 0 1.5-1.5V9Z"/><path d="M13.5 3.5V9H18"/></symbol>
+  </defs>
+</svg>
+
+<div class="boot" id="boot" aria-hidden="true">
+  <div class="boot-inner">
+    <div class="boot-mark">CA</div>
+    <div class="boot-word">CA Unpacker</div>
+    <div class="boot-sub">Practice desk · local engine</div>
+    <div class="boot-rule"><span class="boot-fill" id="bootFill"></span></div>
+    <ol class="boot-log" id="bootLog"></ol>
+  </div>
+  <div class="boot-skip">Press any key to skip <span class="kbd">Esc</span></div>
+</div>
+
+<div class="auth" id="auth" hidden>
+  <aside class="facts">
+    <div class="brand">
+      <span class="brand-mark">CA</span>
+      <span class="brand-name">CA Unpacker</span>
+    </div>
+    <span class="pill"><svg class="ico"><use href="#i-shield"/></svg> Local only</span>
+    <p class="facts-lede">The practice desk runs entirely on this PC. Client files are read here, parsed here, and written here — <b>nothing is uploaded</b>.</p>
+    <dl class="readout">
+      <div><dt>Engine</dt><dd>deterministic Python</dd></div>
+      <div><dt>Egress</dt><dd>0 KB · blocked</dd></div>
+      <div><dt>Bank layouts</dt><dd>148 loaded</dd></div>
+      <div><dt>Rule set</dt><dd>GSTR-2B v1.0</dd></div>
+      <div><dt>Workspace</dt><dd>%LOCALAPPDATA%</dd></div>
+    </dl>
+    <p class="facts-foot">Windows 10/11 · WebView2 runtime</p>
+  </aside>
+
+  <main class="pane">
+    <div class="pane-top">
+      <button type="button" class="btn btn-ghost" id="replay">
+        <svg class="ico" style="width:13px;height:13px"><use href="#i-replay"/></svg> Replay boot
+      </button>
+      <button type="button" class="icon-btn" id="theme" aria-pressed="false" title="Switch to light mode">
+        <svg class="ico"><use href="#i-moon"/></svg>
+      </button>
+    </div>
+
+    <div class="pane-scroll">
+      <section class="card" id="pane-signin">
+        <h1>Sign in to your practice desk</h1>
+        <p class="lede">Use the account you created on this workstation.</p>
+
+        <form id="form-signin" novalidate>
+          <div class="field">
+            <label for="si-email">Work email</label>
+            <div class="control" id="si-email-ctl">
+              <svg class="ico"><use href="#i-mail"/></svg>
+              <input id="si-email" name="email" type="email" autocomplete="email" placeholder="partner@firm.in" required />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="si-pass">Password</label>
+            <div class="control" id="si-pass-ctl">
+              <svg class="ico"><use href="#i-lock"/></svg>
+              <input id="si-pass" name="password" type="password" autocomplete="current-password" placeholder="••••••••" required />
+              <button type="button" class="reveal" data-reveal="si-pass" aria-label="Show password">
+                <svg class="ico" style="width:15px;height:15px"><use href="#i-eye"/></svg>
+              </button>
+            </div>
+          </div>
+
+          <div class="row">
+            <label class="check" for="si-remember">
+              <input id="si-remember" type="checkbox" checked />
+              <span class="box"><svg class="ico"><use href="#i-check"/></svg></span>
+              Keep me signed in
+            </label>
+            <button type="button" class="link-btn" id="si-forgot">Forgot password?</button>
+          </div>
+
+          <p class="alert" id="si-alert" hidden role="alert"><svg class="ico"><use href="#i-alert"/></svg><span id="si-alert-text"></span></p>
+
+          <button type="submit" class="btn btn-primary btn-block" id="si-submit">
+            <span id="si-submit-label">Sign in</span>
+          </button>
+        </form>
+
+        <p class="foot">New here? <button type="button" class="link-btn" data-go="signup">Create a practice account</button></p>
+      </section>
+
+      <section class="card" id="pane-signup" hidden>
+        <h1>Create your practice account</h1>
+        <p class="lede">Sets up a local account and the firm workspace on this PC.</p>
+
+        <form id="form-signup" novalidate>
+          <div class="field">
+            <label for="su-firm">Firm name</label>
+            <div class="control" id="su-firm-ctl">
+              <svg class="ico"><use href="#i-building"/></svg>
+              <input id="su-firm" name="organization" type="text" autocomplete="organization" placeholder="Mehta &amp; Associates" required />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="su-email">Work email</label>
+            <div class="control" id="su-email-ctl">
+              <svg class="ico"><use href="#i-mail"/></svg>
+              <input id="su-email" name="email" type="email" autocomplete="email" placeholder="partner@firm.in" required />
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="su-pass">Password</label>
+            <div class="control" id="su-pass-ctl">
+              <svg class="ico"><use href="#i-lock"/></svg>
+              <input id="su-pass" name="password" type="password" autocomplete="new-password" placeholder="At least 8 characters" required />
+              <button type="button" class="reveal" data-reveal="su-pass" aria-label="Show password">
+                <svg class="ico" style="width:15px;height:15px"><use href="#i-eye"/></svg>
+              </button>
+            </div>
+            <div class="strength" id="su-strength" data-level="0">
+              <span class="strength-bars"><span></span><span></span><span></span></span>
+              <span class="strength-label" id="su-strength-label">—</span>
+            </div>
+          </div>
+
+          <div class="field">
+            <label for="su-confirm">Confirm password</label>
+            <div class="control" id="su-confirm-ctl">
+              <svg class="ico"><use href="#i-lock"/></svg>
+              <input id="su-confirm" name="confirm" type="password" autocomplete="new-password" placeholder="Repeat password" required />
+            </div>
+          </div>
+
+          <div class="row" style="margin-top:18px">
+            <label class="check" for="su-terms">
+              <input id="su-terms" type="checkbox" />
+              <span class="box"><svg class="ico"><use href="#i-check"/></svg></span>
+              I accept the local licence terms
+            </label>
+          </div>
+
+          <p class="alert" id="su-alert" hidden role="alert"><svg class="ico"><use href="#i-alert"/></svg><span id="su-alert-text"></span></p>
+
+          <button type="submit" class="btn btn-primary btn-block" id="su-submit">
+            <span id="su-submit-label">Create account</span>
+          </button>
+        </form>
+
+        <p class="foot">Already set up? <button type="button" class="link-btn" data-go="signin">Sign in</button></p>
+      </section>
+
+      <section class="card" id="pane-signedin" hidden>
+        <div class="done">
+          <div class="done-head"><svg class="ico"><use href="#i-check"/></svg><h2>Workspace ready</h2></div>
+          <p id="done-copy">Signed in as partner@firm.in. Your local repository is mounted.</p>
+          <a class="btn btn-primary btn-block" href="shell.html">Open practice desk <svg class="ico"><use href="#i-arrow"/></svg></a>
+        </div>
+      </section>
+
+      <section class="card" id="pane-created" hidden>
+        <div class="done">
+          <div class="done-head"><svg class="ico"><use href="#i-check"/></svg><h2>Account created</h2></div>
+          <p id="created-copy">Your firm workspace is ready on this PC.</p>
+          <button type="button" class="btn btn-primary btn-block" id="created-continue">
+            Continue to sign in <svg class="ico"><use href="#i-arrow"/></svg>
+          </button>
+        </div>
+      </section>
+    </div>
+  </main>
+</div>
+
+<footer class="authbar">
+  <span class="grp secure"><svg class="ico"><use href="#i-shield"/></svg> Client data egress: <b class="mono">0 KB</b></span>
+  <span class="dot optional">·</span>
+  <span class="grp optional"><svg class="ico"><use href="#i-drive"/></svg> Workspace <span class="mono">%LOCALAPPDATA%\CAUnpacker</span></span>
+  <span class="dot optional">·</span>
+  <span class="grp optional"><svg class="ico"><use href="#i-doc"/></svg> Sample data — synthetic</span>
+  <span class="spacer"></span>
+  <span class="grp"><svg class="ico"><use href="#i-key"/></svg> Licence <span class="mono">18 / 25 packs</span></span>
+</footer>
+
+<script>
+(function () {
+  var $ = function (s) { return document.querySelector(s); };
+  var $$ = function (s) { return Array.prototype.slice.call(document.querySelectorAll(s)); };
+  var reduce = window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+  var BOOT_STEPS = [
+    { label: "Loading CA Unpacker 1.0", state: "ok" },
+    { label: "Verifying local engine · deterministic Python", state: "ok" },
+    { label: "Bank layout patterns · 148 loaded", state: "ok" },
+    { label: "GSTR-2B rule set · v1.0 loaded", state: "ok" },
+    { label: "Mounting workspace · %LOCALAPPDATA%\\CAUnpacker", state: "ok" },
+    { label: "Network egress · 0 KB · blocked", state: "ok" },
+    { label: "Ready", state: "ready" }
+  ];
+
+  var boot = $("#boot"), bootLog = $("#bootLog"), bootFill = $("#bootFill");
+  var bootTimer = null, bootDone = false;
+
+  var bootIndex = 0;
+
+  function resetBoot() {
+    bootLog.innerHTML = "";
+    bootIndex = 0;
+    bootFill.style.transform = "scaleX(0)";
+    bootFill.setAttribute("data-state", "run");
+  }
+
+  function stepBoot() {
+    if (bootIndex >= BOOT_STEPS.length) return false;
+    var step = BOOT_STEPS[bootIndex];
+    var li = document.createElement("li");
+    li.setAttribute("data-state", step.state);
+    li.innerHTML = '<span class="bl-label">' + step.label + "</span>" +
+      '<span class="bl-lead"></span>' +
+      '<span class="bl-state">' + (step.state === "ready" ? "ready" : "ok") + "</span>";
+    bootLog.appendChild(li);
+    bootIndex += 1;
+    bootFill.style.transform = "scaleX(" + (bootIndex / BOOT_STEPS.length).toFixed(3) + ")";
+    if (bootIndex >= BOOT_STEPS.length) bootFill.setAttribute("data-state", "done");
+    return true;
+  }
+
+  function completeBoot() {
+    while (stepBoot()) {}
+  }
+
+  function finishBoot(immediate) {
+    if (bootDone) return;
+    bootDone = true;
+    if (bootTimer) { clearInterval(bootTimer); bootTimer = null; }
+    completeBoot();
+    var wait = immediate || reduce ? 0 : 520;
+    setTimeout(function () {
+      boot.classList.add("leaving");
+      $("#auth").hidden = false;
+      focusFirst();
+      setTimeout(function () { boot.hidden = true; }, reduce ? 0 : 300);
+    }, wait);
+  }
+
+  function runBoot() {
+    bootDone = false;
+    boot.hidden = false;
+    boot.classList.remove("leaving");
+    $("#auth").hidden = true;
+    resetBoot();
+    if (reduce) { finishBoot(true); return; }
+    bootTimer = setInterval(function () {
+      if (!stepBoot()) { clearInterval(bootTimer); bootTimer = null; finishBoot(false); }
+    }, 240);
+  }
+
+  function focusFirst() {
+    var target = $("#pane-signin").hidden ? null : $("#si-email");
+    if (target && window.innerWidth > 860) target.focus({ preventScroll: true });
+  }
+
+  function show(which) {
+    ["signin", "signup", "signedin", "created"].forEach(function (name) {
+      $("#pane-" + name).hidden = name !== which;
+    });
+    var focus = { signin: "#si-email", signup: "#su-firm", signedin: null, created: null }[which];
+    if (focus && window.innerWidth > 860) {
+      var el = $(focus);
+      if (el) el.focus({ preventScroll: true });
+    }
+  }
+
+  function setAlert(id, message, ok) {
+    var box = $(id);
+    if (!message) { box.hidden = true; return; }
+    box.hidden = false;
+    box.classList.toggle("ok", !!ok);
+    box.querySelector("span").innerHTML = message;
+    var icon = box.querySelector("use");
+    icon.setAttribute("href", ok ? "#i-check" : "#i-alert");
+  }
+
+  function markInvalid(controlId, bad) {
+    $(controlId).classList.toggle("invalid", !!bad);
+  }
+
+  function validEmail(v) {
+    return /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/.test(v.trim());
+  }
+
+  function strengthOf(v) {
+    if (!v) return 0;
+    var score = 0;
+    if (v.length >= 8) score += 1;
+    if (v.length >= 12) score += 1;
+    if (/[A-Z]/.test(v) && /[a-z]/.test(v)) score += 1;
+    if (/\d/.test(v)) score += 1;
+    if (/[^A-Za-z0-9]/.test(v)) score += 1;
+    if (v.length < 8) return 1;
+    if (score <= 3) return 2;
+    return 3;
+  }
+
+  function busy(button, on, label, idleText) {
+    button.disabled = on;
+    var el = button.querySelector("span");
+    if (on) {
+      el.innerHTML = '<svg class="spinner" viewBox="0 0 24 24"><circle cx="12" cy="12" r="8"/></svg> ' + label;
+    } else {
+      el.textContent = idleText;
+    }
+  }
+
+  $$("[data-reveal]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      var input = $("#" + btn.getAttribute("data-reveal"));
+      var showing = input.type === "text";
+      input.type = showing ? "password" : "text";
+      btn.setAttribute("aria-label", showing ? "Show password" : "Hide password");
+      btn.querySelector("use").setAttribute("href", showing ? "#i-eye" : "#i-eye-off");
+    });
+  });
+
+  $$("[data-go]").forEach(function (btn) {
+    btn.addEventListener("click", function () {
+      setAlert("#si-alert", "");
+      setAlert("#su-alert", "");
+      show(btn.getAttribute("data-go"));
+    });
+  });
+
+  $("#si-forgot").addEventListener("click", function () {
+    setAlert("#si-alert", "<b>Local accounts reset on this PC</b>An administrator can reset the password from the licence screen. No email is sent.");
+  });
+
+  var suPass = $("#su-pass");
+  suPass.addEventListener("input", function () {
+    var level = strengthOf(suPass.value);
+    $("#su-strength").setAttribute("data-level", String(level));
+    $("#su-strength-label").textContent = level === 0 ? "—" : level === 1 ? "Weak" : level === 2 ? "Fair" : "Strong";
+  });
+
+  $("#form-signin").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var email = $("#si-email").value, pass = $("#si-pass").value;
+    setAlert("#si-alert", "");
+    markInvalid("#si-email-ctl", false);
+    markInvalid("#si-pass-ctl", false);
+
+    if (!validEmail(email)) {
+      markInvalid("#si-email-ctl", true);
+      setAlert("#si-alert", "<b>That email looks incomplete</b>Check for a missing @ or domain, then try again.");
+      $("#si-email").focus();
+      return;
+    }
+    if (pass.length < 8) {
+      markInvalid("#si-pass-ctl", true);
+      setAlert("#si-alert", "<b>Password is too short</b>Local accounts need at least 8 characters.");
+      $("#si-pass").focus();
+      return;
+    }
+
+    var btn = $("#si-submit");
+    busy(btn, true, "Signing in…", "Sign in");
+    setTimeout(function () {
+      busy(btn, false, "", "Sign in");
+      $("#done-copy").innerHTML = "Signed in as <span class='mono'>" + email.replace(/</g, "&lt;") + "</span>. Your local repository is mounted.";
+      show("signedin");
+    }, reduce ? 0 : 850);
+  });
+
+  $("#form-signup").addEventListener("submit", function (e) {
+    e.preventDefault();
+    var firm = $("#su-firm").value.trim(), email = $("#su-email").value;
+    var pass = suPass.value, confirm = $("#su-confirm").value, terms = $("#su-terms").checked;
+    setAlert("#su-alert", "");
+    ["#su-firm-ctl", "#su-email-ctl", "#su-pass-ctl", "#su-confirm-ctl"].forEach(function (id) { markInvalid(id, false); });
+
+    if (firm.length < 2) {
+      markInvalid("#su-firm-ctl", true);
+      setAlert("#su-alert", "<b>Firm name is missing</b>Enter the practice name that will print on your working papers.");
+      $("#su-firm").focus();
+      return;
+    }
+    if (!validEmail(email)) {
+      markInvalid("#su-email-ctl", true);
+      setAlert("#su-alert", "<b>That email looks incomplete</b>Check for a missing @ or domain, then try again.");
+      $("#su-email").focus();
+      return;
+    }
+    if (pass.length < 8) {
+      markInvalid("#su-pass-ctl", true);
+      setAlert("#su-alert", "<b>Password is too short</b>Use at least 8 characters; a longer passphrase is stronger.");
+      suPass.focus();
+      return;
+    }
+    if (pass !== confirm) {
+      markInvalid("#su-confirm-ctl", true);
+      setAlert("#su-alert", "<b>The passwords do not match</b>Retype the same password in both fields.");
+      $("#su-confirm").focus();
+      return;
+    }
+    if (!terms) {
+      setAlert("#su-alert", "<b>Licence terms not accepted</b>Tick the box to create the local account.");
+      $("#su-terms").focus();
+      return;
+    }
+
+    var btn = $("#su-submit");
+    busy(btn, true, "Creating account…", "Create account");
+    setTimeout(function () {
+      busy(btn, false, "", "Create account");
+      $("#created-copy").innerHTML = "Firm workspace set up for <span class='mono'>" + firm.replace(/</g, "&lt;") + "</span> on this PC.";
+      show("created");
+    }, reduce ? 0 : 950);
+  });
+
+  $("#created-continue").addEventListener("click", function () {
+    $("#si-email").value = $("#su-email").value;
+    $("#si-pass").value = "";
+    show("signin");
+    $("#si-pass").focus({ preventScroll: true });
+  });
+
+  $("#replay").addEventListener("click", runBoot);
+
+  document.addEventListener("keydown", function (e) {
+    if (!boot.hidden) { finishBoot(true); return; }
+    if (e.key === "Escape") { setAlert("#si-alert", ""); setAlert("#su-alert", ""); }
+  });
+  boot.addEventListener("click", function () { finishBoot(true); });
+
+  var themeBtn = $("#theme");
+  function setTheme(t) {
+    document.documentElement.setAttribute("data-theme", t);
+    themeBtn.setAttribute("aria-pressed", String(t === "light"));
+    themeBtn.setAttribute("title", t === "light" ? "Switch to dark mode" : "Switch to light mode");
+    themeBtn.querySelector("use").setAttribute("href", t === "light" ? "#i-sun" : "#i-moon");
+    try { localStorage.setItem("caunpacker-theme", t); } catch (err) {}
+  }
+  themeBtn.addEventListener("click", function () {
+    setTheme(document.documentElement.getAttribute("data-theme") === "dark" ? "light" : "dark");
+  });
+  var stored = null;
+  try { stored = localStorage.getItem("caunpacker-theme"); } catch (err) {}
+  setTheme(stored || (window.matchMedia("(prefers-color-scheme: light)").matches ? "light" : "dark"));
+
+  var hash = (location.hash || "").replace(/^#/, "");
+  if (hash === "signup") show("signup");
+  if (hash === "noboot") {
+    bootDone = true;
+    boot.hidden = true;
+    $("#auth").hidden = false;
+  } else {
+    runBoot();
+  }
+})();
+</script>
+</body>
+</html>
