@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import ctypes
 import json
 import os
 import shutil
@@ -13,11 +14,60 @@ LOCK_FILENAME = "library.lock"
 _lock_held = False
 
 
+def _windows_pid_alive(pid: int) -> bool:
+    """Check a PID without signalling it.
+
+    On Windows ``os.kill(pid, 0)`` is not a harmless existence check: signal 0
+    is ``CTRL_C_EVENT``, so CPython tries ``GenerateConsoleCtrlEvent`` and then
+    falls back to ``TerminateProcess``. That can kill the process and, when the
+    first call leaves a Windows error behind, raise ``SystemError``. Query the
+    process handle instead.
+    """
+    from ctypes import wintypes
+
+    kernel32 = ctypes.WinDLL("kernel32", use_last_error=True)
+    kernel32.OpenProcess.argtypes = (wintypes.DWORD, wintypes.BOOL, wintypes.DWORD)
+    kernel32.OpenProcess.restype = wintypes.HANDLE
+    kernel32.GetExitCodeProcess.argtypes = (
+        wintypes.HANDLE,
+        ctypes.POINTER(wintypes.DWORD),
+    )
+    kernel32.GetExitCodeProcess.restype = wintypes.BOOL
+    kernel32.CloseHandle.argtypes = (wintypes.HANDLE,)
+    kernel32.CloseHandle.restype = wintypes.BOOL
+
+    process_query_limited_information = 0x1000
+    error_access_denied = 5
+    still_active = 259
+
+    ctypes.set_last_error(0)
+    handle = kernel32.OpenProcess(
+        process_query_limited_information, False, pid
+    )
+    if not handle:
+        # Access denied still proves the process exists; any other error
+        # (notably ERROR_INVALID_PARAMETER for a stale PID) means it does not.
+        return ctypes.get_last_error() == error_access_denied
+    try:
+        exit_code = wintypes.DWORD()
+        if not kernel32.GetExitCodeProcess(handle, ctypes.byref(exit_code)):
+            return False
+        return exit_code.value == still_active
+    finally:
+        kernel32.CloseHandle(handle)
+
+
 def _pid_alive(pid: int) -> bool:
     if pid <= 0:
         return False
+    if os.name == "nt":
+        return _windows_pid_alive(pid)
     try:
         os.kill(pid, 0)
+    except ProcessLookupError:
+        return False
+    except PermissionError:
+        return True
     except OSError:
         return False
     return True

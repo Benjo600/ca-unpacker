@@ -196,6 +196,34 @@ class Stage10FirmReadyGateTests(unittest.TestCase):
             with self.assertRaisesRegex(ValueError, "one window"):
                 acquire_library_lock()
 
+    def test_windows_pid_alive_does_not_call_os_kill(self) -> None:
+        if os.name != "nt":
+            self.skipTest("Windows-specific PID check")
+        from apps.engine import library as library_mod
+
+        with patch.object(
+            library_mod.os,
+            "kill",
+            side_effect=SystemError(
+                "<built-in function kill> returned a result with an exception set"
+            ),
+        ) as kill_mock:
+            with patch.object(
+                library_mod, "_windows_pid_alive", return_value=True
+            ) as windows_probe:
+                self.assertTrue(library_mod._pid_alive(4242))
+
+        kill_mock.assert_not_called()
+        windows_probe.assert_called_once_with(4242)
+
+    def test_windows_pid_alive_checks_real_processes(self) -> None:
+        if os.name != "nt":
+            self.skipTest("Windows-specific PID check")
+        from apps.engine import library as library_mod
+
+        self.assertTrue(library_mod._pid_alive(os.getpid()))
+        self.assertFalse(library_mod._pid_alive(2147483647))
+
     def test_smartscreen_workaround_is_written(self) -> None:
         path = ROOT / "installer" / "SMARTSCREEN.txt"
         text = path.read_text(encoding="utf-8").lower()
