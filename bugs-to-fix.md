@@ -9,4 +9,4 @@ Owner: Benny
 5. Modernize the UI: it currently feels dated and overwhelming, especially because all post-processing results are dumped on the user at once. Present results progressively in a clearer workflow.
 6. Ask for and save a separate profile for each client of the firm; the app is currently not collecting this information.
 7. Make citations more polished and easier to review, similar to NotebookLM.
-8. Add an in-app file preview pane, similar to the Codex app, so users can inspect files without leaving the app.
+8. ~~Add an in-app file preview pane, similar to the Codex app, so users can inspect files without leaving the app.~~ Done — click a file name in the period list, or **Open full page** from a crop. PDF pages, images, JSON, CSV/XLSX tables, TXT/XML and ZIP listings render in a right-hand pane; other types offer **Open in app**. See `docs/PREVIEW.md`.

@@ -454,6 +454,24 @@
     </div>
   </div>
 
+  <aside id="preview-pane" class="preview-pane hidden" role="dialog" aria-modal="false" aria-labelledby="preview-title">
+    <header class="preview-head">
+      <div class="preview-head-text">
+        <p class="eyebrow">Source file</p>
+        <h2 id="preview-title">File</h2>
+        <p id="preview-meta" class="preview-meta"></p>
+      </div>
+      <div class="preview-head-actions">
+        <button type="button" class="ghost preview-external" id="preview-external">Open in app</button>
+        <button type="button" class="preview-close" id="preview-close" aria-label="Close preview" title="Close preview (Esc)">
+          <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M3.3 2.2 8 6.9l4.7-4.7 1.1 1.1L9.1 8l4.7 4.7-1.1 1.1L8 9.1l-4.7 4.7-1.1-1.1L6.9 8 2.2 3.3z"/></svg>
+        </button>
+      </div>
+    </header>
+    <div id="preview-body" class="preview-body" aria-live="polite"></div>
+    <footer id="preview-foot" class="preview-foot" hidden></footer>
+  </aside>
+
   <div id="crop-modal" class="modal hidden">
     <div class="modal-card crop-card">
       <p class="eyebrow">Source</p>
@@ -461,6 +479,7 @@
       <p class="lede">From the statement, not from Excel.</p>
       <img id="crop-image" alt="Page crop" />
       <div class="drop-actions">
+        <button type="button" class="ghost" id="crop-open-page">Open full page</button>
         <button type="button" class="ghost" id="crop-close">Close</button>
       </div>
     </div>

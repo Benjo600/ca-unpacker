@@ -49,6 +49,11 @@ const scanNoteEl = document.getElementById("scan-note");
 const cropModal = document.getElementById("crop-modal");
 const cropCaptionEl = document.getElementById("crop-caption");
 const cropImageEl = document.getElementById("crop-image");
+const previewPaneEl = document.getElementById("preview-pane");
+const previewBodyEl = document.getElementById("preview-body");
+const previewFootEl = document.getElementById("preview-foot");
+const previewTitleEl = document.getElementById("preview-title");
+const previewMetaEl = document.getElementById("preview-meta");
 const unlockModal = document.getElementById("unlock-modal");
 const unlockFilenameEl = document.getElementById("unlock-filename");
 const unlockPasswordEl = document.getElementById("unlock-password");
@@ -80,6 +85,7 @@ let packOpenKey = "";
 let lastPack = null;
 let reconFilter = "all";
 let unlockFile = null;
+let cropSource = null;
 let tesseractChecked = false;
 let tesseractFound = true;
 let guideDismissed = false;
@@ -88,6 +94,15 @@ let lastPeriodCount = 0;
 let authState = null;
 let devMode = false;
 let lastAppState = null;
+let previewFile = null;
+let previewPage = 1;
+let previewPassword = "";
+let previewFormatted = true;
+let previewSheet = "";
+let previewFit = true;
+let previewPageCount = 0;
+let previewSeq = 0;
+let previewTrigger = null;
 let uiSessionActive = false;
 let navHistory = [];
 let navIndex = -1;
@@ -495,10 +510,12 @@ function appendFileRow(container, file, className) {
   row.className = className;
   const details = document.createElement("div");
   details.className = "file-details";
-  const name = document.createElement("span");
-  name.className = "name";
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "name file-preview-open";
   name.textContent = file.original_name;
-  name.title = file.parse_reason_message || file.classify_reason || "";
+  name.title = "Preview this file";
+  name.addEventListener("click", () => openFilePreview(file, 1));
   const outcome = document.createElement("span");
   const outcomeName = window.CAStatusSummary.outcomeLabel(file.parse_outcome);
   outcome.className = `pill outcome-${file.parse_outcome || "unclassified"}`;
@@ -1163,6 +1180,7 @@ function renderPreview(preview) {
 function closeCropModal() {
   if (!cropModal) return;
   cropModal.classList.add("hidden");
+  cropSource = null;
   if (cropImageEl) {
     cropImageEl.removeAttribute("src");
     cropImageEl.alt = "Page crop";
@@ -1194,7 +1212,352 @@ async function openSourceCrop(file, row, field, value) {
   cropImageEl.src = src;
   cropImageEl.alt = `${file.filename || "Statement"} page ${page}`;
   cropCaptionEl.textContent = `${file.filename} · page ${page} · ${field} ${cropCaptionValue(field, value)}`;
+  cropSource = { file, page };
   cropModal.classList.remove("hidden");
+}
+
+/* ---------------------------------------------------------------- preview */
+
+function previewElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function previewButton(label, onClick, className) {
+  const button = previewElement("button", className || "ghost", label);
+  button.type = "button";
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function formatFileSize(size) {
+  const value = Number(size);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function previewMetaText(result) {
+  const parts = [];
+  if (result.kind_label) parts.push(result.kind_label);
+  if (result.preview_type === "pdf" && result.page_count) {
+    parts.push(`${result.page_count} ${result.page_count === 1 ? "page" : "pages"}`);
+  }
+  const size = formatFileSize(result.size);
+  if (size) parts.push(size);
+  return parts.join(" · ");
+}
+
+function openFilePreview(file, page = 1) {
+  if (!file || !previewPaneEl) return;
+  previewTrigger = document.activeElement;
+  previewFile = file;
+  previewPage = Math.max(1, Number(page) || 1);
+  previewPassword = "";
+  previewFormatted = true;
+  previewSheet = "";
+  previewFit = true;
+  previewTitleEl.textContent = file.original_name || file.filename || "File";
+  previewMetaEl.textContent = "";
+  previewPaneEl.classList.remove("hidden");
+  loadFilePreview();
+}
+
+function closeFilePreview() {
+  if (!previewPaneEl || previewPaneEl.classList.contains("hidden")) return;
+  previewPaneEl.classList.add("hidden");
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewFile = null;
+  previewPassword = "";
+  previewSeq += 1;
+  const target = previewTrigger;
+  previewTrigger = null;
+  if (target && typeof target.focus === "function" && document.contains(target)) {
+    target.focus();
+  }
+}
+
+function renderPreviewLoading() {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewBodyEl.append(previewElement("p", "preview-message", "Opening file…"));
+}
+
+async function loadFilePreview() {
+  if (!previewFile) return;
+  const api = desktopApi();
+  if (!api || !api.get_file_preview) {
+    renderPreviewError("Update the app to preview files here.");
+    return;
+  }
+  const fileId = previewFile.id || previewFile.file_id;
+  const seq = ++previewSeq;
+  renderPreviewLoading();
+  let result;
+  try {
+    result = await api.get_file_preview(
+      fileId,
+      previewPage,
+      previewPassword,
+      previewSheet,
+      previewFormatted
+    );
+  } catch {
+    result = { ok: false, error: "Could not open this file." };
+  }
+  if (seq !== previewSeq) return;
+  if (!result || !result.ok) {
+    if (result && result.reason === "password_required") {
+      renderPreviewPassword(result.error);
+      return;
+    }
+    renderPreviewError((result && result.error) || "Could not open this file.");
+    return;
+  }
+  if (result.name) previewTitleEl.textContent = result.name;
+  previewMetaEl.textContent = previewMetaText(result);
+  renderPreviewResult(result);
+}
+
+function renderPreviewError(message) {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewPageCount = 0;
+  const note = previewElement("p", "preview-message error");
+  note.append(previewElement("strong", null, "This file cannot be shown."));
+  note.append(document.createTextNode(message));
+  previewBodyEl.append(note);
+}
+
+function renderPreviewPassword(message) {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewPageCount = 0;
+
+  const form = previewElement("form", "preview-password");
+  form.autocomplete = "off";
+  const heading = previewElement("p", "preview-message", message || "This PDF needs a password.");
+  form.append(heading);
+
+  const label = previewElement("label", null, "PDF password");
+  label.setAttribute("for", "preview-password");
+  const input = document.createElement("input");
+  input.id = "preview-password";
+  input.type = "password";
+  input.autocomplete = "off";
+  form.append(label, input);
+
+  const submit = previewElement("button", null, "Preview page");
+  submit.type = "submit";
+  form.append(submit, previewElement("p", "fine", "Used once for this preview. Not saved."));
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    previewPassword = input.value;
+    input.value = "";
+    loadFilePreview();
+  });
+  previewBodyEl.append(form);
+  input.focus();
+}
+
+function renderPreviewResult(result) {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = `preview-body preview-${result.preview_type || "unsupported"}`;
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewPageCount = 0;
+
+  if (result.preview_type === "pdf" || result.preview_type === "image") {
+    renderPreviewImage(result);
+  } else if (result.preview_type === "text") {
+    renderPreviewText(result);
+  } else if (result.preview_type === "table") {
+    renderPreviewTable(result);
+  } else if (result.preview_type === "archive") {
+    renderPreviewArchive(result);
+  } else {
+    renderPreviewUnsupported(result);
+  }
+}
+
+function applyPreviewFit() {
+  const canvas = previewBodyEl.querySelector(".preview-canvas");
+  if (!canvas) return;
+  canvas.classList.toggle("actual", !previewFit);
+}
+
+function renderPreviewImage(result) {
+  const image = result.image || {};
+  const canvas = previewElement("div", "preview-canvas");
+  const img = document.createElement("img");
+  img.src = image.data_url;
+  img.alt = `${result.name} page ${result.page || 1}`;
+  img.draggable = false;
+  canvas.append(img);
+  previewBodyEl.append(canvas);
+  applyPreviewFit();
+
+  if (result.preview_type === "pdf") {
+    previewPageCount = Number(result.page_count) || 0;
+    const pager = previewElement("div", "preview-pager");
+    const prev = previewButton("Previous", () => {
+      if (previewPage <= 1) return;
+      previewPage -= 1;
+      loadFilePreview();
+    });
+    prev.disabled = result.page <= 1;
+    const next = previewButton("Next", () => {
+      if (previewPage >= result.page_count) return;
+      previewPage += 1;
+      loadFilePreview();
+    });
+    next.disabled = result.page >= result.page_count;
+
+    const zoom = previewButton(previewFit ? "Actual size" : "Fit width", () => {
+      previewFit = !previewFit;
+      applyPreviewFit();
+      zoom.textContent = previewFit ? "Actual size" : "Fit width";
+    });
+
+    pager.append(
+      prev,
+      previewElement("span", "page-label", `Page ${result.page} of ${result.page_count}`),
+      next,
+      previewElement("span", "spacer"),
+      zoom
+    );
+    previewFootEl.append(pager);
+    previewFootEl.hidden = false;
+  }
+}
+
+function renderPreviewText(result) {
+  const pre = previewElement("pre", "preview-text", result.text || "");
+  previewBodyEl.append(pre);
+
+  if (result.is_json) {
+    previewFootEl.append(
+      previewButton(result.formatted ? "Show raw file" : "Show formatted", () => {
+        previewFormatted = !previewFormatted;
+        loadFilePreview();
+      })
+    );
+  }
+  previewFootEl.append(
+    previewButton(pre && pre.classList.contains("no-wrap") ? "Wrap lines" : "No wrap", (event) => {
+      const wrap = pre.classList.toggle("no-wrap");
+      event.currentTarget.textContent = wrap ? "Wrap lines" : "No wrap";
+    })
+  );
+
+  if (result.note) previewFootEl.append(previewElement("p", "preview-note", result.note));
+  previewFootEl.hidden = false;
+}
+
+function renderPreviewTable(result) {
+  const table = result.table || {};
+  const rows = table.rows || [];
+  if (!rows.length) {
+    previewBodyEl.append(previewElement("p", "preview-message", "This file has no rows to show."));
+    return;
+  }
+
+  const wrap = previewElement("div", "preview-grid-wrap");
+  const node = previewElement("table", "preview-grid");
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const head = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (let index = 0; index < width; index += 1) {
+    headerRow.append(previewElement("th", null, rows[0][index] == null ? "" : rows[0][index]));
+  }
+  head.append(headerRow);
+  const body = document.createElement("tbody");
+  for (const row of rows.slice(1)) {
+    const tr = document.createElement("tr");
+    for (let index = 0; index < width; index += 1) {
+      tr.append(previewElement("td", null, row[index] == null ? "" : row[index]));
+    }
+    body.append(tr);
+  }
+  node.append(head, body);
+  wrap.append(node);
+  previewBodyEl.append(wrap);
+
+  const sheets = table.sheets || [];
+  if (sheets.length > 1) {
+    const tabs = previewElement("div", "preview-pager");
+    for (const name of sheets) {
+      const tab = previewButton(name, () => {
+        previewSheet = name;
+        loadFilePreview();
+      }, "ghost");
+      if (name === table.sheet) tab.setAttribute("aria-pressed", "true");
+      tabs.append(tab);
+    }
+    previewFootEl.append(tabs);
+  }
+
+  const note = result.note || "";
+  if (note) previewFootEl.append(previewElement("p", "preview-note", note));
+  previewFootEl.hidden = !previewFootEl.childElementCount;
+}
+
+function renderPreviewArchive(result) {
+  const archive = result.archive || {};
+  const entries = archive.entries || [];
+  if (!entries.length) {
+    previewBodyEl.append(previewElement("p", "preview-message", "This archive is empty."));
+    return;
+  }
+  const list = previewElement("ul", "preview-archive");
+  for (const entry of entries) {
+    const item = document.createElement("li");
+    item.append(previewElement("span", "entry-name", entry.name));
+    item.append(previewElement("span", "entry-size", formatFileSize(entry.size) || "0 B"));
+    list.append(item);
+  }
+  previewBodyEl.append(list);
+  if (result.note) {
+    previewFootEl.append(previewElement("p", "preview-note", result.note));
+    previewFootEl.hidden = false;
+  }
+}
+
+function renderPreviewUnsupported(result) {
+  const note = previewElement("p", "preview-message");
+  note.append(previewElement("strong", null, "No preview for this file type."));
+  note.append(document.createTextNode(result.note || "Open it in its own program to read it."));
+  previewBodyEl.append(note);
+}
+
+async function openSourceFile(file) {
+  const api = desktopApi();
+  if (!api || !api.open_source_file || !file) return;
+  const fileId = file.id || file.file_id;
+  let result;
+  try {
+    result = await api.open_source_file(fileId);
+  } catch {
+    result = { ok: false, error: "Could not open that file." };
+  }
+  if (!result || !result.ok) {
+    showError(dumpErrorEl, (result && result.error) || "Could not open that file.");
+  }
 }
 
 function closeUnlockModal() {
@@ -1991,6 +2354,24 @@ if (cropModal) {
 const cropCloseBtn = document.getElementById("crop-close");
 if (cropCloseBtn) cropCloseBtn.addEventListener("click", closeCropModal);
 
+const cropOpenPageBtn = document.getElementById("crop-open-page");
+if (cropOpenPageBtn) {
+  cropOpenPageBtn.addEventListener("click", () => {
+    if (!cropSource) return;
+    const { file, page } = cropSource;
+    closeCropModal();
+    openFilePreview(file, page);
+  });
+}
+
+const previewCloseBtn = document.getElementById("preview-close");
+if (previewCloseBtn) previewCloseBtn.addEventListener("click", closeFilePreview);
+
+const previewExternalBtn = document.getElementById("preview-external");
+if (previewExternalBtn) {
+  previewExternalBtn.addEventListener("click", () => openSourceFile(previewFile));
+}
+
 if (unlockModal) {
   unlockModal.addEventListener("click", (event) => {
     if (event.target === unlockModal) closeUnlockModal();
@@ -2009,10 +2390,31 @@ document.addEventListener("keydown", (event) => {
     }
     if (unlockModal && !unlockModal.classList.contains("hidden")) {
       closeUnlockModal();
+      return;
+    }
+    if (previewPaneEl && !previewPaneEl.classList.contains("hidden")) {
+      closeFilePreview();
     }
     return;
   }
   if (isTypingTarget(event.target)) return;
+  if (
+    previewPaneEl &&
+    !previewPaneEl.classList.contains("hidden") &&
+    !event.altKey &&
+    previewPageCount > 1 &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight")
+  ) {
+    event.preventDefault();
+    if (event.key === "ArrowLeft" && previewPage > 1) {
+      previewPage -= 1;
+      loadFilePreview();
+    } else if (event.key === "ArrowRight" && previewPage < previewPageCount) {
+      previewPage += 1;
+      loadFilePreview();
+    }
+    return;
+  }
   if (!deskIsVisible()) return;
   if (event.altKey && event.key === "ArrowLeft") {
     event.preventDefault();

@@ -45,6 +45,7 @@ from apps.engine.pipeline import (
     open_pack_folder,
     open_pack_path,
 )
+from apps.engine.preview import preview_file as build_preview, source_file_path
 from apps.engine.wipe import wipe_all
 
 _WINDOW: webview.Window | None = None
@@ -416,6 +417,38 @@ class DesktopApi:
 
     def get_source_crop(self, file_id: int, page: int, bbox: str = "") -> dict:
         return crop_source(int(file_id), int(page), bbox or None)
+
+    def get_file_preview(
+        self,
+        file_id: int,
+        page: int = 1,
+        password: str = "",
+        sheet: str = "",
+        formatted: bool = True,
+    ) -> dict:
+        """One page of the source document, for the in-app preview pane."""
+        try:
+            return build_preview(
+                int(file_id),
+                int(page or 1),
+                str(password or ""),
+                str(sheet or ""),
+                bool(formatted),
+            )
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Could not open that file.", "reason": "unreadable"}
+        except Exception:  # noqa: BLE001 - the pane needs a message, not a traceback
+            return {"ok": False, "error": "Could not open that file.", "reason": "unreadable"}
+
+    def open_source_file(self, file_id: int) -> dict:
+        path = source_file_path(int(file_id))
+        if path is None:
+            return {"ok": False, "error": "The stored source file is missing."}
+        try:
+            _open_path(str(path))
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not open that file. {exc}"}
+        return {"ok": True}
 
     def tesseract_status(self) -> dict:
         try:
