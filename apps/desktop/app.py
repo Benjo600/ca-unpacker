@@ -12,6 +12,7 @@ from urllib.parse import parse_qs, urlparse
 import webview
 
 from apps.engine.clients import create_client, delete_client, get_client, list_clients
+from apps.engine.currency import currency_options
 from apps.engine.db import get_engine
 from apps.engine.dump import (
     fail_job,
@@ -21,6 +22,7 @@ from apps.engine.dump import (
     override_kind,
     preflight_paths,
     reparse_period,
+    set_file_currency,
     start_job,
 )
 from apps.engine.firm import get_firm, save_firm
@@ -277,6 +279,7 @@ class DesktopApi:
             "period": period,
             "files": list_period_files(period["id"]),
             "kinds": [{"id": key, "label": KIND_LABELS[key]} for key in KINDS],
+            "currencies": currency_options(),
             "pack": get_period_pack(period["id"]),
             "preview": get_period_preview(period["id"], 10),
         }
@@ -377,6 +380,13 @@ class DesktopApi:
     def override_kind(self, file_id: int, kind: str) -> dict:
         try:
             row = override_kind(int(file_id), kind)
+            return {"ok": True, "file": row}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def set_file_currency(self, file_id: int, code: str = "") -> dict:
+        try:
+            row = set_file_currency(int(file_id), code or None)
             return {"ok": True, "file": row}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}

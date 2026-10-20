@@ -245,31 +245,24 @@ def _image_too_small(path: Path) -> bool:
 
 
 def _ocr_available() -> bool:
-    from apps.engine.ocr import find_tesseract
+    from apps.engine.ocr import ocr_available
 
-    if find_tesseract() is None:
-        return False
     try:
-        import pytesseract  # noqa: F401
-    except ImportError:
+        return bool(ocr_available())
+    except Exception:
         return False
-    return True
 
 
 def _ocr_image_text(path: Path) -> str:
-    from apps.engine.ocr import ocr_image_lines
+    # extract_image() applies EXIF orientation and safe scaling, so the same
+    # local OCR engine that parses JPG/PNG files also classifies them.
+    from apps.engine.ocr import extract_image
 
     try:
-        from PIL import Image
-
-        with Image.open(path) as image:
-            width, height = image.size
+        extracted = extract_image(path)
     except Exception:
-        width, height = 1, 1
-    if width <= 0 or height <= 0:
         return ""
-    lines = ocr_image_lines(path, 1, float(width), float(height), 1.0)
-    return "\n".join(line.text for line in lines if line.text)
+    return "\n".join(page.text for page in extracted.pages if page.text).strip()
 
 
 def _classify_image(path: Path, name: str) -> Classification:
@@ -280,6 +273,8 @@ def _classify_image(path: Path, name: str) -> Classification:
     if _ocr_available():
         text = _ocr_image_text(path)
         result = classify_from_text(name, 1, text)
+        if result.kind == "bank":
+            return result
         if _has_printed_invoice_text(text):
             if result.kind == "invoice":
                 return result
@@ -300,7 +295,9 @@ def _classify_pdf(path: Path, name: str) -> Classification:
     extracted = extract_pdf(path)
     if extracted.pdf_type == "encrypted":
         return Classification("unknown", 0.5, "password-protected PDF")
-    if extracted.pdf_type in {"scanned", "image_based"}:
-        return classify_from_text(name, extracted.page_count, name)
-    text = "\n".join(page.text for page in extracted.pages[:4])
-    return classify_from_text(name, extracted.page_count, text)
+    text = "\n".join(page.text or "" for page in extracted.pages[:4]).strip()
+    if text:
+        # Scanned PDFs already carry OCR text when a local engine is present.
+        return classify_from_text(name, extracted.page_count, text)
+    # No digital or OCR text: the filename is the only remaining signal.
+    return classify_from_text(name, extracted.page_count, name)

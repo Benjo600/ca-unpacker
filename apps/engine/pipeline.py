@@ -6,6 +6,7 @@ import inspect
 import json
 from pathlib import Path
 
+from apps.engine.currency import apply_override, currency_label
 from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
 from apps.engine.library import init_library, resolve_storage_key
@@ -21,7 +22,7 @@ from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3
 from apps.engine.pack.recon_xlsx import write_master_grid
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.recon import reconcile
-from apps.engine.parsers.bank.parser import parse_bank_pdf
+from apps.engine.parsers.bank.parser import attach_currency, parse_bank_statement
 from apps.engine.parsers.gstr import parse_gstr_file
 from apps.engine.parsers.invoice import parse_invoice_file
 from apps.engine.parsers.tally import parse_tally_file
@@ -114,6 +115,88 @@ def file_kind(row: StoredFile) -> str:
     return row.override_kind or row.detected_kind
 
 
+def _effective_currency(stored: StoredFile, detected: dict | None) -> dict:
+    """Combine detected evidence with a stored manual override."""
+    decision = dict(detected or {})
+    if not decision:
+        return {}
+    override = (getattr(stored, "currency_override", None) or "").upper() or None
+    if not override:
+        return decision
+    detected_code = (decision.get("currency_code") or "").upper() or None
+    # A stale override must never relabel explicit, confirmed statement evidence.
+    if (
+        decision.get("currency_status") == "confirmed"
+        and detected_code is not None
+        and detected_code != override
+    ):
+        return decision
+    if decision.get("currency_status") == "confirmed" and detected_code == override:
+        return decision
+    try:
+        return apply_override(decision, override)
+    except ValueError:
+        return decision
+
+
+def _persist_currency(stored: StoredFile, detected: dict | None) -> None:
+    decision = detected or {}
+    stored.currency_code = decision.get("currency_code")
+    stored.currency_source = decision.get("currency_source")
+    stored.currency_confidence = decision.get("currency_confidence")
+    stored.currency_status = decision.get("currency_status")
+    stored.currency_candidates_json = json.dumps(
+        decision.get("currency_candidates") or []
+    )
+
+
+def _currency_summary(decision: dict | None) -> dict:
+    data = decision or {}
+    return {
+        "currency_code": data.get("currency_code"),
+        "currency_label": data.get("currency_label") or currency_label(data),
+        "currency_status": data.get("currency_status"),
+        "currency_source": data.get("currency_source"),
+        "currency_confidence": data.get("currency_confidence"),
+        "currency_symbol": data.get("currency_symbol"),
+        "currency_minor_units": data.get("currency_minor_units"),
+        "currency_ambiguous": bool(data.get("currency_ambiguous")),
+    }
+
+
+def _stored_currency(stored: StoredFile) -> dict:
+    override = (getattr(stored, "currency_override", None) or "").upper() or None
+    code = override or getattr(stored, "currency_code", None)
+    status = "confirmed" if override else getattr(stored, "currency_status", None)
+    source = "manual_override" if override else getattr(stored, "currency_source", None)
+    confidence = 1.0 if override else getattr(stored, "currency_confidence", None)
+    data = {
+        "currency_code": code,
+        "currency_status": status,
+        "currency_source": source,
+        "currency_confidence": confidence,
+        "currency_ambiguous": status == "ambiguous",
+    }
+    data["currency_label"] = currency_label(data)
+    return data
+
+
+def _recon_bank_rows(bank_files: list[dict]) -> list[dict]:
+    """Explicitly non-INR bank rows are excluded from GST bank hints.
+
+    Rows with unknown currency stay in the reconciliation because older
+    statements carry no currency metadata at all.
+    """
+    rows: list[dict] = []
+    for item in bank_files:
+        for row in item.get("rows") or []:
+            code = (row.get("currency_code") or "").upper()
+            if code and code != "INR":
+                continue
+            rows.append(row)
+    return rows
+
+
 def parse_period_banks(period_id: int, job_id: int | None = None) -> dict | None:
     return parse_period(period_id, job_id)
 
@@ -183,6 +266,32 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 )
                 session.commit()
                 continue
+            if kind == "bank":
+                detected = extra.get("currency") or {}
+                _persist_currency(stored, detected)
+                detected_code = (detected.get("currency_code") or "").upper() or None
+                override = (getattr(stored, "currency_override", None) or "").upper() or None
+                stale_override = bool(
+                    override
+                    and detected.get("currency_status") == "confirmed"
+                    and detected_code
+                    and detected_code != override
+                )
+                if stale_override:
+                    # The statement itself now proves a different currency.
+                    stored.currency_override = None
+                    extra["currency_override_rejected"] = override
+                effective = _effective_currency(stored, detected)
+                if effective:
+                    attach_currency(rows, effective)
+                    extra["currency"] = effective
+                    meta = extra.setdefault("meta", {})
+                    meta["currency"] = effective
+                    if stale_override:
+                        flags = list((extra.get("check") or {}).get("flags") or [])
+                        flags.append(f"currency_override_rejected:{override}")
+                        if extra.get("check") is not None:
+                            extra["check"]["flags"] = flags
             if kind == "invoice":
                 items = extra.get("line_items") or []
                 if extra.get("unreadable") or not rows or not items:
@@ -242,6 +351,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         "rows": rows,
                         "check": extra["check"],
                         "meta": extra.get("meta") or {"filename": stored.original_name},
+                        "currency": extra.get("currency") or {},
                     }
                 )
             elif kind == "invoice":
@@ -272,9 +382,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         outputs: list[dict] = []
         recon_result = None
         if gstr_2b and purchase_rows:
-            bank_txns: list[dict] = []
-            for item in bank_files:
-                bank_txns.extend(item.get("rows") or [])
+            bank_txns = _recon_bank_rows(bank_files)
             recon_result = reconcile(purchase_rows, gstr_2b, bank_txns)
             _apply_gstr_2b_matches(gstr_2b, recon_result)
 
@@ -303,6 +411,11 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                             "opening_balance": item["check"].get("opening_balance"),
                             "stated_closing": item["check"].get("stated_closing"),
                             "computed_closing": item["check"].get("computed_closing"),
+                            "input_type": item["meta"].get("input_type"),
+                            "parse_strategy": item["meta"].get("parse_strategy"),
+                            "duplicate_count": item["meta"].get("duplicate_count") or 0,
+                            "inferred_count": item["meta"].get("inferred_count") or 0,
+                            **_currency_summary(item.get("currency")),
                         }
                         for item in bank_files
                     ],
@@ -683,27 +796,47 @@ def _invoke_render(fn, **values):
 
 def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
     if kind == "bank":
-        parsed = parse_bank_pdf(path, filename)
+        parsed = parse_bank_statement(path, filename)
         check = check_balance(
             parsed["rows"], parsed.get("opening_balance"), parsed.get("stated_closing")
         )
         dropped = int(parsed.get("dropped_count") or 0)
+        duplicates = int(parsed.get("duplicate_count") or 0)
+        inferred = int(parsed.get("inferred_count") or 0)
         if dropped:
             flags = list(check.get("flags") or [])
             flags.append(f"dropped_lines:{dropped}")
             check["flags"] = flags
+        if duplicates:
+            flags = list(check.get("flags") or [])
+            flags.append(f"duplicate_source_rows:{duplicates}")
+            check["flags"] = flags
         check["candidate_count"] = parsed.get("candidate_count")
         check["dropped_count"] = dropped
+        check["duplicate_count"] = duplicates
+        check["inferred_count"] = inferred
+        check["input_type"] = parsed.get("input_type")
         meta = {
             "filename": filename,
             "profile_label": parsed.get("profile_label"),
             "engine": parsed.get("engine"),
             "pdf_type": parsed.get("pdf_type"),
+            "input_type": parsed.get("input_type"),
+            "parse_strategy": parsed.get("parse_strategy"),
             "page_count": parsed.get("page_count"),
             "account_number": parsed.get("account_number"),
             "ifsc": parsed.get("ifsc"),
+            "candidate_count": parsed.get("candidate_count"),
+            "dropped_count": dropped,
+            "duplicate_count": duplicates,
+            "inferred_count": inferred,
         }
-        return parsed["rows"], {"check": check, "meta": meta}
+        return parsed["rows"], {
+            "check": check,
+            "meta": meta,
+            "currency": parsed.get("currency") or {},
+            "error": parsed.get("error"),
+        }
     if kind == "invoice":
         parsed = parse_invoice_file(path, filename)
         return parsed["rows"], parsed
@@ -778,6 +911,9 @@ def get_period_preview(period_id: int, limit: int = 8) -> dict:
                     "file_id": stored.id,
                     "filename": stored.original_name,
                     "kind": extracted.kind,
+                    "currency": _stored_currency(stored)
+                    if extracted.kind == "bank"
+                    else None,
                     "rows": [],
                 },
             )
@@ -804,6 +940,7 @@ def get_period_preview(period_id: int, limit: int = 8) -> dict:
                     "file_id": bucket["file_id"],
                     "filename": bucket["filename"],
                     "kind": bucket["kind"],
+                    "currency": bucket.get("currency"),
                     "row_count": len(all_rows),
                     "preview": preview,
                 }

@@ -85,10 +85,11 @@ def crop_image_png_bytes(path: Path, bbox: str, pad: float = 8.0) -> bytes:
 
 
 def _open_raster(path: Path):
-    from PIL import Image
+    from PIL import Image, ImageOps
 
     with Image.open(path) as src:
-        return src.convert("RGB")
+        # Match extract_image(): OCR boxes use the upright orientation.
+        return ImageOps.exif_transpose(src).convert("RGB")
 
 
 def _open_pdf(path: Path, password: str | None = None):

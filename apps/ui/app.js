@@ -73,6 +73,7 @@ const authNoticeEl = document.getElementById("auth-notice");
 let currentClient = null;
 let currentPeriod = null;
 let kindOptions = [];
+let currencyOptions = [];
 let pollTimer = null;
 let activeJobId = null;
 let lastFileCount = 0;
@@ -463,6 +464,57 @@ function kindSelect(file, compact) {
   return select;
 }
 
+function currencySelect(file) {
+  const api = desktopApi();
+  if (!api || !api.set_file_currency) {
+    const pill = document.createElement("span");
+    pill.className = "pill mute";
+    pill.textContent = file.currency_label || "Currency unknown";
+    return pill;
+  }
+  const select = document.createElement("select");
+  select.className = "kind-pick currency-pick";
+  select.title =
+    "Currency is detected from the statement. Choosing a code only labels amounts; it never converts them.";
+  const auto = document.createElement("option");
+  auto.value = "";
+  const detected = file.currency_detected_code
+    ? `${file.currency_detected_code}${file.currency_detected_status && file.currency_detected_status !== "confirmed" ? ` (${file.currency_detected_status})` : ""}`
+    : "not detected";
+  auto.textContent = `Detected: ${detected}`;
+  select.append(auto);
+  for (const option of currencyOptions) {
+    const item = document.createElement("option");
+    item.value = option.code;
+    item.textContent = option.label;
+    if (option.code === file.currency_code) item.selected = true;
+    select.append(item);
+  }
+  if (file.currency_override) select.value = file.currency_override;
+  select.addEventListener("change", async () => {
+    const result = await api.set_file_currency(file.id, select.value);
+    if (!result.ok) {
+      showError(dumpErrorEl, result.error);
+      select.value = file.currency_override || "";
+      return;
+    }
+    if (!currentPeriod) return;
+    if (api.reparse_period) {
+      const r = await api.reparse_period(currentPeriod.id);
+      if (r.ok && r.job_id) {
+        activeJobId = r.job_id;
+        setDumpBusy(true);
+        pollJob(r.job_id);
+      } else {
+        await openPeriod(currentPeriod.id);
+      }
+    } else {
+      await openPeriod(currentPeriod.id);
+    }
+  });
+  return select;
+}
+
 function setDumpBusy(busy) {
   const authLocked = !devMode && authState && !authState.signed_in;
   addFilesBtn.disabled = busy || authLocked;
@@ -517,6 +569,15 @@ function appendFileRow(container, file, className) {
     rows.textContent = `${count} ${count === 1 ? "row" : "rows"}`;
     details.append(rows);
   }
+  if (file.kind === "bank" && file.currency_label) {
+    const currency = document.createElement("span");
+    currency.className = "file-meta";
+    currency.textContent = `Currency: ${file.currency_label}`;
+    currency.title = file.currency_source
+      ? `Source: ${file.currency_source.replaceAll("_", " ")}`
+      : "";
+    details.append(currency);
+  }
   const reasonLine = document.createElement("p");
   reasonLine.className = "file-reason";
   reasonLine.textContent = file.parse_reason_message || file.classify_reason || "";
@@ -535,6 +596,7 @@ function appendFileRow(container, file, className) {
     actions.append(unlock);
   }
   actions.append(kindSelect(file, false));
+  if (file.kind === "bank") actions.append(currencySelect(file));
   actions.append(removeFileButton(file));
   row.append(details, actions);
   container.append(row);
@@ -787,6 +849,7 @@ async function openPeriod(periodId) {
   }
   currentPeriod = result.period;
   kindOptions = result.kinds || [];
+  currencyOptions = result.currencies || [];
   dumpTitleEl.textContent = result.period.label;
   dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
   renderFiles(result.files || []);
@@ -803,9 +866,23 @@ async function openPeriod(periodId) {
   syncGuide();
 }
 
-function money(value) {
+function money(value, currency) {
   if (value === null || value === undefined || value === "") return "—";
-  return Number(value).toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+  const number = Number(value);
+  if (!Number.isFinite(number)) return "—";
+  const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
+  if (/^[A-Z]{3}$/.test(code)) {
+    try {
+      return new Intl.NumberFormat("en-IN", {
+        style: "currency",
+        currency: code,
+        currencyDisplay: "code",
+      }).format(number);
+    } catch {
+      /* fall through to a neutral decimal format */
+    }
+  }
+  return number.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 function dash(value) {
@@ -820,10 +897,10 @@ function textCell(value, className) {
   return td;
 }
 
-function moneyCell(value) {
+function moneyCell(value, currency) {
   const td = document.createElement("td");
   td.className = "num";
-  td.textContent = money(value);
+  td.textContent = money(value, currency);
   return td;
 }
 
@@ -888,8 +965,15 @@ function renderPack(pack) {
     }
     head.append(name, chip);
     const moneyLine = document.createElement("p");
-    moneyLine.textContent = `Opening ${money(file.opening_balance)} · Stated close ${money(file.stated_closing)} · Computed close ${money(file.computed_closing)}`;
-    line.append(head, moneyLine);
+    moneyLine.textContent = `Opening ${money(file.opening_balance, file.currency_code)} · Stated close ${money(file.stated_closing, file.currency_code)} · Computed close ${money(file.computed_closing, file.currency_code)}`;
+    if (file.currency_label) {
+      const currencyLine = document.createElement("p");
+      currencyLine.className = "file-meta";
+      currencyLine.textContent = `Currency: ${file.currency_label}`;
+      line.append(head, moneyLine, currencyLine);
+    } else {
+      line.append(head, moneyLine);
+    }
     packFilesEl.append(line);
   }
   updateReviewNote();
@@ -958,12 +1042,12 @@ function looksLikeGstin(value) {
   return String(value).trim().length === 15;
 }
 
-function cropCaptionValue(field, value) {
+function cropCaptionValue(field, value, currency) {
   if (field === "supplier_gstin" || looksLikeGstin(value)) {
     const raw = value === null || value === undefined ? "" : String(value).trim();
     return raw || "—";
   }
-  return money(value);
+  return money(value, currency);
 }
 
 function flagList(row) {
@@ -1007,14 +1091,14 @@ function flagsCell(row) {
   return td;
 }
 
-function amountCell(file, row, field, value) {
+function amountCell(file, row, field, value, currency) {
   const td = document.createElement("td");
   const gstinish = field === "supplier_gstin" || looksLikeGstin(value);
   td.className = gstinish ? "gstin" : "num";
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "source-amt";
-  btn.textContent = cropCaptionValue(field, value);
+  btn.textContent = cropCaptionValue(field, value, currency);
   btn.title = "View source";
   btn.addEventListener("click", () => openSourceCrop(file, row, field, value));
   btn.addEventListener("keydown", (event) => {
@@ -1038,9 +1122,13 @@ function renderPreview(preview) {
   previewBlock.classList.remove("hidden");
   previewListEl.innerHTML = "";
   for (const file of files) {
+    const currencyCode = (file.currency && file.currency.currency_code) || "";
     const title = document.createElement("p");
     title.className = "eyebrow";
-    title.textContent = `${file.filename} · ${file.kind || ""} · ${file.row_count} rows`;
+    const currencyNote = file.currency && file.currency.currency_label
+      ? ` · ${file.currency.currency_label}`
+      : "";
+    title.textContent = `${file.filename} · ${file.kind || ""} · ${file.row_count} rows${currencyNote}`;
     const table = document.createElement("table");
     table.className = "preview-table";
     const isBank = file.kind === "bank";
@@ -1069,18 +1157,18 @@ function renderPreview(preview) {
           textCell(row.gstin, "gstin"),
           textCell(row.trade_name),
           textCell(row.invoice_number),
-          moneyCell(row.taxable),
-          moneyCell(row.invoice_value),
+          moneyCell(row.taxable, currencyCode),
+          moneyCell(row.invoice_value, currencyCode),
           flagsCell(row)
         );
       } else if (isGstr3b) {
         tr.append(
           textCell(row.section),
-          moneyCell(row.taxable),
-          moneyCell(row.igst),
-          moneyCell(row.cgst),
-          moneyCell(row.sgst),
-          moneyCell(row.cess)
+          moneyCell(row.taxable, currencyCode),
+          moneyCell(row.igst, currencyCode),
+          moneyCell(row.cgst, currencyCode),
+          moneyCell(row.sgst, currencyCode),
+          moneyCell(row.cess, currencyCode)
         );
       } else if (isBooks) {
         tr.append(
@@ -1089,7 +1177,7 @@ function renderPreview(preview) {
           textCell(row.supplier_name || row.party_name),
           textCell(row.supplier_gstin || row.gstin, "gstin"),
           textCell(row.invoice_number || row.voucher_number),
-          moneyCell(row.invoice_value ?? row.amount),
+          moneyCell(row.invoice_value ?? row.amount, currencyCode),
           flagsCell(row)
         );
       } else {
@@ -1107,11 +1195,11 @@ function renderPreview(preview) {
           tr.append(
             dateTd,
             supplierTd,
-            amountCell(file, row, "supplier_gstin", gstin),
+            amountCell(file, row, "supplier_gstin", gstin, currencyCode),
             invTd,
-            amountCell(file, row, "taxable_value", taxable),
-            amountCell(file, row, "tax", row.tax),
-            amountCell(file, row, "invoice_value", value),
+            amountCell(file, row, "taxable_value", taxable, currencyCode),
+            amountCell(file, row, "tax", row.tax, currencyCode),
+            amountCell(file, row, "invoice_value", value, currencyCode),
             flagsCell(row)
           );
         } else {
@@ -1125,9 +1213,9 @@ function renderPreview(preview) {
             tr.append(
               dateTd,
               detailTd,
-              amountCell(file, row, "Debit", row.debit),
-              amountCell(file, row, "Credit", row.credit),
-              amountCell(file, row, "Balance", row.balance),
+              amountCell(file, row, "Debit", row.debit, row.currency_code || currencyCode),
+              amountCell(file, row, "Credit", row.credit, row.currency_code || currencyCode),
+              amountCell(file, row, "Balance", row.balance, row.currency_code || currencyCode),
               pageTd
             );
           } else {

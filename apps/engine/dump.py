@@ -9,6 +9,7 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from apps.engine.classifier import classify_path
+from apps.engine.currency import currency_label, is_known
 from apps.engine.db import Job, Period, StoredFile, get_session, utcnow
 from apps.engine.license import assert_can_ingest, record_ingested
 from apps.engine.kinds import KIND_LABELS, KINDS
@@ -43,6 +44,35 @@ def _file_dict(row: StoredFile) -> dict:
     except (TypeError, ValueError):
         parse_warnings = []
     processed_at = getattr(row, "processed_at", None)
+    try:
+        currency_candidates = json.loads(
+            getattr(row, "currency_candidates_json", "[]") or "[]"
+        )
+    except (TypeError, ValueError):
+        currency_candidates = []
+    currency_code = getattr(row, "currency_code", None)
+    currency_status = getattr(row, "currency_status", None)
+    currency_source = getattr(row, "currency_source", None)
+    currency_confidence = getattr(row, "currency_confidence", None)
+    currency_override = getattr(row, "currency_override", None)
+    effective_code = currency_override or currency_code
+    effective_status = "confirmed" if currency_override else currency_status
+    effective_source = "manual_override" if currency_override else currency_source
+    effective_confidence = 1.0 if currency_override else currency_confidence
+    currency_info = {
+        "currency_code": effective_code,
+        "currency_status": effective_status,
+        "currency_source": effective_source,
+        "currency_confidence": effective_confidence,
+        "currency_candidates": currency_candidates
+        if isinstance(currency_candidates, list)
+        else [],
+        "currency_override": currency_override,
+        "currency_detected_code": currency_code,
+        "currency_detected_status": currency_status,
+        "currency_ambiguous": effective_status == "ambiguous",
+    }
+    currency_info["currency_label"] = currency_label(currency_info)
     parse_failed = (
         parse_outcome == "failed"
         or getattr(row, "parse_reason_code", None) in {"parser_error", "no_rows"}
@@ -72,6 +102,7 @@ def _file_dict(row: StoredFile) -> dict:
         "parser_id": getattr(row, "parser_id", None),
         "parser_version": getattr(row, "parser_version", None),
         "processed_at": processed_at.isoformat() if processed_at else None,
+        **currency_info,
         "needs_review": parse_outcome == "needs_review"
         or parse_failed
         or (parse_outcome == "unclassified" and kind == "unknown")
@@ -436,6 +467,41 @@ def override_kind(file_id: int, kind: str) -> dict:
         row.override_kind = None if kind == row.detected_kind else kind
         if kind != "unknown":
             row.classify_reason = f"manually set to {KIND_LABELS[kind]}"
+        session.commit()
+        session.refresh(row)
+        return _file_dict(row)
+    finally:
+        session.close()
+
+
+def set_file_currency(file_id: int, code: str | None) -> dict:
+    """Set or clear a manual currency override for one source file.
+
+    A statement with confirmed, explicit currency evidence cannot be relabelled
+    to a different currency.  Ambiguous, unknown, or weakly inferred statements
+    can be corrected by the user.  Amounts are never converted.
+    """
+    chosen = (code or "").strip().upper() or None
+    if chosen is not None and not is_known(chosen):
+        raise ValueError("That is not a known ISO currency code.")
+    session = get_session()
+    try:
+        row = session.get(StoredFile, file_id)
+        if row is None:
+            raise ValueError("File was not found.")
+        detected_code = (getattr(row, "currency_code", None) or "").upper() or None
+        detected_status = getattr(row, "currency_status", None)
+        if (
+            chosen is not None
+            and detected_status == "confirmed"
+            and detected_code is not None
+            and chosen != detected_code
+        ):
+            raise ValueError(
+                f"This statement clearly shows {detected_code}. "
+                f"A manual override to {chosen} would contradict the source file."
+            )
+        row.currency_override = chosen
         session.commit()
         session.refresh(row)
         return _file_dict(row)

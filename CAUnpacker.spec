@@ -41,6 +41,9 @@ hiddenimports = [
     "pytesseract",
     "PIL",
     "sqlalchemy",
+    "babel",
+    "rapidocr",
+    "onnxruntime",
 ]
 
 hiddenimports += collect_submodules(
@@ -57,6 +60,9 @@ for package in (
     "pytesseract",
     "PIL",
     "sqlalchemy",
+    "babel",
+    "rapidocr",
+    "onnxruntime",
 ):
     try:
         collected = collect_all(package)

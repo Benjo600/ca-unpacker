@@ -10,6 +10,8 @@ from apps.engine.pdf_extract import ExtractedPdf, LineBox, PageText, WordBox
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MIN_WORD_CONF = 40.0
 _RENDER_SCALE = 2.0
+_MAX_OCR_IMAGE_SIDE = 4500
+_MIN_OCR_IMAGE_SIDE = 1200
 _rapidocr_singleton = None
 
 
@@ -273,19 +275,26 @@ def _lines_from_words(
 
 
 def extract_image(path: Path) -> ExtractedPdf:
-    """OCR a raster invoice. page size in points = pixel size, scale=1.
-    LineBoxes must use the same bottom-left PDF space as ocr_image_lines.
+    """OCR a raster statement or invoice.
+
+    The image is normalised (EXIF orientation, colour mode) and scaled for a
+    reliable OCR pass.  The page coordinate system remains the *original*
+    oriented pixel grid, so source boxes still open the right crop in the UI.
     If no local OCR engine is present, return empty lines, engine='none'.
     """
     path = Path(path)
     if not ocr_available():
         return ExtractedPdf(pdf_type="image_based", page_count=1, engine="none")
 
-    width_pts, height_pts = _image_size_pts(path)
-    if width_pts <= 0 or height_pts <= 0:
-        return ExtractedPdf(pdf_type="image_based", page_count=1, engine="none")
+    with tempfile.TemporaryDirectory(prefix="caunpacker_image_ocr_") as tmp:
+        prepared = _prepare_image(path, Path(tmp))
+        if prepared is None:
+            return ExtractedPdf(pdf_type="image_based", page_count=1, engine="none")
+        ocr_path, width_pts, height_pts, scale = prepared
+        lines, words, engine = ocr_image_page(
+            ocr_path, 1, width_pts, height_pts, scale
+        )
 
-    lines, words, engine = ocr_image_page(path, 1, width_pts, height_pts, 1.0)
     text = "\n".join(line.text for line in lines)
     return ExtractedPdf(
         pdf_type="image_based",
@@ -297,15 +306,45 @@ def extract_image(path: Path) -> ExtractedPdf:
     )
 
 
-def _image_size_pts(path: Path) -> tuple[float, float]:
-    try:
-        from PIL import Image
+def _prepare_image(path: Path, tmp_dir: Path) -> tuple[Path, float, float, float] | None:
+    """Return (ocr copy, display width, display height, ocr scale).
 
-        with Image.open(path) as image:
+    Display dimensions are the original oriented pixel dimensions.  ``scale``
+    converts OCR pixels back to that grid; a 2x upscale therefore has scale 2.
+    """
+    try:
+        from PIL import Image, ImageOps
+
+        with Image.open(path) as source:
+            image = ImageOps.exif_transpose(source)
             image.load()
-            return float(image.width), float(image.height)
+            width, height = image.size
+            if width <= 0 or height <= 0:
+                return None
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            if image.mode == "L":
+                image = ImageOps.autocontrast(image, cutoff=1).convert("RGB")
+            else:
+                image = ImageOps.autocontrast(image.convert("L"), cutoff=1).convert("RGB")
+
+            longest = max(width, height)
+            scale = 1.0
+            if longest > _MAX_OCR_IMAGE_SIDE:
+                scale = _MAX_OCR_IMAGE_SIDE / float(longest)
+            elif longest < _MIN_OCR_IMAGE_SIDE:
+                scale = min(2.0, _MIN_OCR_IMAGE_SIDE / float(longest))
+            if abs(scale - 1.0) > 0.01:
+                target = (
+                    max(1, int(round(width * scale))),
+                    max(1, int(round(height * scale))),
+                )
+                image = image.resize(target, Image.Resampling.LANCZOS)
+            dest = tmp_dir / "page.png"
+            image.save(dest, "PNG")
     except Exception:
-        return 0.0, 0.0
+        return None
+    return dest, float(width), float(height), float(scale)
 
 
 def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:

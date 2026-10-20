@@ -20,7 +20,11 @@ OPENING_RE = re.compile(r"opening\s+balance", re.I)
 CLOSING_RE = re.compile(r"closing\s+balance", re.I)
 ACCOUNT_RE = re.compile(r"\b(?:a/?c|account)\s*(?:no|number|#)?\.?\s*[:\-]?\s*(\d{9,18})\b", re.I)
 IFSC_RE = re.compile(r"\b([A-Z]{4}0[A-Z0-9]{6})\b")
-AMOUNT_LINE = re.compile(r"^[\d,.\s₹CrDr/-]+$", re.I)
+_MONEY_CHARS = (
+    r"\d,.\s'’₹$€£¥₩₺₽₦₱฿₫₴₪₡₲₵₸₼₾৳₨﷼"
+    r"A-Za-z/-"
+)
+AMOUNT_LINE = re.compile(rf"^[{_MONEY_CHARS}]+$")
 
 
 def clean_text(text: str) -> str:
@@ -64,4 +68,4 @@ def is_amount_line(text: str) -> bool:
         return False
     if not amounts_in(text):
         return False
-    return bool(AMOUNT_LINE.fullmatch(text) or re.fullmatch(r"[\d,.\s₹CrDr/-]+", text, re.I))
+    return bool(AMOUNT_LINE.fullmatch(text))

@@ -3,7 +3,15 @@ from __future__ import annotations
 import re
 from decimal import Decimal
 
-from apps.engine.parsers.bank.money import AMOUNT_RE, DATE_RE, amounts_in, is_plausible_iso_date, normalize_date, parse_amount
+from apps.engine.parsers.bank.money import (
+    AMOUNT_RE,
+    DATE_RE,
+    MONEY_TOKEN_RE,
+    amounts_in,
+    is_plausible_iso_date,
+    normalize_date,
+    parse_amount,
+)
 from apps.engine.parsers.bank.patterns import (
     clean_text,
     is_amount_line,
@@ -183,7 +191,8 @@ def _words_to_row(
     for word in ordered:
         if DATE_RE.fullmatch(word.text.strip()):
             continue
-        if AMOUNT_RE.fullmatch(word.text.replace("₹", "").strip()):
+        token = word.text.strip()
+        if AMOUNT_RE.fullmatch(token) or MONEY_TOKEN_RE.fullmatch(token):
             continue
         description_words.append(word.text)
     description = clean_text(" ".join(description_words)) or text

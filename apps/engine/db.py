@@ -92,6 +92,14 @@ class StoredFile(Base):
     processed_at: Mapped[datetime | None] = mapped_column(
         DateTime(timezone=True), nullable=True
     )
+    currency_code: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    currency_source: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    currency_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    currency_candidates_json: Mapped[str] = mapped_column(
+        String, default="[]", server_default=text("'[]'")
+    )
+    currency_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    currency_override: Mapped[str | None] = mapped_column(String(3), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

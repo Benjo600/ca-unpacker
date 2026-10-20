@@ -108,6 +108,30 @@ def create_legacy_database(path: Path) -> None:
         connection.commit()
 
 
+def create_v2_database(path: Path) -> None:
+    """Build a legacy database already at schema v2 (pre-currency)."""
+    create_legacy_database(path)
+    statements = (
+        "ALTER TABLE files ADD COLUMN parse_outcome VARCHAR(20) "
+        "NOT NULL DEFAULT 'unclassified'",
+        "ALTER TABLE files ADD COLUMN parse_reason_code VARCHAR(80)",
+        "ALTER TABLE files ADD COLUMN parse_reason_message VARCHAR(500)",
+        "ALTER TABLE files ADD COLUMN parse_row_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE files ADD COLUMN parse_warnings_json VARCHAR NOT NULL DEFAULT '[]'",
+        "ALTER TABLE files ADD COLUMN parser_id VARCHAR(80)",
+        "ALTER TABLE files ADD COLUMN parser_version VARCHAR(40)",
+        "ALTER TABLE files ADD COLUMN processed_at DATETIME",
+        "ALTER TABLE jobs ADD COLUMN intake_discovered_count INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE jobs ADD COLUMN intake_accepted_count INTEGER NOT NULL DEFAULT 0",
+    )
+    with closing(sqlite3.connect(path)) as connection:
+        for statement in statements:
+            connection.execute(statement)
+        connection.execute("CREATE TABLE schema_version (version INTEGER NOT NULL)")
+        connection.execute("INSERT INTO schema_version (version) VALUES (2)")
+        connection.commit()
+
+
 def initialize_concurrently(path: Path, worker_count: int = 8) -> list[Exception | None]:
     from sqlalchemy import create_engine
 
@@ -197,6 +221,12 @@ class MigrationTests(unittest.TestCase):
                 "parser_id",
                 "parser_version",
                 "processed_at",
+                "currency_code",
+                "currency_source",
+                "currency_confidence",
+                "currency_candidates_json",
+                "currency_status",
+                "currency_override",
             }.issubset(file_columns)
         )
         self.assertTrue(
@@ -223,15 +253,16 @@ class MigrationTests(unittest.TestCase):
 
     def test_upgrade_creates_a_non_overwriting_copy_of_the_pre_upgrade_database(self) -> None:
         from apps.engine.db import get_engine, reset_engine
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
 
         create_legacy_database(self.db_path)
-        occupied = self.db_path.with_name("app.db.v1-to-v2.backup")
+        occupied = self.db_path.with_name("app.db.v1-to-v3.backup")
         occupied.write_bytes(b"older backup")
 
         get_engine()
         reset_engine()
 
-        backups = sorted(self.db_path.parent.glob("app.db.v1-to-v2*.backup"))
+        backups = sorted(self.db_path.parent.glob("app.db.v1-to-v3*.backup"))
         self.assertEqual(len(backups), 2)
         self.assertEqual(occupied.read_bytes(), b"older backup")
         new_backup = next(path for path in backups if path != occupied)
@@ -248,9 +279,15 @@ class MigrationTests(unittest.TestCase):
                 "schema_version",
                 {row[0] for row in connection.execute("SELECT name FROM sqlite_master")},
             )
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            self.assertEqual(
+                connection.execute("SELECT version FROM schema_version").fetchone()[0],
+                LATEST_SCHEMA_VERSION,
+            )
 
     def test_reopening_latest_database_is_idempotent_and_does_not_back_up_again(self) -> None:
         from apps.engine.db import get_engine, reset_engine
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
 
         create_legacy_database(self.db_path)
         get_engine()
@@ -263,7 +300,10 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(list(self.db_path.parent.glob("*.backup")), backups_after_upgrade)
         with closing(sqlite3.connect(self.db_path)) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
-            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 2)
+            self.assertEqual(
+                connection.execute("SELECT version FROM schema_version").fetchone()[0],
+                LATEST_SCHEMA_VERSION,
+            )
 
     def test_failed_migration_rolls_back_schema_and_does_not_record_a_version(self) -> None:
         from sqlalchemy import create_engine
@@ -279,7 +319,11 @@ class MigrationTests(unittest.TestCase):
             raise RuntimeError("simulated failure")
 
         with self.assertRaisesRegex(RuntimeError, "simulated failure"):
-            ensure_schema(engine, Base.metadata, migration_steps={2: failing_migration})
+            ensure_schema(
+                engine,
+                Base.metadata,
+                migration_steps={2: failing_migration, 3: lambda connection: None},
+            )
 
         engine.dispose()
         with closing(sqlite3.connect(self.db_path)) as connection:
@@ -289,33 +333,72 @@ class MigrationTests(unittest.TestCase):
             self.assertNotIn("schema_version", table_names)
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
 
+    def test_v2_database_upgrades_to_v3_with_currency_columns_and_backup(self) -> None:
+        from apps.engine.db import get_engine, reset_engine
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
+
+        create_v2_database(self.db_path)
+
+        get_engine()
+        reset_engine()
+
+        self.assertTrue(
+            self.db_path.with_name("app.db.v2-to-v3.backup").is_file()
+        )
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            version = connection.execute("SELECT version FROM schema_version").fetchone()[0]
+            columns = {
+                row[1]: row for row in connection.execute("PRAGMA table_info(files)")
+            }
+            row = connection.execute(
+                "SELECT original_name, parse_outcome, currency_code, "
+                "currency_status, currency_candidates_json FROM files WHERE id = 1"
+            ).fetchone()
+        self.assertEqual(version, LATEST_SCHEMA_VERSION)
+        self.assertTrue(
+            {
+                "currency_code",
+                "currency_source",
+                "currency_confidence",
+                "currency_candidates_json",
+                "currency_status",
+                "currency_override",
+            }.issubset(columns)
+        )
+        self.assertEqual(row, ("statement.pdf", "unclassified", None, None, "[]"))
+
     def test_concurrent_fresh_initializers_converge_on_latest_schema(self) -> None:
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
+
         errors = initialize_concurrently(self.db_path)
 
         self.assertEqual(errors, [None] * 8)
         with closing(sqlite3.connect(self.db_path)) as connection:
             self.assertEqual(
                 connection.execute("SELECT version FROM schema_version").fetchone()[0],
-                2,
+                LATEST_SCHEMA_VERSION,
             )
             file_columns = [
                 row[1] for row in connection.execute("PRAGMA table_info(files)")
             ]
             self.assertEqual(file_columns.count("parse_outcome"), 1)
+            self.assertEqual(file_columns.count("currency_code"), 1)
         self.assertEqual(list(self.db_path.parent.glob("*.backup")), [])
 
-    def test_concurrent_v1_initializers_create_one_backup_and_converge_on_v2(self) -> None:
+    def test_concurrent_v1_initializers_create_one_backup_and_converge_on_latest(self) -> None:
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
+
         create_legacy_database(self.db_path)
 
         errors = initialize_concurrently(self.db_path)
 
         self.assertEqual(errors, [None] * 8)
-        backups = list(self.db_path.parent.glob("app.db.v1-to-v2*.backup"))
+        backups = list(self.db_path.parent.glob("app.db.v1-to-v3*.backup"))
         self.assertEqual(len(backups), 1)
         with closing(sqlite3.connect(self.db_path)) as connection:
             self.assertEqual(
                 connection.execute("SELECT version FROM schema_version").fetchone()[0],
-                2,
+                LATEST_SCHEMA_VERSION,
             )
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
         with closing(sqlite3.connect(backups[0])) as connection:
@@ -347,6 +430,7 @@ class MigrationTests(unittest.TestCase):
             "parse_outcome": "'unclassified'",
             "parse_row_count": "0",
             "parse_warnings_json": "'[]'",
+            "currency_candidates_json": "'[]'",
         }
         expected_job_defaults = {
             "intake_discovered_count": "0",
