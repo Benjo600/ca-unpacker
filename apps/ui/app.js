@@ -53,6 +53,10 @@ const unlockModal = document.getElementById("unlock-modal");
 const unlockFilenameEl = document.getElementById("unlock-filename");
 const unlockPasswordEl = document.getElementById("unlock-password");
 const unlockErrorEl = document.getElementById("unlock-error");
+const removeFileModal = document.getElementById("remove-file-modal");
+const removeFileCopyEl = document.getElementById("remove-file-copy");
+const removeFileErrorEl = document.getElementById("remove-file-error");
+const removeFileConfirmBtn = document.getElementById("remove-file-confirm");
 const authGateEl = document.getElementById("auth-gate");
 const quotaBannerEl = document.getElementById("profile");
 const quotaTextEl = document.getElementById("quota-text");
@@ -80,6 +84,7 @@ let packOpenKey = "";
 let lastPack = null;
 let reconFilter = "all";
 let unlockFile = null;
+let removeFileTarget = null;
 let tesseractChecked = false;
 let tesseractFound = true;
 let guideDismissed = false;
@@ -530,8 +535,30 @@ function appendFileRow(container, file, className) {
     actions.append(unlock);
   }
   actions.append(kindSelect(file, false));
+  actions.append(removeFileButton(file));
   row.append(details, actions);
   container.append(row);
+}
+
+function removeFileButton(file) {
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "file-remove";
+  button.title = `Remove ${file.original_name} from this period`;
+  button.setAttribute(
+    "aria-label",
+    `Remove ${file.original_name} from this period`
+  );
+  button.innerHTML =
+    '<svg viewBox="0 0 16 16" width="14" height="14" aria-hidden="true" focusable="false">' +
+    '<path d="M6.5 1.5h3a1 1 0 0 1 1 1V3H11a.75.75 0 0 1 0 1.5H5A.75.75 0 0 1 5 3h.5v-.5a1 1 0 0 1 1-1Z" fill="currentColor"/>' +
+    '<path d="M4 5.5h8l-.6 8a1.5 1.5 0 0 1-1.5 1.4H6.1A1.5 1.5 0 0 1 4.6 13.5L4 5.5Zm2.4 1.6.3 6h.9l-.3-6h-.9Zm2.9 0-.3 6h.9l.3-6h-.9Z" fill="currentColor"/>' +
+    "</svg>";
+  button.addEventListener("click", (event) => {
+    event.preventDefault();
+    openRemoveFileModal(file);
+  });
+  return button;
 }
 
 function renderFiles(files) {
@@ -1585,6 +1612,74 @@ async function reopenGuide() {
   syncGuide();
 }
 
+function openRemoveFileModal(file) {
+  const guard = window.CARemoveFile.guardRemoveFile({
+    file,
+    busy: activeJobId !== null,
+  });
+  if (guard.action !== "ready") {
+    if (guard.reason) showError(dumpErrorEl, guard.reason);
+    return;
+  }
+  removeFileTarget = file;
+  removeFileCopyEl.textContent = window.CARemoveFile.confirmMessage(file);
+  showError(removeFileErrorEl, "");
+  removeFileModal.classList.remove("hidden");
+  removeFileConfirmBtn.focus();
+}
+
+function closeRemoveFileModal() {
+  removeFileTarget = null;
+  removeFileModal.classList.add("hidden");
+  showError(removeFileErrorEl, "");
+}
+
+async function confirmRemoveFile() {
+  if (!removeFileTarget) {
+    closeRemoveFileModal();
+    return;
+  }
+  if (window.CARemoveFile.resolveRemoveChoice(true).action !== "remove") {
+    closeRemoveFileModal();
+    return;
+  }
+  const file = removeFileTarget;
+  showError(removeFileErrorEl, "");
+  removeFileConfirmBtn.disabled = true;
+  removeFileConfirmBtn.textContent = "Removing…";
+  let result;
+  try {
+    result = await window.pywebview.api.remove_period_file(file.id);
+  } catch (error) {
+    result = { ok: false, error: "Could not remove this file." };
+  }
+  removeFileConfirmBtn.disabled = false;
+  removeFileConfirmBtn.textContent = "Remove file";
+  if (!result || !result.ok) {
+    // Stay open and report the failure; never claim a removal that did not happen.
+    showError(
+      removeFileErrorEl,
+      (result && result.error) || "Could not remove this file. Nothing was changed."
+    );
+    return;
+  }
+  closeRemoveFileModal();
+  if (result.refresh && currentPeriod) {
+    await openPeriod(currentPeriod.id);
+    return;
+  }
+  if (result.files) {
+    if (result.period) currentPeriod = result.period;
+    renderFiles(result.files || []);
+    renderPack(result.pack);
+    renderPreview(result.preview);
+    setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
+    syncGuide();
+    return;
+  }
+  if (currentPeriod) await openPeriod(currentPeriod.id);
+}
+
 async function deleteClientRow(client) {
   if (!window.confirm(`Delete ${client.name} and every file dumped for them on this PC?`)) {
     return;
@@ -1983,6 +2078,14 @@ document.getElementById("wipe-confirm").addEventListener("click", async () => {
   }
 });
 
+if (removeFileModal) {
+  removeFileModal.addEventListener("click", (event) => {
+    if (event.target === removeFileModal) closeRemoveFileModal();
+  });
+}
+document.getElementById("remove-file-cancel").addEventListener("click", closeRemoveFileModal);
+removeFileConfirmBtn.addEventListener("click", confirmRemoveFile);
+
 if (cropModal) {
   cropModal.addEventListener("click", (event) => {
     if (event.target === cropModal) closeCropModal();
@@ -2003,6 +2106,10 @@ if (unlockCancelBtn) unlockCancelBtn.addEventListener("click", closeUnlockModal)
 
 document.addEventListener("keydown", (event) => {
   if (event.key === "Escape") {
+    if (removeFileModal && !removeFileModal.classList.contains("hidden")) {
+      closeRemoveFileModal();
+      return;
+    }
     if (cropModal && !cropModal.classList.contains("hidden")) {
       closeCropModal();
       return;

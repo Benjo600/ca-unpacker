@@ -454,6 +454,19 @@
     </div>
   </div>
 
+  <div id="remove-file-modal" class="modal hidden">
+    <div class="modal-card">
+      <p class="eyebrow">Remove file</p>
+      <h1>Remove this file from the period?</h1>
+      <p class="lede" id="remove-file-copy">This file and its rows are dropped. The Excels are rebuilt from the remaining files. Other files in this period keep their data.</p>
+      <p id="remove-file-error" class="error" hidden></p>
+      <div class="drop-actions">
+        <button type="button" class="danger" id="remove-file-confirm">Remove file</button>
+        <button type="button" class="ghost" id="remove-file-cancel">Keep file</button>
+      </div>
+    </div>
+  </div>
+
   <div id="crop-modal" class="modal hidden">
     <div class="modal-card crop-card">
       <p class="eyebrow">Source</p>
@@ -485,6 +498,7 @@
 
   <script src="status-summary.js"></script>
   <script src="recon-summary.js"></script>
+  <script src="remove-file.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

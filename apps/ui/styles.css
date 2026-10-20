@@ -1302,6 +1302,35 @@ button.source-amt:hover {
   flex-shrink: 0;
 }
 
+.file-remove {
+  margin-top: 0;
+  padding: 7px;
+  flex-shrink: 0;
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  background: none;
+  color: #8a4b2a;
+  border: 1px solid transparent;
+  border-radius: var(--radius-sm);
+  line-height: 1;
+}
+
+.file-remove:hover {
+  color: var(--color-error);
+  border-color: #e6c9c9;
+  background: #fdf6f6;
+}
+
+.file-remove:focus-visible {
+  outline: 2px solid var(--color-focus);
+  outline-offset: 2px;
+}
+
+.file-remove svg {
+  display: block;
+}
+
 .mute-note {
   color: var(--mute);
   font-size: 12px;

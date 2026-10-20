@@ -37,6 +37,7 @@ from apps.engine.settings import (
     set_output_root,
 )
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
+from apps.engine.removal import remove_period_file
 from apps.engine.pdf_passwords import set_file_password as store_file_password
 from apps.engine.pipeline import (
     get_period_pack,
@@ -379,6 +380,19 @@ class DesktopApi:
             return {"ok": True, "file": row}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def remove_period_file(self, file_id: int) -> dict:
+        try:
+            removed = remove_period_file(int(file_id))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not remove this file. Nothing was changed."}
+        desk = self.get_period_desk(removed["period_id"])
+        if not desk.get("ok"):
+            # The file is gone; let the caller refresh rather than claim failure.
+            return {"ok": True, "removed_file_id": removed["file_id"], "refresh": True}
+        return {**desk, "removed_file_id": removed["file_id"]}
 
     def reparse_period(self, period_id: int) -> dict:
         try:
