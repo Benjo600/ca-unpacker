@@ -335,6 +335,91 @@ class PdfPlumberTableTests(unittest.TestCase):
             self.assertEqual(check["status"], "match", check)
 
 
+class SbiDashPlaceholderTests(unittest.TestCase):
+    def test_original_sbi_pdf_keeps_debits_and_credits_positive(self) -> None:
+        from openpyxl import load_workbook
+
+        from apps.engine.pack.bank_xlsx import write_bank_workbook
+        from apps.engine.parsers.bank.parser import parse_bank_statement
+        from apps.engine.validators.balance import check_balance
+
+        fixture = (
+            Path(__file__).resolve().parent
+            / "fixtures"
+            / "01_SBI_style_small_25_transactions.pdf"
+        )
+        expected = [
+            ("2026-07-01", 2292.08, None, 122707.92),
+            ("2026-07-01", None, 8850.37, 131558.29),
+            ("2026-07-01", 3662.84, None, 127895.45),
+            ("2026-07-01", 3008.90, None, 124886.55),
+            ("2026-07-01", 4471.53, None, 120415.02),
+            ("2026-07-02", None, 175.64, 120590.66),
+            ("2026-07-02", None, 81913.47, 202504.13),
+            ("2026-07-02", 441.25, None, 202062.88),
+            ("2026-07-02", None, 22345.34, 224408.22),
+            ("2026-07-02", 842.67, None, 223565.55),
+            ("2026-07-03", 2967.74, None, 220597.81),
+            ("2026-07-03", 3131.06, None, 217466.75),
+            ("2026-07-03", None, 26.10, 217492.85),
+            ("2026-07-03", None, 29912.82, 247405.67),
+            ("2026-07-03", 2327.11, None, 245078.56),
+            ("2026-07-04", None, 26528.01, 271606.57),
+            ("2026-07-04", 3035.07, None, 268571.50),
+            ("2026-07-04", 6303.39, None, 262268.11),
+            ("2026-07-04", 4894.70, None, 257373.41),
+            ("2026-07-04", None, 21.49, 257394.90),
+            ("2026-07-05", None, 75436.44, 332831.34),
+            ("2026-07-05", 2488.77, None, 330342.57),
+            ("2026-07-05", None, 19568.52, 349911.09),
+            ("2026-07-05", 2288.01, None, 347623.08),
+            ("2026-07-05", 9614.92, None, 338008.16),
+        ]
+
+        parsed = parse_bank_statement(fixture)
+
+        self.assertEqual(len(parsed["rows"]), len(expected))
+        self.assertEqual(parsed["inferred_count"], 0)
+        for row, (date, debit, credit, balance) in zip(parsed["rows"], expected):
+            self.assertEqual(row["date"], date)
+            self.assertEqual(row["debit"], debit)
+            self.assertEqual(row["credit"], credit)
+            self.assertEqual(row["balance"], balance)
+            if debit is not None:
+                self.assertGreater(row["debit"], 0)
+            if credit is not None:
+                self.assertGreater(row["credit"], 0)
+            self.assertNotIn("inferred_from_balance", row.get("flags") or [])
+
+        check = check_balance(parsed["rows"], 125000.00, 338008.16)
+        self.assertEqual(check["status"], "match", check)
+        self.assertIsNone(check["broken_at_row"])
+        self.assertEqual(check["computed_closing"], 338008.16)
+
+        with tempfile.TemporaryDirectory() as tmp:
+            dest = Path(tmp) / "sbi.xlsx"
+            write_bank_workbook(
+                dest,
+                [
+                    {
+                        "rows": parsed["rows"],
+                        "check": check,
+                        "meta": {"filename": fixture.name},
+                        "currency": parsed["currency"],
+                    }
+                ],
+            )
+            sheet = load_workbook(dest)["Transactions"]
+            for index, (_, debit, credit, balance) in enumerate(expected, start=2):
+                self.assertEqual(sheet.cell(index, 4).value, debit)
+                self.assertEqual(sheet.cell(index, 5).value, credit)
+                self.assertEqual(sheet.cell(index, 6).value, balance)
+                if debit is not None:
+                    self.assertGreater(sheet.cell(index, 4).value, 0)
+                if credit is not None:
+                    self.assertGreater(sheet.cell(index, 5).value, 0)
+
+
 def pdf_with_xy(items: list[tuple[float, float, str]]) -> bytes:
     content = "BT /F1 10 Tf\n"
     for x, y, text in items:

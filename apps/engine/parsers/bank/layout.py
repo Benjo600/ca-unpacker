@@ -241,6 +241,12 @@ def _debit_credit(
     amounts: list[Decimal], text: str, profile: BankProfile
 ) -> tuple[Decimal | None, Decimal | None]:
     lowered = text.lower()
+    placeholder = _placeholder_column(text)
+    if placeholder is not None and len(amounts) >= 2:
+        amount = amounts[-2].copy_abs()
+        if placeholder == "debit":
+            return amount, None
+        return None, amount
     if len(amounts) >= 3:
         first, second = amounts[-3], amounts[-2]
         if first and not second:
@@ -260,3 +266,25 @@ def _debit_credit(
     if any(word in lowered for word in ("deposit", "neft inward", "imps credit", "salary", "refund")):
         return None, amount
     return amount, None
+
+
+def _placeholder_column(text: str) -> str | None:
+    """Return the column marked by an isolated '-' placeholder, if any.
+
+    Debit/credit table layouts often print '-' in the unused amount column.
+    Once line text has been joined the dash is indistinguishable from a
+    negative sign, so use its position relative to the transaction and
+    closing-balance amounts: ``amount - balance`` marks a debit and
+    ``- amount balance`` marks a credit.
+    """
+    matches = list(MONEY_TOKEN_RE.finditer(text or ""))
+    if len(matches) != 2:
+        return None
+    transaction, balance = matches
+    between = text[transaction.end("amount") : balance.start("amount")]
+    if re.fullmatch(r"\s+-\s+", between):
+        return "debit"
+    before = text[: transaction.start("amount")]
+    if re.search(r"(?<!\S)-\s+$", before):
+        return "credit"
+    return None
