@@ -487,15 +487,18 @@ class DesktopApi:
     def wipe_and_reset(self) -> dict:
         """Delete every client, file and pack, then reset in place.
 
-        The window stays open: the engine is lazy, so the next state call
-        rebuilds an empty library and the UI returns to the first-run screen.
+        The window stays open and the sign-in survives: only client data is
+        wiped, so the engine lazily rebuilds an empty library and the UI
+        returns to the first-run setup without asking for a login again.
         """
         global _wipe_epoch
+        login_snapshot = auth.snapshot_auth_settings()
         _wipe_epoch += 1
         try:
             wipe_all()
         except OSError as exc:
             return {"ok": False, "error": f"Could not delete the library folder. {exc}"}
+        auth.restore_auth_settings(login_snapshot)
         self._current_period_id = None
         state = self.get_state()
         return {"ok": True, **state}
