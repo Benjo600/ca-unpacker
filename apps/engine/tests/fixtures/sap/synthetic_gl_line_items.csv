@@ -1,0 +1,4 @@
+SAP General Ledger Line Item Report - SYNTHETIC TEST DATA
+Company Code,GL Account,Account Name,Posting Date,Document Number,Document Type,Reference,Description,Debit,Credit,Currency
+1000,400000,Office Supplies,2026-07-01,0012345678,KR,REF-1001,Printer paper,"1,250.00",0.00,INR
+1000,400000,Office Supplies,2026-07-05,0012345679,KR,REF-1002,Ink cartridges,0.00,"750.50",INR

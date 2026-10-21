@@ -1,0 +1,4 @@
+SAP Vendor Ledger - SYNTHETIC TEST DATA
+Company Code,Vendor Number,Vendor Name,Posting Date,Document Number,Description,Debit,Credit,Balance,Currency
+1000,V-0001,Northwind Supplies,2026-07-04,5100000301,Invoice posting,"2,500.00",0.00,"2,500.00",INR
+1000,V-0001,Northwind Supplies,2026-07-10,5100000302,Payment,0.00,"1,000.00","1,500.00",INR

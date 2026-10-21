@@ -1136,6 +1136,7 @@ function renderPreview(preview) {
     const isGstrInv = file.kind === "gstr_2b" || file.kind === "gstr_1";
     const isGstr3b = file.kind === "gstr_3b";
     const isBooks = file.kind === "tally" || file.kind === "zoho";
+    const isSap = file.kind === "sap";
     table.innerHTML = isGstrInv
       ? "<thead><tr><th>Date</th><th>GSTIN</th><th>Trade</th><th>Invoice no</th><th>Taxable</th><th>Value</th><th>Flags</th></tr></thead>"
       : isGstr3b
@@ -1144,9 +1145,11 @@ function renderPreview(preview) {
           ? "<thead><tr><th>Date</th><th>Supplier</th><th>GSTIN</th><th>Invoice no</th><th>Taxable</th><th>Tax</th><th>Value</th><th>Flags</th></tr></thead>"
           : isBank
             ? "<thead><tr><th>Date</th><th>Detail</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Page</th></tr></thead>"
-            : isBooks
-              ? "<thead><tr><th>Register</th><th>Date</th><th>Party</th><th>GSTIN</th><th>Invoice no</th><th>Value</th><th>Flags</th></tr></thead>"
-              : "<thead><tr><th>Date</th><th>Detail</th><th>Debit / Taxable</th><th>Credit / Tax</th><th>Balance / Value</th></tr></thead>";
+            : isSap
+              ? "<thead><tr><th>Report</th><th>Date</th><th>Account / party</th><th>Document</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Flags</th></tr></thead>"
+              : isBooks
+                ? "<thead><tr><th>Register</th><th>Date</th><th>Party</th><th>GSTIN</th><th>Invoice no</th><th>Value</th><th>Flags</th></tr></thead>"
+                : "<thead><tr><th>Date</th><th>Detail</th><th>Debit / Taxable</th><th>Credit / Tax</th><th>Balance / Value</th></tr></thead>";
     const body = document.createElement("tbody");
     const rows = file.preview || [];
     for (const row of rows) {
@@ -1169,6 +1172,17 @@ function renderPreview(preview) {
           moneyCell(row.cgst, currencyCode),
           moneyCell(row.sgst, currencyCode),
           moneyCell(row.cess, currencyCode)
+        );
+      } else if (isSap) {
+        tr.append(
+          textCell(row.report_type_label || row.report_type),
+          textCell(row.posting_date || row.document_date || row.date),
+          textCell(row.gl_account || row.account_name || row.party_name),
+          textCell(row.document_number || row.invoice_number),
+          moneyCell(row.debit, currencyCode || row.currency),
+          moneyCell(row.credit, currencyCode || row.currency),
+          moneyCell(row.balance, currencyCode || row.currency),
+          flagsCell(row)
         );
       } else if (isBooks) {
         tr.append(
@@ -1241,7 +1255,7 @@ function renderPreview(preview) {
       const omitted = (file.row_count || 0) - rows.length;
       const spacer = document.createElement("tr");
       const cell = document.createElement("td");
-      cell.colSpan = isGstrInv || isBooks ? 7 : isGstr3b || isBank ? 6 : isInvoice ? 8 : 5;
+      cell.colSpan = isGstrInv || isBooks ? 7 : isSap || isInvoice ? 8 : isGstr3b || isBank ? 6 : 5;
       cell.className = "omit";
       cell.textContent = `… ${omitted} lines omitted — open Excel …`;
       spacer.append(cell);
@@ -1263,6 +1277,13 @@ function renderPreview(preview) {
       const note = document.createElement("p");
       note.className = "preview-note";
       note.textContent = window.CAReconSummary.gstrPreviewNote(window.CAReconSummary.hasRecon(lastPack));
+      previewListEl.append(note);
+    }
+    if (isSap) {
+      const note = document.createElement("p");
+      note.className = "preview-note";
+      note.textContent =
+        "SAP report rows keep source debit, credit and balance values. Validation flags appear in the Excel.";
       previewListEl.append(note);
     }
     if (isBooks) {

@@ -1,0 +1,5 @@
+SAP Accounts Receivable Aging - SYNTHETIC TEST DATA
+Company Code,Customer Number,Customer Name,Balance,Current,1-30 Days,31-60 Days,61-90 Days,91-120 Days,Over 120 Days,Currency
+1000,C-0001,Bluebird Retail,"2,200.00","600.00","500.00","400.00","300.00","200.00","200.00",INR
+1000,C-0002,Greenfield Stores,"1,300.00","200.00","200.00","200.00","200.00","200.00","300.00",INR
+Total,,,"3,500.00","800.00","700.00","600.00","500.00","400.00","500.00",

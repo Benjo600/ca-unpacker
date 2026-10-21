@@ -25,6 +25,7 @@ from apps.engine.recon import reconcile
 from apps.engine.parsers.bank.parser import attach_currency, parse_bank_statement
 from apps.engine.parsers.gstr import parse_gstr_file
 from apps.engine.parsers.invoice import parse_invoice_file
+from apps.engine.parsers.sap import parse_sap_file
 from apps.engine.parsers.tally import parse_tally_file
 from apps.engine.parsers.zoho import parse_zoho_file
 from apps.engine.validators.balance import check_balance
@@ -108,6 +109,58 @@ BOOKS_COLS = [
     ("Invoice value", "invoice_value"),
     ("Flags", "flags"),
     ("Source", "source"),
+]
+SAP_COLS = [
+    ("Report", "report_type_label"),
+    ("Company code", "company_code"),
+    ("G/L account", "gl_account"),
+    ("Account name", "account_name"),
+    ("Document no", "document_number"),
+    ("Document type", "document_type"),
+    ("Posting date", "posting_date"),
+    ("Document date", "document_date"),
+    ("Entry date", "entry_date"),
+    ("Baseline date", "baseline_date"),
+    ("Due date", "due_date"),
+    ("Clearing date", "clearing_date"),
+    ("Clearing document", "clearing_document"),
+    ("Posting key", "posting_key"),
+    ("Party", "party_name"),
+    ("Party code", "party_code"),
+    ("Vendor no", "vendor_number"),
+    ("Customer no", "customer_number"),
+    ("GSTIN", "gstin"),
+    ("Description", "description"),
+    ("Reference", "reference"),
+    ("Assignment", "assignment"),
+    ("Invoice no", "invoice_number"),
+    ("Invoice date", "invoice_date"),
+    ("Debit", "debit"),
+    ("Credit", "credit"),
+    ("Balance", "balance"),
+    ("Opening balance", "opening_balance"),
+    ("Closing balance", "closing_balance"),
+    ("Amount", "amount"),
+    ("Current", "aging_current"),
+    ("1-30", "aging_1_30"),
+    ("31-60", "aging_31_60"),
+    ("61-90", "aging_61_90"),
+    ("91-120", "aging_91_120"),
+    (">120", "aging_over_120"),
+    ("Currency", "currency"),
+    ("Fiscal year", "fiscal_year"),
+    ("Period", "period"),
+    ("Tax code", "tax_code"),
+    ("Cost center", "cost_center"),
+    ("Profit center", "profit_center"),
+    ("Business area", "business_area"),
+    ("Chart of accounts", "chart_of_accounts"),
+    ("Controlling area", "controlling_area"),
+    ("Special G/L indicator", "special_gl_indicator"),
+    ("Debit/credit indicator", "debit_credit_indicator"),
+    ("Flags", "flags"),
+    ("Source", "source"),
+    ("Source row", "raw_excerpt"),
 ]
 
 
@@ -217,6 +270,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         line_item_rows: list[dict] = []
         sales_rows: list[dict] = []
         books_rows: list[dict] = []
+        sap_rows: list[dict] = []
         gstr_1: list[dict] = []
         gstr_2b: list[dict] = []
         gstr_3b: list[dict] = []
@@ -319,10 +373,14 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         )
             if (
                 not rows
-                and kind in {"bank", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho"}
+                and kind in {"bank", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho", "sap"}
                 and "password" not in (stored.classify_reason or "").lower()
             ):
-                stored.classify_reason = f"recognised as {kind} but no rows extracted"
+                stored.classify_reason = (
+                    str(extra.get("reason") or "").strip()[:300]
+                    if kind == "sap" and extra.get("reason")
+                    else f"recognised as {kind} but no rows extracted"
+                )
             persist_file_outcome(
                 stored,
                 evaluate_file_outcome(
@@ -371,6 +429,8 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         purchase_rows.append(_as_register_row(row))
                     elif register == "sales":
                         sales_rows.append(_as_register_row(row))
+            elif kind == "sap":
+                sap_rows.extend(rows)
             session.commit()
 
         period = session.get(Period, period_id)
@@ -466,6 +526,11 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             write_table(dest, "Books", books_rows, BOOKS_COLS)
             outputs.append(_simple_out("books", dest.name, dest, len(books_rows)))
 
+        if sap_rows:
+            dest = dest_dir / "SAP_Reports_Extracted.xlsx"
+            write_table(dest, "SAP reports", sap_rows, SAP_COLS)
+            outputs.append(_simple_out("sap", dest.name, dest, len(sap_rows)))
+
         if recon_result is not None:
             dest = dest_dir / "Master_Reconciliation_Grid.xlsx"
             write_master_grid(dest, recon_result)
@@ -551,6 +616,8 @@ def _review_status(stored: StoredFile) -> str | None:
     if "unreadable" in reason or "no line items" in reason:
         return "unreadable"
     if reason.startswith("could not parse") or "no rows extracted" in reason:
+        return "no rows"
+    if kind == "sap" and getattr(stored, "parse_reason_code", None) == "no_rows":
         return "no rows"
     return None
 
@@ -848,6 +915,9 @@ def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
         return parsed["rows"], parsed
     if kind == "zoho":
         parsed = parse_zoho_file(path, filename)
+        return parsed["rows"], parsed
+    if kind == "sap":
+        parsed = parse_sap_file(path, filename)
         return parsed["rows"], parsed
     return [], {}
 

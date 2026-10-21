@@ -1,0 +1,6 @@
+SAP Journal Entries - SYNTHETIC TEST DATA
+Company Code,Document Number,Posting Date,Posting Key,GL Account,Description,Debit,Credit,Currency
+1000,5100000201,2026-07-02,40,400000,Travel expense,800.00,0.00,INR
+1000,5100000201,2026-07-02,50,100000,Vendor payment,0.00,800.00,INR
+1000,5100000202,2026-07-03,40,500000,Consulting,1500.00,0.00,INR
+1000,5100000202,2026-07-03,50,100000,Vendor payment,0.00,1500.00,INR

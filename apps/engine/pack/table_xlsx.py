@@ -7,8 +7,26 @@ from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
 MONEY_FORMAT = "#,##0.00"
-MONEY_KEYS = {"taxable", "tax", "invoice_value", "taxable_value", "amount", "rate"}
-FLAG_MARKERS = ("gstin_checksum", "hsn_length", "invoice_math")
+MONEY_KEYS = {
+    "taxable",
+    "tax",
+    "invoice_value",
+    "taxable_value",
+    "amount",
+    "rate",
+    "debit",
+    "credit",
+    "balance",
+    "opening_balance",
+    "closing_balance",
+    "aging_current",
+    "aging_1_30",
+    "aging_31_60",
+    "aging_61_90",
+    "aging_91_120",
+    "aging_over_120",
+}
+FLAG_MARKERS = ("gstin_checksum", "hsn_length", "invoice_math", "sap_")
 RED_FILL = PatternFill("solid", fgColor="FFCDD2")
 
 

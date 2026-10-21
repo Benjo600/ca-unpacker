@@ -1,0 +1,4 @@
+SAP Financial Ledger - SYNTHETIC TEST DATA
+Company Code,Posting Key,Posting Date,Document Number,Debit,Credit,Currency
+1000,40,2026-07-01,5100000501,100.00,0.00,INR
+1000,50,2026-07-01,5100000501,0.00,100.00,INR

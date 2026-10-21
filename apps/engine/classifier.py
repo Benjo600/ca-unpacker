@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import csv
 import json
 import re
 import zipfile
@@ -8,6 +7,8 @@ from dataclasses import dataclass
 from pathlib import Path
 
 from apps.engine.kinds import IMAGE_SUFFIXES, SPREADSHEET_SUFFIXES, TALLY_SUFFIXES
+from apps.engine.parsers.sap.signatures import SapSignature, detect_sap, detect_sap_text
+from apps.engine.parsers.sap.tables import read_table_samples
 
 GSTIN_RE = re.compile(r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b", re.I)
 
@@ -94,6 +95,10 @@ def classify_from_text(name: str, page_count: int, text: str) -> Classification:
     if _filename_says_gstr(filename, "1") or "gstr-1" in filename or "gstr1" in filename:
         return Classification("gstr_1", 0.75, "filename looks like GSTR-1")
 
+    sap = detect_sap_text(text, filename=name)
+    if sap is not None:
+        return Classification("sap", sap.confidence, sap.reason)
+
     if bank_hits >= 3 or (bank_hits >= 2 and page_count >= 3):
         return Classification("bank", 0.9, f"bank wording ({bank_hits} hits), {page_count} pages")
     if invoice_hits >= 2 or (has_gstin and ("invoice" in lowered or "tax invoice" in lowered)):
@@ -177,45 +182,42 @@ def _classify_spreadsheet(path: Path, name: str) -> Classification:
     if "zoho" in name or "books" in name:
         return Classification("zoho", 0.8, "filename looks like a Zoho export")
     suffix = path.suffix.lower()
-    if suffix in {".xlsx", ".xls"}:
-        cells = _xlsx_header_cells(path)
-        if cells is None:
-            return Classification("unknown", 0.2, "spreadsheet could not be read")
-        if _zoho_header_match(cells):
-            return Classification("zoho", 0.88, "Excel headers look like Zoho Books")
-        return Classification("unknown", 0.35, "spreadsheet is not a Zoho export")
-    if suffix != ".csv":
-        return Classification("unknown", 0.35, "spreadsheet is not a Zoho CSV")
-    try:
-        with path.open(encoding="utf-8-sig", newline="") as handle:
-            reader = csv.reader(handle)
-            header = next(reader, [])
-    except (OSError, UnicodeError):
-        return Classification("unknown", 0.2, "CSV could not be read")
-    cells = {str(cell).strip().lower() for cell in header if str(cell).strip()}
+    if suffix not in {".csv", ".xlsx", ".xls"}:
+        return Classification("unknown", 0.35, "spreadsheet is not a supported export")
+    samples = read_table_samples(path)
+    if not samples:
+        return Classification("unknown", 0.2, "spreadsheet could not be read")
+    first_row = samples[0][1][0] if samples[0][1] else []
+    cells = {str(cell).strip().lower() for cell in first_row if str(cell).strip()}
     if _zoho_header_match(cells):
-        return Classification("zoho", 0.88, "CSV headers look like Zoho Books")
-    return Classification("unknown", 0.3, "CSV headers did not match Zoho")
+        return Classification("zoho", 0.88, "Spreadsheet headers look like Zoho Books")
+    sap = _sap_spreadsheet_signature(samples, name)
+    if sap is not None:
+        return Classification("sap", sap.confidence, sap.reason)
+    if suffix == ".csv":
+        return Classification("unknown", 0.3, "CSV headers did not match a supported export")
+    return Classification("unknown", 0.35, "spreadsheet is not a supported export")
+
+
+def _sap_spreadsheet_signature(
+    samples: list[tuple[str | None, list[list]]], name: str
+) -> SapSignature | None:
+    best: SapSignature | None = None
+    for sheet, matrix in samples:
+        context_lines: list[str] = [sheet or ""]
+        for row in matrix[:60]:
+            cells = [str(cell).strip() for cell in row if cell is not None and str(cell).strip()]
+            if not cells:
+                continue
+            signature = detect_sap(cells, context="\n".join(context_lines), filename=name)
+            if signature is not None and (best is None or signature.confidence > best.confidence):
+                best = signature
+            context_lines.append(" ".join(cells))
+    return best
 
 
 def _zoho_header_match(cells: set[str]) -> bool:
     return bool(cells & ZOHO_HEADERS) or "invoice number" in cells
-
-
-def _xlsx_header_cells(path: Path) -> set[str] | None:
-    try:
-        from openpyxl import load_workbook
-
-        book = load_workbook(path, read_only=True, data_only=True)
-        try:
-            first = next(book.active.iter_rows(min_row=1, max_row=1, values_only=True), None)
-        finally:
-            book.close()
-    except Exception:
-        return None
-    if not first:
-        return set()
-    return {str(cell).strip().lower() for cell in first if cell is not None and str(cell).strip()}
 
 
 def _filename_invoice_hint(name: str) -> bool:

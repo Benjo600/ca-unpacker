@@ -1,0 +1,4 @@
+SAP Customer Ledger - SYNTHETIC TEST DATA
+Company Code,Customer Number,Customer Name,Posting Date,Document Number,Description,Debit,Credit,Balance,Currency
+1000,C-0001,Bluebird Retail,2026-07-06,5100000401,Invoice posting,"4,000.00",0.00,"4,000.00",INR
+1000,C-0001,Bluebird Retail,2026-07-12,5100000402,Receipt,0.00,"1,500.00","2,500.00",INR

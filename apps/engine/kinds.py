@@ -6,6 +6,7 @@ KINDS = (
     "gstr_3b",
     "tally",
     "zoho",
+    "sap",
     "unknown",
 )
 
@@ -17,6 +18,7 @@ KIND_LABELS = {
     "gstr_3b": "GSTR-3B",
     "tally": "Tally",
     "zoho": "Zoho",
+    "sap": "SAP report",
     "unknown": "Unknown",
 }
 

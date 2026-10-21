@@ -27,6 +27,7 @@ _PARSERS: dict[str, tuple[str, str]] = {
     "gstr_3b": ("gstr", "1"),
     "tally": ("tally", "1"),
     "zoho": ("zoho", "1"),
+    "sap": ("sap", "1"),
 }
 
 
