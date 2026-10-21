@@ -11,7 +11,13 @@ from urllib.parse import parse_qs, urlparse
 
 import webview
 
-from apps.engine.clients import create_client, delete_client, get_client, list_clients
+from apps.engine.clients import (
+    create_client,
+    delete_client,
+    get_client,
+    list_clients,
+    update_client_profile,
+)
 from apps.engine.db import get_engine
 from apps.engine.dump import (
     fail_job,
@@ -38,6 +44,7 @@ from apps.engine.settings import (
 )
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
 from apps.engine.pdf_passwords import set_file_password as store_file_password
+from apps.engine.profiles import profile_options
 from apps.engine.pipeline import (
     get_period_pack,
     get_period_preview,
@@ -53,6 +60,14 @@ _PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
 _SINGLE_INSTANCE_MUTEX_NAME = "Global\\CAUnpackerSingleInstance"
 _startup_deep_link: str | None = None
 _mutex_handle: int | None = None
+
+# Bumped every time the library is wiped in place. Background job threads
+# capture the epoch when they start; if it changed underneath them, their
+# output belongs to a deleted library and gets wiped again (see
+# _run_job_thread), so a reset always ends with an empty library.
+_wipe_epoch = 0
+_job_threads: set[threading.Thread] = set()
+_job_threads_lock = threading.Lock()
 
 
 def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
@@ -201,6 +216,7 @@ class DesktopApi:
             "guide_dismissed": is_guide_dismissed(),
             "license": get_license_status(),
             "auth": auth.get_auth_state(),
+            "profile_options": profile_options(),
             "path_warnings": path_sync_warnings(
                 str(library), str(output) if output else ""
             ),
@@ -222,12 +238,22 @@ class DesktopApi:
         set_guide_dismissed(bool(dismissed))
         return {"ok": True, "guide_dismissed": is_guide_dismissed()}
 
-    def create_client(self, name: str, gstin: str = "") -> dict:
+    def create_client(self, name: str, gstin: str = "", profile: dict | None = None) -> dict:
         try:
-            client = create_client(name, gstin)
+            client = create_client(name, gstin, profile)
             return {"ok": True, "client": client, "clients": list_clients()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def update_client_profile(self, client_id: int, profile: dict | None = None) -> dict:
+        try:
+            client = update_client_profile(int(client_id), profile)
+            return {"ok": True, "client": client, "clients": list_clients()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def get_profile_options(self) -> dict:
+        return {"ok": True, **profile_options()}
 
     def delete_client_desk(self, client_id: int) -> dict:
         try:
@@ -458,15 +484,21 @@ class DesktopApi:
         except Exception:
             return {"ok": True, "found": False, "path": None, "note": "OCR module not loaded"}
 
-    def wipe_and_restart(self) -> dict:
+    def wipe_and_reset(self) -> dict:
+        """Delete every client, file and pack, then reset in place.
+
+        The window stays open: the engine is lazy, so the next state call
+        rebuilds an empty library and the UI returns to the first-run screen.
+        """
+        global _wipe_epoch
+        _wipe_epoch += 1
         try:
             wipe_all()
         except OSError as exc:
             return {"ok": False, "error": f"Could not delete the library folder. {exc}"}
-        _spawn_fresh_app()
-        if _WINDOW is not None:
-            _WINDOW.destroy()
-        return {"ok": True}
+        self._current_period_id = None
+        state = self.get_state()
+        return {"ok": True, **state}
 
 
 def _open_path(path: str) -> None:
@@ -474,28 +506,6 @@ def _open_path(path: str) -> None:
         os.startfile(path)  # type: ignore[attr-defined]
     else:
         subprocess.Popen(["xdg-open", path])
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _spawn_fresh_app() -> None:
-    if getattr(sys, "frozen", False):
-        exe = Path(sys.executable)
-        if sys.platform == "win32":
-            subprocess.Popen(["cmd", "/c", "start", "", str(exe)], cwd=str(exe.parent))
-            return
-        subprocess.Popen([str(exe)], cwd=str(exe.parent))
-        return
-    root = _repo_root()
-    if sys.platform == "win32":
-        subprocess.Popen(
-            ["cmd", "/c", "start", "", sys.executable, "-m", "apps.desktop"],
-            cwd=str(root),
-        )
-        return
-    subprocess.Popen([sys.executable, "-m", "apps.desktop"], cwd=str(root))
 
 
 def _bundle_root() -> Path:
@@ -520,9 +530,14 @@ def _log_crash(message: str) -> None:
 
 
 def _run_job_thread(job_id: int, fn) -> None:
+    epoch = _wipe_epoch
+
     def work() -> None:
+        ran = False
         try:
-            fn()
+            if epoch == _wipe_epoch:
+                ran = True
+                fn()
         except Exception:
             import traceback
 
@@ -530,8 +545,22 @@ def _run_job_thread(job_id: int, fn) -> None:
             leftover = get_job(job_id)
             if leftover is None or leftover.get("status") in {"queued", "routing", "parsing"}:
                 fail_job(job_id, "Could not process these files.")
+        finally:
+            with _job_threads_lock:
+                _job_threads.discard(threading.current_thread())
+            if ran and epoch != _wipe_epoch:
+                # The library was wiped while this job was running; the job
+                # may have recreated files or the database on disk. Wipe again
+                # so the reset the user asked for still ends empty.
+                try:
+                    wipe_all()
+                except OSError:
+                    pass
 
-    threading.Thread(target=work, daemon=True).start()
+    thread = threading.Thread(target=work, daemon=True)
+    with _job_threads_lock:
+        _job_threads.add(thread)
+    thread.start()
 
 
 def _drop_paths(event) -> list[str]:

@@ -286,13 +286,27 @@
           <label class="ui-field-label" for="client-gstin">GSTIN <span class="optional">optional</span></label>
           <input id="client-gstin" class="ui-input" type="text" maxlength="15" placeholder="27AAAAA0000A1Z5" />
         </div>
+        <div class="field ui-field profile-field">
+          <label class="ui-field-label" for="client-profession">Profession <span class="optional">optional</span></label>
+          <select id="client-profession" class="ui-select"></select>
+        </div>
+        <div class="field ui-field profile-field">
+          <label class="ui-field-label" for="client-entity">Entity <span class="optional">optional</span></label>
+          <select id="client-entity" class="ui-select"></select>
+        </div>
+        <div class="field ui-field profile-custom hidden" id="client-profession-custom-wrap">
+          <label class="ui-field-label" for="client-profession-custom">Profession name</label>
+          <input id="client-profession-custom" class="ui-input" type="text" maxlength="120" placeholder="e.g. Veterinary practice" />
+        </div>
         <button type="submit" class="ui-btn ui-btn-primary">Add client</button>
       </form>
+      <p class="add-row-hint type-muted">The profile decides which treatment checks run on this client's packs. You can change it later.</p>
       <p id="desk-error" class="error type-status" hidden></p>
 
       <div class="ledger ui-list">
         <div class="ledger-head ui-table-head">
           <span>Client</span>
+          <span>Profile</span>
           <span>GSTIN</span>
           <span></span>
         </div>
@@ -310,6 +324,43 @@
           <p class="eyebrow type-kicker">Client</p>
           <h1 class="type-page-title" id="period-client-name">Client</h1>
         </header>
+
+        <form id="profile-form" class="profile-card ui-card-compact" autocomplete="off">
+          <div class="profile-card-head">
+            <div>
+              <h2 class="type-card-title">Client profile</h2>
+              <p class="type-muted" id="profile-summary">No profile set. Pick a profession to turn on treatment checks.</p>
+            </div>
+            <p class="pill" id="profile-state">Not set</p>
+          </div>
+          <div class="profile-grid">
+            <div class="field ui-field">
+              <label class="ui-field-label" for="profile-profession">Profession</label>
+              <select id="profile-profession" class="ui-select"></select>
+            </div>
+            <div class="field ui-field">
+              <label class="ui-field-label" for="profile-entity">Entity</label>
+              <select id="profile-entity" class="ui-select"></select>
+            </div>
+            <div class="field ui-field">
+              <label class="ui-field-label" for="profile-gst">GST registered</label>
+              <select id="profile-gst" class="ui-select">
+                <option value="">Not set</option>
+                <option value="yes">Yes</option>
+                <option value="no">No</option>
+              </select>
+            </div>
+            <div class="field ui-field profile-custom hidden" id="profile-profession-custom-wrap">
+              <label class="ui-field-label" for="profile-profession-custom">Profession name</label>
+              <input id="profile-profession-custom" class="ui-input" type="text" maxlength="120" placeholder="e.g. Veterinary practice" />
+            </div>
+          </div>
+          <div class="profile-actions">
+            <p class="type-muted" id="profile-note"></p>
+            <button type="submit" class="ui-btn ui-btn-primary">Save profile</button>
+          </div>
+        </form>
+        <p id="profile-error" class="error type-status" hidden></p>
 
         <form id="period-form" class="add-row ui-card-compact periods-create" autocomplete="off">
           <div class="periods-create-copy">
@@ -358,6 +409,19 @@
         </div>
       </div>
       <p id="dump-error" class="error" hidden></p>
+
+      <section id="treatment-block" class="treatment hidden">
+        <div class="treatment-head">
+          <div>
+            <p class="eyebrow">Client profile</p>
+            <h2>Treatment notes</h2>
+            <p id="treatment-meta"></p>
+          </div>
+          <p class="pill" id="treatment-count"></p>
+        </div>
+        <div id="treatment-list"></div>
+        <p id="treatment-note" class="mute-note"></p>
+      </section>
 
       <section id="pack-block" class="pack hidden">
         <div>
@@ -445,10 +509,10 @@
     <div class="modal-card">
       <p class="eyebrow">Delete library</p>
       <h1>Wipe this PC’s app folder?</h1>
-      <p class="lede">Every client, dumped file and pack in the app will be deleted. Your Desktop project folder and the <code>test-dump</code> samples are not touched. The app will restart empty.</p>
+      <p class="lede">Every client, dumped file and pack in the app will be deleted. Your Desktop project folder and the <code>test-dump</code> samples are not touched. The app stays open and returns to the first-run setup.</p>
       <p id="wipe-error" class="error" hidden></p>
       <div class="drop-actions">
-        <button type="button" class="danger" id="wipe-confirm">Delete and restart</button>
+        <button type="button" class="danger" id="wipe-confirm">Delete everything</button>
         <button type="button" class="ghost" id="wipe-cancel">Keep data</button>
       </div>
     </div>

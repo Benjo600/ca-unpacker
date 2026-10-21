@@ -14,11 +14,25 @@ const emptyEl = document.getElementById("empty");
 const addForm = document.getElementById("add-form");
 const clientNameEl = document.getElementById("client-name");
 const clientGstinEl = document.getElementById("client-gstin");
+const clientProfessionEl = document.getElementById("client-profession");
+const clientEntityEl = document.getElementById("client-entity");
+const clientProfessionCustomWrap = document.getElementById("client-profession-custom-wrap");
+const clientProfessionCustomEl = document.getElementById("client-profession-custom");
 const deskErrorEl = document.getElementById("desk-error");
 const paneClients = document.getElementById("pane-clients");
 const panePeriods = document.getElementById("pane-periods");
 const paneDump = document.getElementById("pane-dump");
 const periodClientNameEl = document.getElementById("period-client-name");
+const profileForm = document.getElementById("profile-form");
+const profileProfessionEl = document.getElementById("profile-profession");
+const profileEntityEl = document.getElementById("profile-entity");
+const profileGstEl = document.getElementById("profile-gst");
+const profileProfessionCustomWrap = document.getElementById("profile-profession-custom-wrap");
+const profileProfessionCustomEl = document.getElementById("profile-profession-custom");
+const profileSummaryEl = document.getElementById("profile-summary");
+const profileStateEl = document.getElementById("profile-state");
+const profileNoteEl = document.getElementById("profile-note");
+const profileErrorEl = document.getElementById("profile-error");
 const periodForm = document.getElementById("period-form");
 const periodLabelEl = document.getElementById("period-label");
 const periodErrorEl = document.getElementById("period-error");
@@ -39,6 +53,11 @@ const reviewPackNoteEl = document.getElementById("review-pack-note");
 const packBlock = document.getElementById("pack-block");
 const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
+const treatmentBlock = document.getElementById("treatment-block");
+const treatmentMetaEl = document.getElementById("treatment-meta");
+const treatmentCountEl = document.getElementById("treatment-count");
+const treatmentListEl = document.getElementById("treatment-list");
+const treatmentNoteEl = document.getElementById("treatment-note");
 const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
@@ -103,6 +122,7 @@ let previewFit = true;
 let previewPageCount = 0;
 let previewSeq = 0;
 let previewTrigger = null;
+let profileOptions = { professions: [], entity_types: [] };
 let uiSessionActive = false;
 let navHistory = [];
 let navIndex = -1;
@@ -268,6 +288,7 @@ async function refreshCurrentView() {
         setOutputLabel(state.output_path || "");
         setPathWarnings(state.path_warnings || []);
         renderLicense(state.license);
+        renderProfileOptions(state.profile_options);
         renderClients(state.clients || []);
         syncGuide();
       }
@@ -377,6 +398,248 @@ function routeAfterLogin(state) {
   showSetup(state);
 }
 
+function renderProfileOptions(options) {
+  if (!options) return;
+  profileOptions = options;
+  const professions = options.professions || [];
+  const groups = new Map();
+  for (const item of professions) {
+    if (!groups.has(item.group || "Other")) groups.set(item.group || "Other", []);
+    groups.get(item.group || "Other").push(item);
+  }
+
+  for (const select of [clientProfessionEl, profileProfessionEl]) {
+    if (!select) continue;
+    const previous = select.value;
+    select.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Not set";
+    select.append(none);
+    for (const [group, items] of groups) {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group;
+      for (const item of items) {
+        const option = document.createElement("option");
+        option.value = item.key;
+        option.textContent = item.label;
+        optgroup.append(option);
+      }
+      select.append(optgroup);
+    }
+    const custom = document.createElement("option");
+    custom.value = "custom";
+    custom.textContent = "Other (type below)";
+    select.append(custom);
+    select.value = previous || "";
+  }
+
+  for (const select of [clientEntityEl, profileEntityEl]) {
+    if (!select) continue;
+    const previous = select.value;
+    select.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Not set";
+    select.append(none);
+    for (const item of options.entity_types || []) {
+      const option = document.createElement("option");
+      option.value = item.key;
+      option.textContent = item.label;
+      select.append(option);
+    }
+    select.value = previous || "";
+  }
+  syncProfileCustomFields();
+}
+
+async function ensureProfileOptions() {
+  if ((profileOptions.professions || []).length) return;
+  try {
+    const options = await window.pywebview.api.get_profile_options();
+    if (options && options.professions) renderProfileOptions(options);
+  } catch (error) {
+    /* the form still works without the catalog */
+  }
+}
+
+function syncProfileCustomFields() {
+  if (clientProfessionCustomWrap) {
+    clientProfessionCustomWrap.classList.toggle(
+      "hidden",
+      !clientProfessionEl || clientProfessionEl.value !== "custom"
+    );
+  }
+  if (profileProfessionCustomWrap) {
+    profileProfessionCustomWrap.classList.toggle(
+      "hidden",
+      !profileProfessionEl || profileProfessionEl.value !== "custom"
+    );
+  }
+}
+
+function readProfile(professionEl, entityEl, gstEl, customEl) {
+  const key = professionEl ? professionEl.value : "";
+  const profile = {
+    profession_key: key,
+    profession_label: key === "custom" ? (customEl ? customEl.value.trim() : "") : "",
+    entity_type: entityEl ? entityEl.value : "",
+    gst_registered: null,
+  };
+  if (gstEl && gstEl.value === "yes") profile.gst_registered = true;
+  if (gstEl && gstEl.value === "no") profile.gst_registered = false;
+  return profile;
+}
+
+function fillProfileForm(client) {
+  const profile = (client && client.profile) || {};
+  if (profileProfessionEl) profileProfessionEl.value = profile.profession_key || "";
+  if (profileEntityEl) profileEntityEl.value = profile.entity_type || "";
+  if (profileGstEl) {
+    profileGstEl.value =
+      profile.gst_registered === true ? "yes" : profile.gst_registered === false ? "no" : "";
+  }
+  if (profileProfessionCustomEl) {
+    profileProfessionCustomEl.value =
+      profile.profession_key === "custom" ? profile.profession_label || "" : "";
+  }
+  syncProfileCustomFields();
+  if (profileSummaryEl) {
+    profileSummaryEl.textContent = client && client.profile_is_set
+      ? client.profile_summary || "Profile set"
+      : "No profile set. Pick a profession to turn on treatment checks.";
+  }
+  if (profileStateEl) {
+    profileStateEl.textContent = client && client.profile_is_set ? "Profile set" : "Not set";
+    profileStateEl.className = "pill" + (client && client.profile_is_set ? " match" : "");
+  }
+  if (profileNoteEl) profileNoteEl.textContent = "";
+}
+
+function severityClass(severity) {
+  if (severity === "review") return "mismatch";
+  if (severity === "check") return "unknown";
+  return "mute";
+}
+
+function severityLabel(severity) {
+  if (severity === "review") return "Review";
+  if (severity === "check") return "Check";
+  return "Note";
+}
+
+function observedText(observed) {
+  if (!observed) return "";
+  const parts = [];
+  if (observed.count !== undefined) parts.push(`${observed.count} line(s)`);
+  if (observed.total !== undefined) parts.push(`total ${money(observed.total)}`);
+  if (observed.largest !== undefined) parts.push(`largest ${money(observed.largest)}`);
+  if (observed.turnover !== undefined) parts.push(`turnover ${money(observed.turnover)}`);
+  if (observed.sales_lines !== undefined && observed.count === undefined) {
+    parts.push(`${observed.sales_lines} sales line(s)`);
+  }
+  return parts.join(" · ");
+}
+
+function thresholdText(threshold) {
+  if (!threshold) return "";
+  const parts = [];
+  if (threshold.amount !== undefined) parts.push(`${money(threshold.amount)}`);
+  if (threshold.enhanced) parts.push(`enhanced ${money(threshold.enhanced)}`);
+  if (threshold.basis) parts.push(threshold.basis);
+  if (threshold.rate) parts.push(threshold.rate);
+  if (threshold.as_of) parts.push(threshold.as_of);
+  return parts.join(" · ");
+}
+
+function renderTreatment(pack) {
+  if (!treatmentBlock) return;
+  const treatment = pack && pack.treatment;
+  if (!treatment) {
+    treatmentBlock.classList.add("hidden");
+    return;
+  }
+  treatmentBlock.classList.remove("hidden");
+  const profile = treatment.profile || {};
+  treatmentMetaEl.textContent = profile.summary
+    ? `${profile.summary}${profile.gst_rate ? " · GST " + profile.gst_rate : ""}`
+    : "Treatment notes for this period";
+  const counts = treatment.counts || {};
+  const total = counts.total || 0;
+  treatmentCountEl.textContent = total
+    ? `${counts.review || 0} to review · ${counts.check || 0} to check · ${counts.info || 0} notes`
+    : "No flags";
+  treatmentCountEl.className =
+    "pill" + (counts.review ? " mismatch" : counts.check ? " unknown" : " match");
+
+  treatmentListEl.innerHTML = "";
+  for (const flag of treatment.flags || []) {
+    const row = document.createElement("div");
+    row.className = "treatment-row";
+    const head = document.createElement("div");
+    head.className = "treatment-row-head";
+    const chip = document.createElement("span");
+    chip.className = "pill " + severityClass(flag.severity);
+    chip.textContent = severityLabel(flag.severity);
+    const title = document.createElement("span");
+    title.className = "treatment-title";
+    title.textContent = flag.title || flag.code;
+    head.append(chip, title);
+    const detail = document.createElement("p");
+    detail.className = "treatment-detail";
+    detail.textContent = flag.detail || "";
+    row.append(head, detail);
+
+    const meta = [];
+    if (flag.area) meta.push(flag.area);
+    const observed = observedText(flag.observed);
+    if (observed) meta.push(observed);
+    const threshold = thresholdText(flag.threshold);
+    if (threshold) meta.push(`limit ${threshold}`);
+    if (flag.law_ref) meta.push(flag.law_ref);
+    if (meta.length) {
+      const metaEl = document.createElement("p");
+      metaEl.className = "treatment-meta";
+      metaEl.textContent = meta.join(" · ");
+      row.append(metaEl);
+    }
+    if (flag.action) {
+      const actionEl = document.createElement("p");
+      actionEl.className = "treatment-action";
+      actionEl.textContent = flag.action;
+      row.append(actionEl);
+    }
+    treatmentListEl.append(row);
+  }
+  if (!(treatment.flags || []).length) {
+    const empty = document.createElement("p");
+    empty.className = "treatment-empty";
+    empty.textContent = "Nothing in this period triggered a treatment check for this profile.";
+    treatmentListEl.append(empty);
+  }
+  treatmentNoteEl.textContent = profile.watch
+    ? `For this profession: ${profile.watch}`
+    : treatment.disclaimer || "";
+}
+
+function renderTreatmentHint(client, pack) {
+  if (!treatmentBlock) return;
+  if (!pack || !pack.exists) return;
+  if (pack.treatment) return;
+  if (!client || !client.profile_is_set) return;
+  treatmentBlock.classList.remove("hidden");
+  treatmentMetaEl.textContent = client.profile_summary || "Profile set";
+  treatmentCountEl.textContent = "Not generated";
+  treatmentCountEl.className = "pill mute";
+  treatmentListEl.innerHTML = "";
+  const note = document.createElement("p");
+  note.className = "treatment-empty";
+  note.textContent =
+    "This pack was built before the profile was set or last changed. Re-parse the period to generate its treatment notes.";
+  treatmentListEl.append(note);
+  treatmentNoteEl.textContent = "";
+}
+
 function renderClients(clients) {
   clientListEl.innerHTML = "";
   clientCountEl.textContent = String(clients.length);
@@ -391,6 +654,12 @@ function renderClients(clients) {
     const gstin = document.createElement("span");
     gstin.className = "gstin";
     gstin.textContent = client.gstin || "—";
+    const profile = document.createElement("span");
+    profile.className = "client-profile" + (client.profile_is_set ? "" : " muted");
+    profile.textContent = client.profile_is_set
+      ? client.profile_summary || "Profile set"
+      : "No profile";
+    profile.title = profile.textContent;
     const del = document.createElement("button");
     del.type = "button";
     del.className = "row-delete";
@@ -399,7 +668,7 @@ function renderClients(clients) {
       event.stopPropagation();
       deleteClientRow(client);
     });
-    row.append(name, gstin, del);
+    row.append(name, profile, gstin, del);
     row.addEventListener("click", () => openClient(client.id));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openClient(client.id);
@@ -730,6 +999,11 @@ function showDesk(state) {
   applyDevMode(state.license);
   renderLicense(state.license);
   renderQuotaBanner(state.auth || authState);
+  if (state.profile_options) {
+    renderProfileOptions(state.profile_options);
+  } else {
+    ensureProfileOptions();
+  }
   renderClients(state.clients || []);
   showPane("clients");
   recordNav({ pane: "clients" });
@@ -758,8 +1032,10 @@ async function openClient(clientId) {
     showError(deskErrorEl, result.error);
     return;
   }
+  await ensureProfileOptions();
   currentClient = result.client;
   periodClientNameEl.textContent = result.client.name;
+  fillProfileForm(currentClient);
   periodLabelEl.value = result.suggested_period || "";
   renderPeriods(result.periods);
   lastPeriodCount = (result.periods || []).length;
@@ -781,6 +1057,7 @@ async function openPeriod(periodId) {
   dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
   renderFiles(result.files || []);
   renderPack(result.pack);
+  renderTreatmentHint(result.client, result.pack);
   renderPreview(result.preview);
   setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
   showPane("dump");
@@ -818,6 +1095,7 @@ function moneyCell(value) {
 }
 
 function renderPack(pack) {
+  renderTreatment(pack);
   packHasBank = false;
   packOpenKey = "";
   packVisible = Boolean(pack && pack.exists);
@@ -1826,8 +2104,8 @@ function currentGuideCard() {
     return {
       kicker: "Step 2 of 5",
       title: "Add the first client",
-      copy: "Type the legal name as you file it, then click Add client. GSTIN is optional.",
-      items: ["Type the client name.", "Click Add client."],
+      copy: "Type the legal name as you file it, pick the profession if you know it, then click Add client. GSTIN and profile are optional.",
+      items: ["Type the client name.", "Pick a profession, or leave it not set.", "Click Add client."],
       highlight: "#add-form",
     };
   }
@@ -1968,8 +2246,8 @@ async function deleteClientRow(client) {
   syncGuide();
 }
 
-async function boot() {
-  const state = await window.pywebview.api.get_state();
+async function boot(prefetched) {
+  const state = prefetched || (await window.pywebview.api.get_state());
   lastAppState = state;
   guideDismissed = Boolean(state.guide_dismissed);
   authState = state.auth || null;
@@ -2011,6 +2289,8 @@ saveFirmBtn.addEventListener("click", async () => {
     output_path: savedOut.output_path,
     path_warnings: savedOut.path_warnings || [],
     license: result.license,
+    auth: lastAppState ? lastAppState.auth : null,
+    profile_options: lastAppState ? lastAppState.profile_options : null,
   });
 });
 
@@ -2027,9 +2307,17 @@ firmNameEl.addEventListener("keydown", (event) => {
 addForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   showError(deskErrorEl, "");
+  const profile = readProfile(
+    clientProfessionEl,
+    clientEntityEl,
+    null,
+    clientProfessionCustomEl
+  );
+  if (clientGstinEl.value.trim()) profile.gst_registered = true;
   const result = await window.pywebview.api.create_client(
     clientNameEl.value,
-    clientGstinEl.value
+    clientGstinEl.value,
+    profile
   );
   if (!result.ok) {
     showError(deskErrorEl, result.error);
@@ -2037,8 +2325,36 @@ addForm.addEventListener("submit", async (event) => {
   }
   renderClients(result.clients);
   addForm.reset();
+  syncProfileCustomFields();
   clientNameEl.focus();
   syncGuide();
+});
+
+clientProfessionEl.addEventListener("change", syncProfileCustomFields);
+profileProfessionEl.addEventListener("change", syncProfileCustomFields);
+
+profileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!currentClient) return;
+  showError(profileErrorEl, "");
+  const profile = readProfile(
+    profileProfessionEl,
+    profileEntityEl,
+    profileGstEl,
+    profileProfessionCustomEl
+  );
+  const result = await window.pywebview.api.update_client_profile(currentClient.id, profile);
+  if (!result.ok) {
+    showError(profileErrorEl, result.error);
+    return;
+  }
+  currentClient = result.client;
+  fillProfileForm(currentClient);
+  renderClients(result.clients || []);
+  if (profileNoteEl) {
+    profileNoteEl.textContent =
+      "Saved. Open a period and re-parse it to refresh that period's treatment notes.";
+  }
 });
 
 periodForm.addEventListener("submit", async (event) => {
@@ -2338,12 +2654,52 @@ document.getElementById("wipe-cancel").addEventListener("click", () => {
   wipeModal.classList.add("hidden");
 });
 
+function resetWorkspaceState() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  activeJobId = null;
+  currentClient = null;
+  currentPeriod = null;
+  kindOptions = [];
+  lastFiles = [];
+  lastPreviewFiles = [];
+  lastPack = null;
+  packVisible = false;
+  packHasBank = false;
+  packOpenKey = "";
+  reconFilter = "all";
+  unlockFile = null;
+  cropSource = null;
+  lastPeriodCount = 0;
+  lastGuideHighlight = null;
+  previewFile = null;
+  previewPage = 1;
+  previewPassword = "";
+  previewSheet = "";
+  navHistory = [];
+  navIndex = -1;
+  closeCropModal();
+  closeFilePreview();
+  closeUnlockModal();
+  closeProfilePanel();
+  addForm.reset();
+  syncProfileCustomFields();
+  periodForm.reset();
+  profileForm.reset();
+}
+
 document.getElementById("wipe-confirm").addEventListener("click", async () => {
   showError(wipeErrorEl, "");
-  const result = await window.pywebview.api.wipe_and_restart();
+  const result = await window.pywebview.api.wipe_and_reset();
   if (!result.ok) {
     showError(wipeErrorEl, result.error);
+    return;
   }
+  wipeModal.classList.add("hidden");
+  resetWorkspaceState();
+  await boot(result);
 });
 
 if (cropModal) {
