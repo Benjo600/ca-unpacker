@@ -68,6 +68,9 @@ const scanNoteEl = document.getElementById("scan-note");
 const cropModal = document.getElementById("crop-modal");
 const cropCaptionEl = document.getElementById("crop-caption");
 const cropImageEl = document.getElementById("crop-image");
+const cropTitleEl = document.getElementById("crop-title");
+const cropReadoutEl = document.getElementById("crop-readout");
+const cropValueEl = document.getElementById("crop-value");
 const previewPaneEl = document.getElementById("preview-pane");
 const previewBodyEl = document.getElementById("preview-body");
 const previewFootEl = document.getElementById("preview-foot");
@@ -1285,14 +1288,20 @@ function amountCell(file, row, field, value) {
   btn.textContent = cropCaptionValue(field, value);
   btn.title = "View source";
   btn.addEventListener("click", () => openSourceCrop(file, row, field, value));
-  btn.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      openSourceCrop(file, row, field, value);
-    }
-  });
   td.append(btn);
   return td;
+}
+
+/* A compact clickable source reference, in the NotebookLM sense: small,
+   labelled, always opens the crop of the exact spot the value came from. */
+function citationChip(file, row, field, value, label, title) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "cite-chip";
+  chip.textContent = label || "SRC";
+  chip.title = title || "View source";
+  chip.addEventListener("click", () => openSourceCrop(file, row, field, value));
+  return chip;
 }
 
 function renderPreview(preview) {
@@ -1389,7 +1398,20 @@ function renderPreview(preview) {
             const page = row.source_page == null ? "" : String(row.source_page);
             const pageTd = document.createElement("td");
             pageTd.className = "num";
-            pageTd.textContent = page;
+            if (page) {
+              pageTd.append(
+                citationChip(
+                  file,
+                  row,
+                  "page",
+                  null,
+                  `p${page}`,
+                  `${file.filename || "Statement"} · page ${page}`
+                )
+              );
+            } else {
+              pageTd.textContent = "—";
+            }
             tr.append(
               dateTd,
               detailTd,
@@ -1487,11 +1509,44 @@ async function openSourceCrop(file, row, field, value) {
     showError(dumpErrorEl, "Could not load the page crop.");
     return;
   }
+  const fieldName =
+    field && field !== "page" ? String(field).replace(/_/g, " ") : "";
+  cropTitleEl.textContent = file.filename || "Source file";
+  cropCaptionEl.textContent = `Page ${page}${fieldName ? ` · ${fieldName}` : ""}`;
+  const hasValue = Boolean(fieldName) && value !== null && value !== undefined;
+  cropReadoutEl.hidden = !hasValue;
+  cropValueEl.textContent = hasValue ? cropCaptionValue(field, value) : "";
   cropImageEl.src = src;
   cropImageEl.alt = `${file.filename || "Statement"} page ${page}`;
-  cropCaptionEl.textContent = `${file.filename} · page ${page} · ${field} ${cropCaptionValue(field, value)}`;
-  cropSource = { file, page };
+  cropSource = { file, page, bbox };
   cropModal.classList.remove("hidden");
+}
+
+async function copyCitationText(text, button) {
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {
+    try {
+      const scratch = document.createElement("textarea");
+      scratch.value = text;
+      scratch.setAttribute("readonly", "");
+      scratch.style.position = "fixed";
+      scratch.style.opacity = "0";
+      document.body.append(scratch);
+      scratch.select();
+      copied = document.execCommand("copy");
+      scratch.remove();
+    } catch {
+      copied = false;
+    }
+  }
+  const original = button.textContent;
+  button.textContent = copied ? "Copied" : "Copy failed";
+  setTimeout(() => {
+    button.textContent = original;
+  }, 1400);
 }
 
 /* ---------------------------------------------------------------- preview */
@@ -2709,6 +2764,16 @@ if (cropModal) {
 }
 const cropCloseBtn = document.getElementById("crop-close");
 if (cropCloseBtn) cropCloseBtn.addEventListener("click", closeCropModal);
+
+const cropCopyBtn = document.getElementById("crop-copy");
+if (cropCopyBtn) {
+  cropCopyBtn.addEventListener("click", async () => {
+    if (!cropSource) return;
+    const { file, page, bbox } = cropSource;
+    const citation = `${file.filename || "source"}#p${page}${bbox ? `@${bbox}` : ""}`;
+    await copyCitationText(citation, cropCopyBtn);
+  });
+}
 
 const cropOpenPageBtn = document.getElementById("crop-open-page");
 if (cropOpenPageBtn) {

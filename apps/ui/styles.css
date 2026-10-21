@@ -1250,13 +1250,50 @@ button.danger:hover { background: #6e1f1f; }
   width: min(720px, 100%);
 }
 
-.crop-caption {
-  margin: 0 0 8px;
+.crop-title {
+  margin: 0;
   font-family: Cambria, "Palatino Linotype", serif;
-  font-size: 22px;
+  font-size: 20px;
   font-weight: 600;
   line-height: 1.25;
+  word-break: break-all;
+}
+
+.crop-caption {
+  margin: 2px 0 10px;
+  font-size: 13px;
+  letter-spacing: 0.02em;
+  color: var(--mute);
   word-break: break-word;
+}
+
+.crop-readout {
+  display: flex;
+  align-items: baseline;
+  gap: 12px;
+  margin: 0 0 12px;
+  padding: 10px 14px;
+  border: 1px solid var(--line);
+  border-left: 3px solid var(--tab);
+  border-radius: 8px;
+  background: #1b30280a;
+}
+
+.crop-readout-label {
+  flex: none;
+  font-size: 11px;
+  letter-spacing: 0.09em;
+  text-transform: uppercase;
+  color: var(--mute);
+}
+
+.crop-readout-value {
+  font-family: Cambria, "Palatino Linotype", serif;
+  font-size: 20px;
+  font-weight: 600;
+  font-variant-numeric: tabular-nums;
+  color: var(--ink);
+  word-break: break-all;
 }
 
 #crop-image {
@@ -1265,6 +1302,8 @@ button.danger:hover { background: #6e1f1f; }
   max-height: 68vh;
   object-fit: contain;
   background: #1b30280d;
+  border: 1px solid var(--line);
+  border-radius: 6px;
   margin: 4px 0 18px;
 }
 
@@ -1563,6 +1602,27 @@ button.source-amt {
 
 button.source-amt:hover {
   background: none;
+  color: var(--tab);
+}
+
+/* Citation chips — compact clickable source references (page markers, etc.) */
+.cite-chip {
+  display: inline-block;
+  margin: 0;
+  padding: 1px 7px;
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  background: none;
+  color: var(--mute);
+  font: inherit;
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  font-variant-numeric: tabular-nums;
+  cursor: pointer;
+}
+
+.cite-chip:hover {
+  border-color: var(--tab);
   color: var(--tab);
 }
 

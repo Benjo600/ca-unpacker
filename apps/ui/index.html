@@ -538,11 +538,16 @@
 
   <div id="crop-modal" class="modal hidden">
     <div class="modal-card crop-card">
-      <p class="eyebrow">Source</p>
+      <p class="eyebrow">Source citation</p>
+      <h2 id="crop-title" class="crop-title">Source file</h2>
       <p id="crop-caption" class="crop-caption"></p>
-      <p class="lede">From the statement, not from Excel.</p>
+      <div class="crop-readout" id="crop-readout" hidden>
+        <span class="crop-readout-label">What we read</span>
+        <span id="crop-value" class="crop-readout-value"></span>
+      </div>
       <img id="crop-image" alt="Page crop" />
       <div class="drop-actions">
+        <button type="button" class="ghost" id="crop-copy">Copy citation</button>
         <button type="button" class="ghost" id="crop-open-page">Open full page</button>
         <button type="button" class="ghost" id="crop-close">Close</button>
       </div>
