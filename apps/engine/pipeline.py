@@ -17,10 +17,12 @@ from apps.engine.outcomes import (
 from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
+from apps.engine.pack.file_review_xlsx import write_file_review_workbook
 from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3b
 from apps.engine.pack.recon_xlsx import write_master_grid
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.pack.treatment_xlsx import write_treatment_workbook
+from apps.engine.file_review import evaluate_file_review
 from apps.engine.profiles import resolve_profile
 from apps.engine.treatment import evaluate_treatment
 from apps.engine.recon import reconcile
@@ -367,6 +369,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         bank_status = next((item["status"] for item in outputs if item["key"] == "bank"), None)
 
         treatment = None
+        file_review = None
         if client is not None and outputs:
             resolved = resolve_profile(client)
             if resolved.get("is_set"):
@@ -388,6 +391,25 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                     _simple_out("treatment", dest.name, dest, len(treatment["flags"]))
                 )
 
+                file_review = evaluate_file_review(
+                    profile=resolved,
+                    files=files,
+                    bank_rows=bank_rows_all,
+                    purchase_rows=purchase_rows,
+                    sales_rows=sales_rows,
+                    books_rows=books_rows,
+                    gstr_1_rows=gstr_1,
+                    gstr_2b_rows=gstr_2b,
+                    gstr_3b_rows=gstr_3b,
+                    recon_rows=(recon_result or {}).get("rows") if recon_result else None,
+                    treatment_flags=treatment["flags"],
+                )
+                dest = dest_dir / "File_Review.xlsx"
+                write_file_review_workbook(dest, file_review)
+                outputs.append(
+                    _simple_out("file_review", dest.name, dest, len(file_review["checks"]))
+                )
+
         summary = {"outputs": outputs, "total_rows": total_rows, "folder": str(dest_dir)}
         if recon_result is not None:
             summary["recon"] = {
@@ -396,6 +418,8 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             }
         if treatment is not None:
             summary["treatment"] = treatment
+        if file_review is not None:
+            summary["file_review"] = file_review
         (dest_dir / "pack_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
         session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
@@ -783,6 +807,8 @@ def get_period_pack(period_id: int) -> dict | None:
                 payload["recon"] = summary["recon"]
             if summary and summary.get("treatment") is not None:
                 payload["treatment"] = summary["treatment"]
+            if summary and summary.get("file_review") is not None:
+                payload["file_review"] = summary["file_review"]
             return payload
         return pack_dict(pack, summary_path, summary)
     finally:
@@ -862,6 +888,8 @@ def pack_dict(pack: DataPack, path: Path, summary: dict | None = None) -> dict:
         payload["recon"] = summary["recon"]
     if summary and summary.get("treatment") is not None:
         payload["treatment"] = summary["treatment"]
+    if summary and summary.get("file_review") is not None:
+        payload["file_review"] = summary["file_review"]
     return payload
 
 

@@ -58,6 +58,11 @@ const treatmentMetaEl = document.getElementById("treatment-meta");
 const treatmentCountEl = document.getElementById("treatment-count");
 const treatmentListEl = document.getElementById("treatment-list");
 const treatmentNoteEl = document.getElementById("treatment-note");
+const fileReviewBlock = document.getElementById("file-review-block");
+const fileReviewMetaEl = document.getElementById("file-review-meta");
+const fileReviewCountEl = document.getElementById("file-review-count");
+const fileReviewListEl = document.getElementById("file-review-list");
+const fileReviewNoteEl = document.getElementById("file-review-note");
 const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
@@ -625,6 +630,125 @@ function renderTreatment(pack) {
     : treatment.disclaimer || "";
 }
 
+function renderFileReview(pack) {
+  if (!fileReviewBlock) return;
+  const review = pack && pack.file_review;
+  if (!review) {
+    fileReviewBlock.classList.add("hidden");
+    return;
+  }
+  fileReviewBlock.classList.remove("hidden");
+  const profile = review.profile || {};
+  fileReviewMetaEl.textContent = profile.summary || "File review for this period";
+  const counts = review.counts || {};
+  const missing = (counts.essential_missing || 0) + (counts.recommended_missing || 0);
+  const parts = [];
+  if (missing) parts.push(`${missing} document(s) missing`);
+  if (counts.attached_not_read) parts.push(`${counts.attached_not_read} attached, not read`);
+  if (counts.review) parts.push(`${counts.review} to review`);
+  if (counts.check) parts.push(`${counts.check} to check`);
+  if (!parts.length) parts.push("File looks complete");
+  fileReviewCountEl.textContent = parts.join(" · ");
+  fileReviewCountEl.className =
+    "pill" +
+    (review.readiness === "gaps" ? " mismatch" : review.readiness === "check" ? " unknown" : " match");
+
+  fileReviewListEl.innerHTML = "";
+  const statusChip = { missing: "mismatch", attached: "unknown", verified: "match" };
+  const statusLabel = { missing: "Missing", attached: "Attached", verified: "Read" };
+  for (const item of review.checklist || []) {
+    const row = document.createElement("div");
+    row.className = "treatment-row";
+    const head = document.createElement("div");
+    head.className = "treatment-row-head";
+    const chip = document.createElement("span");
+    chip.className = "pill " + (statusChip[item.status] || "mute");
+    chip.textContent = statusLabel[item.status] || item.status;
+    const title = document.createElement("span");
+    title.className = "treatment-title";
+    title.textContent = item.label || item.key;
+    head.append(chip, title);
+    const detail = document.createElement("p");
+    detail.className = "treatment-detail";
+    detail.textContent = item.evidence || "";
+    row.append(head, detail);
+    const meta = [];
+    meta.push(item.grade === "essential" ? "Essential" : "Nice to have");
+    if (item.escalated) meta.push("became essential this period");
+    if (item.why) meta.push(item.why);
+    if (meta.length) {
+      const metaEl = document.createElement("p");
+      metaEl.className = "treatment-meta";
+      metaEl.textContent = meta.join(" · ");
+      row.append(metaEl);
+    }
+    if (item.action) {
+      const actionEl = document.createElement("p");
+      actionEl.className = "treatment-action";
+      actionEl.textContent = item.action;
+      row.append(actionEl);
+    }
+    fileReviewListEl.append(row);
+  }
+
+  for (const flag of review.checks || []) {
+    const row = document.createElement("div");
+    row.className = "treatment-row";
+    const head = document.createElement("div");
+    head.className = "treatment-row-head";
+    const chip = document.createElement("span");
+    chip.className = "pill " + severityClass(flag.severity);
+    chip.textContent = severityLabel(flag.severity);
+    const title = document.createElement("span");
+    title.className = "treatment-title";
+    title.textContent = flag.title || flag.code;
+    head.append(chip, title);
+    const detail = document.createElement("p");
+    detail.className = "treatment-detail";
+    detail.textContent = flag.detail || "";
+    row.append(head, detail);
+    const meta = [];
+    if (flag.area) meta.push(flag.area);
+    const observed = observedText(flag.observed);
+    if (observed) meta.push(observed);
+    if (flag.law_ref) meta.push(flag.law_ref);
+    if (!flag.law_ref && flag.basis) meta.push(flag.basis);
+    if (meta.length) {
+      const metaEl = document.createElement("p");
+      metaEl.className = "treatment-meta";
+      metaEl.textContent = meta.join(" · ");
+      row.append(metaEl);
+    }
+    if (flag.action) {
+      const actionEl = document.createElement("p");
+      actionEl.className = "treatment-action";
+      actionEl.textContent = flag.action;
+      row.append(actionEl);
+    }
+    fileReviewListEl.append(row);
+  }
+
+  fileReviewNoteEl.textContent = review.disclaimer || "";
+}
+
+function renderFileReviewHint(client, pack) {
+  if (!fileReviewBlock) return;
+  if (!pack || !pack.exists) return;
+  if (pack.file_review) return;
+  if (!client || !client.profile_is_set) return;
+  fileReviewBlock.classList.remove("hidden");
+  fileReviewMetaEl.textContent = client.profile_summary || "Profile set";
+  fileReviewCountEl.textContent = "Not generated";
+  fileReviewCountEl.className = "pill mute";
+  fileReviewListEl.innerHTML = "";
+  const note = document.createElement("p");
+  note.className = "treatment-empty";
+  note.textContent =
+    "This pack was built before the profile was set or last changed. Re-parse the period to generate its file review.";
+  fileReviewListEl.append(note);
+  fileReviewNoteEl.textContent = "";
+}
+
 function renderTreatmentHint(client, pack) {
   if (!treatmentBlock) return;
   if (!pack || !pack.exists) return;
@@ -1060,6 +1184,7 @@ async function openPeriod(periodId) {
   dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
   renderFiles(result.files || []);
   renderPack(result.pack);
+  renderFileReviewHint(result.client, result.pack);
   renderTreatmentHint(result.client, result.pack);
   renderPreview(result.preview);
   setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
@@ -1098,6 +1223,7 @@ function moneyCell(value) {
 }
 
 function renderPack(pack) {
+  renderFileReview(pack);
   renderTreatment(pack);
   packHasBank = false;
   packOpenKey = "";
