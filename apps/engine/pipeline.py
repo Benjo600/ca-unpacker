@@ -4,9 +4,10 @@ import base64
 import hashlib
 import inspect
 import json
+import traceback
 from pathlib import Path
 
-from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session
+from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session, utcnow
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
 from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.outcomes import (
@@ -175,14 +176,21 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             try:
                 rows, extra = _dispatch_stored(stored, path, kind)
             except Exception as exc:
+                _log_parse_failure(stored, kind, exc)
                 message = _redact_secret(str(exc), stored.id)
-                stored.classify_reason = f"could not parse: {message[:200]}"
+                stored.classify_reason = f"could not parse: {_friendly_parse_error(message)[:180]}"
                 persist_file_outcome(
                     stored,
-                    failed_file_outcome("parser_error", message, kind=kind),
+                    failed_file_outcome("parser_error", _friendly_parse_error(message), kind=kind),
                 )
                 session.commit()
                 continue
+            if rows or (kind == "invoice" and (extra.get("line_items") or [])):
+                # A successful re-parse replaces a stale failure message so the
+                # file list stops flagging files the engine now reads fine.
+                reason = str(stored.classify_reason or "").lower()
+                if reason.startswith("could not parse"):
+                    stored.classify_reason = ""
             if kind == "invoice":
                 items = extra.get("line_items") or []
                 if extra.get("unreadable") or not rows or not items:
@@ -481,7 +489,61 @@ def _redact_secret(text: str, file_id: int) -> str:
     return cleaned.splitlines()[0] if cleaned else "Could not parse this file."
 
 
+def _log_parse_failure(stored, kind: str, exc: BaseException) -> None:
+    """Append the full traceback of a per-file parse failure to the library log.
+
+    The UI only shows a short message; this keeps the real cause for support.
+    """
+    try:
+        from apps.engine.library import get_library_path
+
+        log_path = get_library_path() / "app.log"
+        try:
+            if log_path.exists() and log_path.stat().st_size > 400_000:
+                log_path.read_text(encoding="utf-8", errors="replace")[-100_000:]
+                text = log_path.read_text(encoding="utf-8", errors="replace")[-100_000:]
+                log_path.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+        entry = "\n".join(
+            [
+                f"[{utcnow().isoformat()}] parse failure file={stored.id} "
+                f"name={stored.original_name!r} kind={kind}",
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                "-" * 60,
+            ]
+        )
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(entry)
+    except Exception:
+        pass  # never let logging break processing
+
+
+_INTERNAL_ERROR_MARKERS = (
+    "has no attribute",
+    "object is not",
+    "object at 0x",
+    "traceback (most recent call last)",
+)
+
+
+def _friendly_parse_error(message: str) -> str:
+    cleaned = (message or "").strip()
+    lowered = cleaned.lower()
+    if any(marker in lowered for marker in _INTERNAL_ERROR_MARKERS):
+        return "an internal error happened while reading this file"
+    return cleaned.splitlines()[0] if cleaned else "Could not parse this file."
+
+
 def _dispatch_stored(stored: StoredFile, path: Path, kind: str) -> tuple[list[dict], dict]:
+    client_id = None
+    if stored.period_id:
+        session = get_session()
+        try:
+            period = session.get(Period, int(stored.period_id))
+            client_id = period.client_id if period else None
+        finally:
+            session.close()
     password = get_file_password(stored.id)
     if password:
         try:
@@ -490,8 +552,8 @@ def _dispatch_stored(stored: StoredFile, path: Path, kind: str) -> tuple[list[di
             using_password = None
         if using_password is not None:
             with using_password(password):
-                return _dispatch(path, kind, stored.original_name)
-    return _dispatch(path, kind, stored.original_name)
+                return _dispatch(path, kind, stored.original_name, client_id)
+    return _dispatch(path, kind, stored.original_name, client_id)
 
 
 def get_source_crop(file_id: int, page: int, bbox: str | None) -> dict:
@@ -681,9 +743,9 @@ def _invoke_render(fn, **values):
     return fn(values["path"], values["page"], values.get("bbox"), values.get("password"))
 
 
-def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
+def _dispatch(path: Path, kind: str, filename: str, client_id: int | None = None) -> tuple[list[dict], dict]:
     if kind == "bank":
-        parsed = parse_bank_pdf(path, filename)
+        parsed = parse_bank_pdf(path, filename, client_id)
         check = check_balance(
             parsed["rows"], parsed.get("opening_balance"), parsed.get("stated_closing")
         )

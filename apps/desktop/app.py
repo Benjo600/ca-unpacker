@@ -12,7 +12,7 @@ from urllib.parse import parse_qs, urlparse
 import webview
 
 from apps.engine.clients import create_client, delete_client, get_client, list_clients
-from apps.engine.db import get_engine
+from apps.engine.db import StoredFile, get_engine, get_session
 from apps.engine.dump import (
     fail_job,
     get_job,
@@ -23,12 +23,13 @@ from apps.engine.dump import (
     reparse_period,
     start_job,
 )
+from apps.engine.preview import get_preview_for_path, list_folder_preview_files
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
-from apps.engine.library import get_library_path, init_library
+from apps.engine.library import get_library_path, init_library, resolve_storage_key
 from apps.engine.settings import (
     get_output_root,
     is_guide_dismissed,
@@ -37,7 +38,7 @@ from apps.engine.settings import (
     set_output_root,
 )
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
-from apps.engine.pdf_passwords import set_file_password as store_file_password
+from apps.engine.pdf_passwords import get_file_password, set_file_password as store_file_password
 from apps.engine.pipeline import (
     get_period_pack,
     get_period_preview,
@@ -425,6 +426,73 @@ class DesktopApi:
         except Exception:
             return {"ok": True, "found": False, "path": None, "note": "OCR module not loaded"}
 
+    def get_file_preview(
+        self,
+        file_id: int | None = None,
+        file_path: str | None = None,
+        page: int = 1,
+        sheet_name: str | None = None,
+        password: str | None = None,
+    ) -> dict:
+        if file_id is not None:
+            session = get_session()
+            try:
+                stored = session.get(StoredFile, int(file_id))
+                if stored is None:
+                    return {"ok": False, "error": "File was not found."}
+                if not stored.storage_key:
+                    return {"ok": False, "error": "The stored file data is missing."}
+                dest_path = resolve_storage_key(stored.storage_key)
+                if not dest_path.exists():
+                    return {"ok": False, "error": "The file does not exist on disk."}
+                pwd = password or get_file_password(int(file_id))
+                result = get_preview_for_path(
+                    dest_path,
+                    page=int(page or 1),
+                    sheet_name=sheet_name or None,
+                    password=pwd or None,
+                )
+                result["file_id"] = stored.id
+                result["original_name"] = stored.original_name
+                result["kind"] = stored.override_kind or stored.detected_kind
+                result["parse_outcome"] = getattr(stored, "parse_outcome", "unclassified")
+                return result
+            finally:
+                session.close()
+
+        if file_path:
+            return get_preview_for_path(
+                str(file_path),
+                page=int(page or 1),
+                sheet_name=sheet_name or None,
+                password=password or None,
+            )
+
+        return {"ok": False, "error": "Neither file_id nor file_path was provided."}
+
+    def list_folder_files(self, folder_path: str) -> dict:
+        try:
+            return list_folder_preview_files(str(folder_path or "").strip())
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def get_period_output_path(self, period_id: int) -> dict:
+        try:
+            path = open_pack_folder(int(period_id))
+            return {"ok": True, "path": path}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def open_file_in_os(self, path: str) -> dict:
+        try:
+            target = Path(str(path or "")).resolve()
+            if not target.exists():
+                return {"ok": False, "error": "File was not found on disk."}
+            _open_path(str(target))
+            return {"ok": True, "path": str(target)}
+        except Exception as exc:
+            return {"ok": False, "error": str(exc)}
+
     def wipe_and_restart(self) -> dict:
         try:
             wipe_all()
@@ -723,12 +791,26 @@ def main() -> None:
         _startup_auth_sync()
         global _WINDOW
         api = DesktopApi()
+        # Keep the window usable on any screen: never taller than ~90% of the
+        # work area and always placed inside it (150% DPI made it overflow).
+        width, height = 1120, 760
+        x = y = None
+        try:
+            primary = webview.screens[0]
+            width = min(width, max(primary.width - 20, 700))
+            height = min(height, max(primary.height - 16, 480))
+            x = max(0, (primary.width - width) // 2)
+            y = max(0, (primary.height - height) // 2)
+        except Exception:
+            pass
         _WINDOW = webview.create_window(
             "CA Unpacker",
             ui_index(),
             js_api=api,
-            width=1120,
-            height=760,
+            width=width,
+            height=height,
+            x=x,
+            y=y,
             min_size=(880, 580),
             background_color="#2C3330",
         )

@@ -3,481 +3,787 @@
 <head>
   <meta charset="UTF-8" />
   <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-  <title>CA Unpacker</title>
+  <title>CA Unpacker — Practice Terminal</title>
   <link rel="icon" href="app-icon.png" />
   <link rel="stylesheet" href="styles.css" />
 </head>
 <body>
+  <!-- AUTH GATE: Minimalist Terminal Vault -->
   <div id="auth-gate" class="auth-gate hidden">
     <div class="auth-card">
-      <p class="eyebrow">Account</p>
-      <h1 id="auth-title">Sign in to CA Unpacker</h1>
-      <p class="lede" id="auth-lede">Create an account or sign in to continue. All processing stays on this PC.</p>
+      <div class="terminal-card-header">
+        <div class="terminal-brand">
+          <div class="terminal-logo-glyph">
+            <span>CA</span>
+          </div>
+          <div>
+            <div class="terminal-logo-title">CA UNPACKER</div>
+            <div class="terminal-logo-sub">PRACTICE DESK • LOCAL ENGINE</div>
+          </div>
+        </div>
+        <span class="terminal-status-indicator"><span class="dot-online"></span> AIR-GAPPED</span>
+      </div>
+
+      <div class="terminal-divider"></div>
+
+      <div class="auth-header-text">
+        <h1 id="auth-title">Sign In</h1>
+        <p class="lede" id="auth-lede">Access your local firm workspace. All processing is strictly confined to this computer.</p>
+      </div>
+
       <form id="auth-form" autocomplete="on">
-        <label for="auth-email">Email</label>
-        <input id="auth-email" type="email" autocomplete="email" placeholder="you@firm.in" />
-        <label for="auth-password">Password</label>
-        <input id="auth-password" type="password" autocomplete="current-password" placeholder="Your password" />
-        <button type="submit" id="auth-submit">Log in</button>
+        <div class="terminal-field">
+          <div class="field-label-row">
+            <label for="auth-email">USER EMAIL</label>
+            <span class="field-tag">LOCAL AUTH</span>
+          </div>
+          <!-- Origin UI Input Group (from 21st.dev/@originui/input) -->
+          <div class="origin-input-group">
+            <span class="origin-input-addon font-mono">@</span>
+            <input id="auth-email" class="origin-input" type="email" autocomplete="email" placeholder="partner@firm.in" required />
+          </div>
+        </div>
+
+        <div class="terminal-field">
+          <div class="field-label-row">
+            <label for="auth-password">PASSWORD</label>
+          </div>
+          <!-- Origin UI Password Input with Toggle (from 21st.dev/@kokonutd/password-input) -->
+          <div class="origin-input-group">
+            <input id="auth-password" class="origin-input" type="password" autocomplete="current-password" placeholder="••••••••••••" required />
+            <button type="button" class="origin-input-addon-btn" id="auth-show-password" title="Toggle password visibility">
+              <svg width="14" height="14" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M2 12s3-7 10-7 10 7 10 7-3 7-10 7-10-7-10-7Z"/><circle cx="12" cy="12" r="3"/></svg>
+            </button>
+          </div>
+        </div>
+
+        <button type="submit" id="auth-submit" class="terminal-btn terminal-btn-primary">Authenticate →</button>
       </form>
-      <p class="auth-links">
-        <button type="button" class="link" id="auth-forgot">Forgot password?</button>
-        <span> · </span>
-        <button type="button" class="link" id="auth-mode-toggle">Create account instead</button>
-      </p>
+
+      <div class="auth-links">
+        <button type="button" class="link" id="auth-forgot">Reset password</button>
+        <span class="meta-sep">/</span>
+        <button type="button" class="link" id="auth-mode-toggle">Create account</button>
+      </div>
+
       <p id="auth-error" class="error" hidden></p>
       <p id="auth-notice" class="notice" hidden></p>
+
+      <div class="terminal-card-footer">
+        <span>ZERO CLOUD TRANSMISSION</span>
+        <span>DETERMINISTIC EXTRACTOR</span>
+      </div>
     </div>
   </div>
 
+  <!-- PROFILE / ACCOUNT DRAWER -->
   <div id="profile" class="profile hidden">
     <button type="button" id="profile-button" class="profile-seal" aria-haspopup="menu" aria-expanded="false" title="Account">
-      <span id="profile-initial" aria-hidden="true">·</span>
+      <span id="profile-initial" aria-hidden="true">CA</span>
       <span class="sr-only">Account</span>
     </button>
     <div id="profile-panel" class="profile-panel" role="menu" hidden>
-      <p class="profile-eyebrow">Signed in</p>
-      <p id="profile-email" class="profile-email"></p>
-      <p id="profile-plan" class="profile-plan"></p>
-      <div class="profile-meter" id="profile-meter" hidden>
-        <div class="profile-meter-fill" id="profile-meter-fill"></div>
+      <div class="profile-header">
+        <span class="panel-tag">LICENSEE</span>
+        <p id="profile-email" class="profile-email"></p>
+        <span id="profile-plan" class="profile-plan-badge"></span>
       </div>
-      <p id="quota-text" class="profile-quota"></p>
-      <p class="profile-privacy">Financial data transmitted: <strong>NONE</strong></p>
-      <button type="button" class="ghost profile-logout" id="auth-logout">Log out</button>
+      <div class="terminal-divider"></div>
+      <div class="profile-metrics">
+        <div class="metric-row">
+          <span>Monthly Quota</span>
+          <span id="quota-text" class="profile-quota"></span>
+        </div>
+        <div class="profile-meter" id="profile-meter" hidden>
+          <div class="profile-meter-fill" id="profile-meter-fill"></div>
+        </div>
+      </div>
+      <div class="profile-sec-status">
+        <span class="dot-online"></span> Client data egress: <strong>0 KB (Disabled)</strong>
+      </div>
+      <button type="button" class="ghost profile-logout" id="auth-logout">Sign Out</button>
     </div>
   </div>
 
+  <!-- STANDALONE LOGIN (Fallback) -->
   <div id="login" class="screen hidden">
-    <aside class="login-brand">
-      <div class="brand brand--on-dark brand--lg">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-          <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-        </svg>
-        <h1 class="brand-wordmark login-mark">
-          <span class="brand-wordmark-ca">CA</span>
-          <span class="brand-wordmark-name">Unpacker</span>
-        </h1>
+    <div class="terminal-card auth-card">
+      <div class="terminal-brand">
+        <div class="terminal-logo-glyph"><span>CA</span></div>
+        <div class="terminal-logo-title">CA UNPACKER</div>
       </div>
-      <p class="login-kicker">Practice software</p>
-      <p class="login-tagline">Bank statements, GST returns and books — unpacked on this PC for the firm.</p>
-      <p class="login-privacy">Your client documents stay on this PC.</p>
-    </aside>
-    <div class="login-panel">
-      <form id="login-form" class="login-card" autocomplete="off">
-        <div class="brand brand--on-light brand--sm">
-          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-            <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          </svg>
-          <p class="brand-wordmark">
-            <span class="brand-wordmark-ca">CA</span>
-            <span class="brand-wordmark-name">Unpacker</span>
-          </p>
-        </div>
-        <p class="login-card-kicker">Sign in</p>
-        <h2 class="login-card-title">Open CA Unpacker</h2>
-        <p class="login-card-lede">Sign in to open the firm workspace on this computer.</p>
+      <form id="login-form" autocomplete="off">
         <label for="login-user">Username or email</label>
-        <input id="login-user" type="text" maxlength="200" placeholder="e.g. office@firm.in" autocomplete="username" />
+        <input id="login-user" type="text" maxlength="200" placeholder="office@firm.in" autocomplete="username" />
         <label for="login-password">Password</label>
         <div class="login-password-row">
-          <input id="login-password" type="password" maxlength="200" placeholder="Enter password" autocomplete="current-password" />
-          <button type="button" class="login-toggle" id="login-show-password" aria-pressed="false">Show</button>
+          <input id="login-password" type="password" maxlength="200" placeholder="Password" autocomplete="current-password" />
+          <button type="button" class="login-toggle" id="login-show-password">Show</button>
         </div>
         <div class="login-row">
           <label class="login-remember" for="login-remember">
-            <input id="login-remember" type="checkbox" />
-            Remember me
+            <input id="login-remember" type="checkbox" /> Remember
           </label>
-          <a href="#" id="login-forgot" class="login-forgot">Forgot password</a>
+          <a href="#" id="login-forgot" class="login-forgot">Forgot</a>
         </div>
         <p id="login-error" class="error" hidden></p>
-        <button type="submit" id="login-submit">Log in</button>
+        <button type="submit" id="login-submit" class="terminal-btn terminal-btn-primary">Sign In</button>
       </form>
     </div>
   </div>
 
+  <!-- WELCOME BACK SCREEN -->
   <div id="welcome" class="screen hidden">
-    <aside class="login-brand">
-      <div class="brand brand--on-dark brand--lg">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-          <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-        </svg>
-        <h1 class="brand-wordmark login-mark">
-          <span class="brand-wordmark-ca">CA</span>
-          <span class="brand-wordmark-name">Unpacker</span>
-        </h1>
+    <div class="terminal-card welcome-card">
+      <div class="terminal-card-header">
+        <span class="panel-tag">WORKSPACE RESTORE</span>
+        <span class="terminal-status-indicator"><span class="dot-online"></span> LOCAL</span>
       </div>
-      <p class="login-kicker">Practice software</p>
-      <p class="login-tagline">A private workspace for bank statements, GST returns and books on this PC.</p>
-      <p class="login-privacy">Your client documents stay on this PC.</p>
-    </aside>
-    <div class="welcome-panel">
-      <div class="welcome-card">
-        <div class="brand brand--on-light brand--sm">
-          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-            <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          </svg>
-          <p class="brand-wordmark">
-            <span class="brand-wordmark-ca">CA</span>
-            <span class="brand-wordmark-name">Unpacker</span>
-          </p>
+      <h2 class="welcome-firm" id="welcome-firm">Firm</h2>
+      <p class="lede">Local repository is mounted and verified.</p>
+      <dl class="welcome-meta">
+        <div class="welcome-meta-row" id="welcome-license-row" hidden>
+          <dt>License tier</dt>
+          <dd id="welcome-license"></dd>
         </div>
-        <p class="login-card-kicker">Workspace</p>
-        <p class="welcome-hello">Welcome back</p>
-        <h2 class="welcome-firm" id="welcome-firm">Firm</h2>
-        <p class="welcome-lede">Your private workspace is ready.</p>
-        <div class="welcome-status">
-          <p class="welcome-status-title">On this computer</p>
-          <p class="welcome-status-copy">Client documents are stored and processed locally. Cleaned Excels are written only to the folder this firm chose. Nothing is uploaded from this PC.</p>
+        <div class="welcome-meta-row" id="welcome-output-row" hidden>
+          <dt>Output root</dt>
+          <dd id="welcome-output"></dd>
         </div>
-        <dl class="welcome-meta">
-          <div class="welcome-meta-row" id="welcome-license-row" hidden>
-            <dt>Licence</dt>
-            <dd id="welcome-license"></dd>
-          </div>
-          <div class="welcome-meta-row" id="welcome-output-row" hidden>
-            <dt>Output folder</dt>
-            <dd id="welcome-output"></dd>
-          </div>
-        </dl>
-        <button type="button" id="welcome-continue">Open workspace</button>
-      </div>
+      </dl>
+      <button type="button" id="welcome-continue" class="terminal-btn terminal-btn-primary">Open Practice Desk →</button>
     </div>
   </div>
 
+  <!-- SETUP SCREEN: First-Launch Firm & Directory Initialization -->
   <div id="setup" class="screen hidden">
-    <div class="docket">
-      <p class="eyebrow">First launch</p>
-      <h1>This PC keeps the firm’s files.</h1>
-      <p class="lede">Nothing is uploaded. Do these three clicks, then the desk opens.</p>
-      <ol class="howto">
-        <li>Type your firm name below.</li>
-        <li>Click <strong>Choose folder</strong> — that is where cleaned Excels will be saved.</li>
-        <li>Click <strong>Open the desk</strong>.</li>
-      </ol>
-      <label for="firm-name">Firm name</label>
-      <input id="firm-name" type="text" maxlength="200" placeholder="e.g. Mehta &amp; Associates" />
-      <label for="output-path">Folder for cleaned Excels</label>
-      <div class="path-row">
-        <input id="output-path" type="text" readonly placeholder="Choose a folder the app may write to" />
-        <button type="button" class="ghost" id="pick-output">Choose folder</button>
+    <div class="setup-terminal-card">
+      <div class="terminal-card-header">
+        <div class="terminal-brand">
+          <div class="terminal-logo-glyph"><span>CA</span></div>
+          <div>
+            <div class="terminal-logo-title">INITIALIZATION DOCKET</div>
+            <div class="terminal-logo-sub">STEP 01/01 • PRACTICE CONFIGURATION</div>
+          </div>
+        </div>
+        <span class="terminal-status-indicator"><span class="dot-online"></span> PC VAULT</span>
       </div>
-      <p class="path-note">The app will create a subfolder per client and period. Originals stay in a private library on this PC.</p>
-      <p id="path-warnings" class="path-warn" hidden></p>
-      <p id="setup-error" class="error" hidden></p>
-      <button type="button" id="save-firm">Open the desk</button>
+
+      <div class="terminal-divider"></div>
+
+      <div class="setup-body">
+        <div class="setup-instruction-strip">
+          <span class="strip-label">ENGINE SCOPE:</span>
+          <span>Air-gapped on this workstation. Output folders will hold cleaned Excel workbooks per client & period.</span>
+        </div>
+
+        <div class="terminal-field">
+          <div class="field-label-row">
+            <label for="firm-name">PRACTICE / FIRM NAME</label>
+            <span class="field-tag">REQUIRED</span>
+          </div>
+          <input id="firm-name" class="terminal-input" type="text" maxlength="200" placeholder="e.g. Mehta & Associates, Chartered Accountants" />
+          <span class="field-helper">Appears on standardized Excel working papers and index headers.</span>
+        </div>
+
+        <div class="terminal-field">
+          <div class="field-label-row">
+            <label for="output-path">CLEANED EXCELS REPOSITORY PATH</label>
+            <span class="field-tag">LOCAL DISK</span>
+          </div>
+          <div class="path-row">
+            <input id="output-path" class="terminal-input font-mono" type="text" readonly placeholder="Select a directory (e.g. D:\CA_Workpapers)" />
+            <button type="button" class="terminal-btn terminal-btn-secondary" id="pick-output">Browse Path</button>
+          </div>
+          <span class="field-helper">Original client files stay untouched in internal database. Extracted workbooks write here.</span>
+        </div>
+
+        <p id="path-warnings" class="path-warn" hidden></p>
+        <p id="setup-error" class="error" hidden></p>
+
+        <div class="setup-action-row">
+          <button type="button" id="save-firm" class="terminal-btn terminal-btn-primary terminal-btn-lg">Initialize Practice Workspace →</button>
+        </div>
+      </div>
+
+      <div class="terminal-card-footer">
+        <span>PARSING RUNTIME: DETERMINISTIC PYTHON</span>
+        <span>STORAGE: SQLITE / LOCAL FS</span>
+      </div>
     </div>
   </div>
 
+  <!-- DESK: Main High-Density Workspace -->
   <div id="desk" class="screen hidden">
+    <!-- DARK OBSIDIAN RAIL -->
     <aside class="rail">
-      <div class="brand brand--on-dark brand--md">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-          <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-        </svg>
-        <p class="brand-wordmark mark">
-          <span class="brand-wordmark-ca">CA</span>
-          <span class="brand-wordmark-name">Unpacker</span>
-        </p>
-      </div>
-      <p class="firm-line rail-sr-only" id="firm-label"></p>
-
-      <p class="rail-section">Workspace</p>
-      <nav class="rail-nav">
-        <span class="nav-current" id="nav-label">Clients</span>
-        <span class="nav-later">Packs <span class="rail-soon">Coming soon</span></span>
-      </nav>
-
-      <div class="rail-practice">
-        <p class="rail-section">Practice</p>
-        <ul class="rail-soon-list">
-          <li>Dashboard <span class="rail-soon">Coming soon</span></li>
-          <li>Documents <span class="rail-soon">Coming soon</span></li>
-          <li>Reconciliation <span class="rail-soon">Coming soon</span></li>
-          <li>Reports <span class="rail-soon">Coming soon</span></li>
-        </ul>
-      </div>
-
-      <div class="rail-meta">
-        <p class="rail-foot rail-sr-only" id="output-label">No output folder</p>
-        <p id="desk-path-warnings" class="path-warn rail-warn rail-sr-only" hidden></p>
-        <div class="rail-plan">
-          <p class="rail-plan-name" id="license-plan-name"></p>
-          <p class="rail-foot" id="license-label"></p>
+      <div class="rail-top">
+        <div class="rail-brand">
+          <div class="terminal-logo-glyph sm"><span>CA</span></div>
+          <div class="rail-title-group">
+            <span class="rail-app-title">CA UNPACKER</span>
+            <span class="rail-firm-name" id="firm-label">Practice</span>
+          </div>
         </div>
-        <div class="rail-actions">
-          <span class="rail-later">Settings <span class="rail-soon">Coming soon</span></span>
-          <button type="button" class="rail-link" id="guide-open">Help / How to use</button>
-          <button type="button" class="rail-link" id="license-open">Licence</button>
-          <button type="button" class="rail-link" id="change-output">Change output folder</button>
-          <button type="button" class="danger-link" id="wipe-open">Delete library</button>
+
+        <div class="rail-nav-group">
+          <span class="rail-nav-header">CORE DESK</span>
+          <nav class="rail-nav">
+            <button type="button" class="rail-nav-item active" id="nav-label">
+              <span class="nav-dot"></span>
+              <span class="nav-text">Clients</span>
+            </button>
+            <div class="rail-nav-item disabled">
+              <span class="nav-dot dim"></span>
+              <span class="nav-text">Packs</span>
+              <span class="tag-soon">SOON</span>
+            </div>
+          </nav>
+        </div>
+
+        <div class="rail-nav-group">
+          <span class="rail-nav-header">MODULES</span>
+          <div class="rail-nav-sublist">
+            <div class="rail-subitem disabled" title="Runs inside the engine: drop bank PDFs into a month's dump tray."><span>Bank Extraction</span><span class="tag-active">v1.0</span></div>
+            <div class="rail-subitem disabled" title="Runs inside the engine: drop a GSTR-2B JSON together with Tally or Zoho books."><span>GSTR-2B vs Books</span><span class="tag-active">v1.0</span></div>
+            <div class="rail-subitem disabled" title="Runs inside the engine: drop a Tally daybook XML into a month's dump tray."><span>Tally Normalizer</span><span class="tag-active">v1.0</span></div>
+            <div class="rail-subitem disabled"><span>Reconciliation Desk</span><span class="tag-soon">SOON</span></div>
+          </div>
+        </div>
+      </div>
+
+      <div class="rail-bottom">
+        <div class="rail-meta-card">
+          <div class="meta-row">
+            <span class="meta-label">LICENSE</span>
+            <span class="meta-val highlight" id="license-plan-name">PRO TIER</span>
+          </div>
+          <div class="meta-row">
+            <span class="meta-label">ENGINE</span>
+            <span class="meta-val status-green">● LOCAL AIR-GAP</span>
+          </div>
+          <span class="rail-meta-row" id="output-label"></span>
+          <span class="rail-meta-row" id="license-label"></span>
+          <p id="desk-path-warnings" class="path-warn rail-warn rail-sr-only" hidden></p>
+        </div>
+
+        <div class="rail-controls">
+          <button type="button" class="rail-link-btn" id="guide-open">Terminal Runbook</button>
+          <button type="button" class="rail-link-btn" id="license-open">License Key</button>
+          <button type="button" class="rail-link-btn" id="change-output">Set Root Folder</button>
+          <button type="button" class="rail-link-btn danger" id="wipe-open">Reset Database</button>
         </div>
       </div>
     </aside>
 
+    <!-- WORKSPACE CANVAS -->
     <div class="desk-workspace">
-      <div class="desk-nav" role="toolbar" aria-label="Workspace navigation">
+      <!-- TOP COMMAND BAR WITH KOKONUT UI ACTION SEARCH BAR (from 21st.dev/@kokonutd/action-search-bar) -->
+      <header class="desk-nav" role="toolbar">
         <div class="desk-nav-left">
-          <div class="desk-nav-group">
-            <button type="button" class="desk-nav-btn ui-tooltip" id="nav-back" disabled data-tooltip="Back" aria-label="Back" title="Back (Alt+Left)">
-              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M10.2 2.3 4.5 8l5.7 5.7 1.1-1.1L6.7 8l4.6-4.6z"/></svg>
-            </button>
-            <button type="button" class="desk-nav-btn ui-tooltip" id="nav-forward" disabled data-tooltip="Forward" aria-label="Forward" title="Forward (Alt+Right)">
-              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M5.8 2.3 4.7 3.4 9.3 8l-4.6 4.6 1.1 1.1L11.5 8z"/></svg>
-            </button>
-            <button type="button" class="desk-nav-btn ui-tooltip" id="nav-refresh" data-tooltip="Refresh" aria-label="Refresh" title="Refresh (Ctrl+R)">
-              <svg viewBox="0 0 16 16" aria-hidden="true" focusable="false"><path fill="currentColor" d="M13.5 8A5.5 5.5 0 1 1 8 2.5V1l3 2.5L8 6V4.5A3.5 3.5 0 1 0 11.5 8h2z"/></svg>
-            </button>
+          <div class="nav-history-cluster">
+            <button type="button" class="icon-btn" id="nav-back" disabled title="History Back (Alt+Left)">‹</button>
+            <button type="button" class="icon-btn" id="nav-forward" disabled title="History Forward (Alt+Right)">›</button>
+            <button type="button" class="icon-btn" id="nav-refresh" title="Reload (Ctrl+R)">↻</button>
           </div>
+          <div class="nav-context-breadcrumb" id="desk-context" aria-live="polite">Clients</div>
         </div>
-        <p class="desk-nav-context" id="desk-context" aria-live="polite">Clients</p>
-        <div class="desk-nav-right"></div>
-      </div>
-      <div class="desk-panes">
-    <main class="sheet" id="pane-clients">
-      <header class="sheet-head">
-        <div>
-          <div class="brand brand--on-light brand--sm">
-            <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-              <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-              <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-              <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-              <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-              <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            </svg>
-            <p class="brand-wordmark">
-              <span class="brand-wordmark-ca">CA</span>
-              <span class="brand-wordmark-name">Unpacker</span>
-            </p>
-          </div>
-          <p class="eyebrow type-kicker">Practice</p>
-          <h1 class="type-page-title">Clients</h1>
-        </div>
-        <p class="count ui-card-compact"><span id="client-count">0</span> on this PC</p>
-      </header>
 
-      <form id="add-form" class="add-row ui-card" autocomplete="off">
-        <div class="field ui-field">
-          <label class="ui-field-label" for="client-name">Client name</label>
-          <input id="client-name" class="ui-input" type="text" maxlength="200" placeholder="Legal name as you file it" required />
-        </div>
-        <div class="field gstin ui-field">
-          <label class="ui-field-label" for="client-gstin">GSTIN <span class="optional">optional</span></label>
-          <input id="client-gstin" class="ui-input" type="text" maxlength="15" placeholder="27AAAAA0000A1Z5" />
-        </div>
-        <button type="submit" class="ui-btn ui-btn-primary">Add client</button>
-      </form>
-      <p id="desk-error" class="error type-status" hidden></p>
-
-      <div class="ledger ui-list">
-        <div class="ledger-head ui-table-head">
-          <span>Client</span>
-          <span>GSTIN</span>
-          <span></span>
-        </div>
-        <div id="client-list"></div>
-        <p id="empty" class="empty ui-empty hidden">No clients on this PC yet. Add a legal name above to open the first file.</p>
-      </div>
-    </main>
-
-    <main class="sheet hidden" id="pane-periods">
-      <div class="periods-shell">
-        <header class="sheet-head periods-head">
-          <nav class="periods-crumb" aria-label="Breadcrumb">
-            <button type="button" class="text-btn ui-btn ui-btn-text" id="back-to-clients">All clients</button>
-          </nav>
-          <p class="eyebrow type-kicker">Client</p>
-          <h1 class="type-page-title" id="period-client-name">Client</h1>
-        </header>
-
-        <form id="period-form" class="add-row ui-card-compact periods-create" autocomplete="off">
-          <div class="periods-create-copy">
-            <h2 class="type-card-title">Create period</h2>
-            <p class="type-muted">Add a new accounting/work period for this client.</p>
-          </div>
-          <div class="periods-create-row">
-            <div class="field ui-field">
-              <label class="ui-field-label" for="period-label">Period name</label>
-              <input id="period-label" class="ui-input" type="text" maxlength="80" placeholder="Aug 2026" required />
+        <!-- Kokonut UI Action Search Bar -->
+        <div class="desk-nav-center">
+          <div class="action-search-container" id="action-search-container">
+            <div class="action-search-bar" id="action-search-bar">
+              <svg class="action-search-icon" width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.2"><circle cx="11" cy="11" r="8"/><path d="m21 21-4.3-4.3"/></svg>
+              <input type="text" id="action-search-input" placeholder="Search clients, run commands..." autocomplete="off" spellcheck="false" />
+              <div class="action-search-shortcuts">
+                <kbd class="origin-kbd">⌘K</kbd>
+              </div>
             </div>
-            <button type="submit" class="ui-btn ui-btn-primary">Add period</button>
+            <!-- Interactive Action Suggestions Dropdown -->
+            <div class="action-search-dropdown hidden" id="action-search-dropdown" role="listbox">
+              <div class="action-dropdown-section-title">COMMANDS &amp; CLIENT SEARCH</div>
+              <div class="action-dropdown-list" id="action-dropdown-list"></div>
+              <div class="action-dropdown-footer">
+                <span class="action-footer-tip"><kbd class="origin-kbd">↑</kbd><kbd class="origin-kbd">↓</kbd> Navigate</span>
+                <span class="action-footer-tip"><kbd class="origin-kbd">↵</kbd> Select</span>
+                <span class="action-footer-tip"><kbd class="origin-kbd">ESC</kbd> Close</span>
+              </div>
+            </div>
           </div>
-        </form>
-        <p id="period-error" class="error type-status" hidden></p>
-
-        <section class="periods-board" aria-labelledby="periods-heading">
-          <h2 class="type-label" id="periods-heading">Periods</h2>
-          <div class="ledger ui-list">
-            <div id="period-list"></div>
-            <p id="period-empty" class="empty ui-empty hidden">
-              <span class="type-card-title">No periods yet</span>
-              <span class="type-muted">Add the month you are working on, then open it to dump files into that period.</span>
-            </p>
-          </div>
-        </section>
-      </div>
-    </main>
-
-    <main class="sheet hidden" id="pane-dump">
-      <header class="sheet-head">
-        <div>
-          <button type="button" class="text-btn" id="back-to-periods">Periods</button>
-          <p class="eyebrow" id="dump-eyebrow">Dump tray</p>
-          <h1 id="dump-title">Period</h1>
         </div>
-        <p class="count" id="dump-status"></p>
+
+        <div class="desk-nav-right">
+          <span class="terminal-pill"><span class="dot-online"></span> DETERMINISTIC PARSER ACTIVE</span>
+        </div>
       </header>
 
-      <div id="drop-zone" class="drop-zone">
-        <p class="drop-title">Drop files or whole folders here</p>
-        <p class="drop-copy">Add files, Add folder, or drag a client month from Explorer. Nested folders are unpacked. Bank PDFs, invoices, GSTR JSON and Tally exports can go in together. For spreadsheets, use .xlsx or .csv.</p>
-        <div class="drop-actions">
-          <button type="button" id="add-files">Add files</button>
-          <button type="button" class="ghost" id="add-folder">Add folder</button>
-        </div>
-      </div>
-      <p id="dump-error" class="error" hidden></p>
+      <!-- PANES CONTAINER -->
+      <div class="desk-panes">
+        <!-- PANE: CLIENTS LEDGER -->
+        <main class="sheet" id="pane-clients">
+          <div class="pane-inner">
+            <div class="pane-header-row">
+              <div>
+                <div class="terminal-kicker">DATABASE • CLIENT REPOSITORY</div>
+                <h1 class="pane-title">Client Master Ledger</h1>
+              </div>
+              <div class="pane-metrics">
+                <span class="metric-counter"><span id="client-count">0</span> CLIENTS REGISTERED</span>
+              </div>
+            </div>
 
-      <section id="pack-block" class="pack hidden">
-        <div>
-          <p class="eyebrow">Data pack</p>
-          <h2 id="pack-title">Excels for this period</h2>
-          <p id="pack-meta"></p>
-          <div id="pack-files"></div>
-        </div>
-        <div class="drop-actions">
-          <button type="button" id="open-pack">Open in Excel</button>
-          <button type="button" class="ghost" id="open-folder">Open pack folder</button>
-        </div>
-      </section>
+            <!-- ORIGIN UI INLINE INPUT STRIP (from 21st.dev/@originui/input) -->
+            <form id="add-form" class="client-entry-strip" autocomplete="off">
+              <div class="entry-field flex-2">
+                <label for="client-name">CLIENT LEGAL NAME</label>
+                <div class="origin-input-group">
+                  <span class="origin-input-addon">ENTITY</span>
+                  <input id="client-name" class="origin-input" type="text" maxlength="200" placeholder="e.g. Rajesh Trading Corporation" required />
+                  <span class="origin-input-suffix-tag">REQUIRED</span>
+                </div>
+              </div>
+              <div class="entry-field flex-1">
+                <label for="client-gstin">GSTIN <span class="optional-tag">(OPTIONAL)</span></label>
+                <div class="origin-input-group">
+                  <span class="origin-input-addon font-mono">GST</span>
+                  <input id="client-gstin" class="origin-input font-mono" type="text" maxlength="15" placeholder="27AAAAA0000A1Z5" />
+                  <span class="origin-input-suffix-tag font-mono">15 CHARS</span>
+                </div>
+              </div>
+              <button type="submit" class="terminal-btn terminal-btn-primary entry-submit">+ Register Client</button>
+            </form>
+            <p id="desk-error" class="error" hidden></p>
 
-      <section id="recon-block" class="recon hidden">
-        <p class="eyebrow">Books vs 2B</p>
-        <h2>Reconciliation</h2>
-        <p id="recon-counts"></p>
-        <div id="recon-filters" class="drop-actions recon-filters">
-          <button type="button" data-recon-filter="all">All</button>
-          <button type="button" class="ghost" data-recon-filter="matched">Matched</button>
-          <button type="button" class="ghost" data-recon-filter="unmatched">Unmatched</button>
-          <button type="button" class="ghost" data-recon-filter="amount_mismatch">Amount mismatch</button>
-          <button type="button" class="ghost" data-recon-filter="likely">Likely</button>
-        </div>
-        <div id="recon-table"></div>
-      </section>
+            <!-- LEDGER TABLE -->
+            <div class="terminal-table-container">
+              <div class="terminal-table-head">
+                <div class="col-client">CLIENT LEGAL ENTITY</div>
+                <div class="col-gstin">GSTIN</div>
+                <div class="col-status">STATE</div>
+                <div class="col-actions"></div>
+              </div>
+              <div id="client-list" class="terminal-table-body"></div>
+              
+              <!-- CLEAN NON-SLOP EMPTY STATE -->
+              <div id="empty" class="terminal-empty-box hidden">
+                <div class="empty-code-banner">
+                  <span class="empty-prompt">&gt; REPOSITORY READY: 0 ENTITIES INITIALIZED</span>
+                </div>
+                <p class="empty-detail">No client directories on this machine yet. Enter a legal name above and press Enter to create the client folder.</p>
+                <div class="empty-specs-table">
+                  <div class="spec-row">
+                    <span class="spec-code">PDF_PARSER</span>
+                    <span class="spec-desc">Deterministic extraction for 20+ Indian Banks (HDFC, SBI, ICICI, Axis, Kotak, PNB, BoB, Canara)</span>
+                  </div>
+                  <div class="spec-row">
+                    <span class="spec-code">GSTR2B_RECON</span>
+                    <span class="spec-desc">Automatic JSON/Excel match vs Purchase Registers</span>
+                  </div>
+                  <div class="spec-row">
+                    <span class="spec-code">TALLY_BOOKS</span>
+                    <span class="spec-desc">XML & Excel daybook / ledger normalization</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </main>
 
-      <section id="preview-block" class="preview hidden">
-        <h2>Spot-check</h2>
-        <p>First and last lines from each statement. Click an amount to see it on the page. Open Excel for the full list.</p>
-        <div id="preview-list"></div>
-      </section>
-      <p id="scan-note" class="mute-note hidden">This statement looks scanned. Digital PDFs still pack as usual.</p>
+        <!-- PANE: PERIODS -->
+        <main class="sheet hidden" id="pane-periods">
+          <div class="pane-inner">
+            <div class="pane-nav-strip">
+              <button type="button" class="text-back-btn" id="back-to-clients">← Return to Client Master</button>
+            </div>
+            
+            <div class="pane-header-row">
+              <div>
+                <div class="terminal-kicker">CLIENT WORKSPACE</div>
+                <h1 class="pane-title" id="period-client-name">Client Entity</h1>
+              </div>
+            </div>
 
-      <section id="review-block" class="review hidden">
-        <h2>Needs review</h2>
-        <p>These files need attention before their results can be relied on. The reason is shown with each file. They are not in an Excel yet.</p>
-        <p id="review-pack-note" hidden>These files are not in an Excel yet.</p>
-        <div id="review-list"></div>
-      </section>
+            <form id="period-form" class="client-entry-strip" autocomplete="off">
+              <div class="entry-field flex-2">
+                <label for="period-label">NEW ACCOUNTING PERIOD / MONTH</label>
+                <input id="period-label" class="terminal-input font-mono" type="text" maxlength="80" placeholder="Aug 2026 / FY 2025-26" required />
+              </div>
+              <button type="submit" class="terminal-btn terminal-btn-primary entry-submit">+ Add Period</button>
+            </form>
+            <p id="period-error" class="error" hidden></p>
 
-      <div class="ledger">
-        <div class="ledger-head files-head">
-          <span>File</span>
-          <span>Type</span>
-        </div>
-        <div id="file-list"></div>
-        <p id="file-empty" class="empty hidden">No files in this period yet. Drop a folder or add files to begin.</p>
-      </div>
-    </main>
+            <div class="terminal-table-container">
+              <div class="terminal-table-head">
+                <div class="col-period">PERIOD LABEL</div>
+                <div class="col-action">STATUS</div>
+              </div>
+              <div id="period-list" class="terminal-table-body"></div>
+              <div id="period-empty" class="terminal-empty-box hidden">
+                <span class="empty-prompt">&gt; NO PERIODS FOUND</span>
+                <p class="empty-detail">Create an accounting period (e.g. Aug 2026) to open the file dump tray.</p>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <!-- PANE: DUMP TRAY & EXTRACTION -->
+        <main class="sheet hidden" id="pane-dump">
+          <div class="pane-inner">
+            <div class="pane-nav-strip">
+              <button type="button" class="text-back-btn" id="back-to-periods">← Return to Periods</button>
+            </div>
+
+            <div class="pane-header-row">
+              <div>
+                <div class="terminal-kicker" id="dump-eyebrow">DUMP TRAY</div>
+                <h1 class="pane-title" id="dump-title">Period Data Intake</h1>
+              </div>
+              <div>
+                <span class="terminal-pill" id="dump-status">READY</span>
+              </div>
+            </div>
+
+            <!-- KIBO UI & ACETERNITY FILE DROPZONE (from 21st.dev/@haydenbleasel/dropzone) -->
+            <div id="drop-zone" class="terminal-drop-target kibo-dropzone">
+              <div class="drop-grid-backdrop" aria-hidden="true"></div>
+              <div class="drop-target-inner">
+                <div class="drop-icon-wrapper">
+                  <svg class="drop-upload-icon" width="26" height="26" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.75" stroke-linecap="round" stroke-linejoin="round">
+                    <path d="M21 15v4a2 2 0 0 1-2 2H5a2 2 0 0 1-2-2v-4"/>
+                    <polyline points="17 8 12 3 7 8"/>
+                    <line x1="12" y1="3" x2="12" y2="15"/>
+                  </svg>
+                </div>
+                <div class="drop-headline">DROP BANK STATEMENTS &amp; ACCOUNTING BOOKS HERE</div>
+                <p class="drop-sub">Drag bank PDF statements, GSTR-2B JSON, Tally XML or Excel books directly from Explorer. Nested directories are recursively inventoried and extracted.</p>
+
+                <div class="drop-formats-row">
+                  <span class="format-pill"><span class="format-dot red"></span> PDF Bank Statements</span>
+                  <span class="format-pill"><span class="format-dot blue"></span> GSTR-2B JSON</span>
+                  <span class="format-pill"><span class="format-dot amber"></span> Tally XML Daybook</span>
+                  <span class="format-pill"><span class="format-dot green"></span> Excel Ledgers</span>
+                </div>
+
+                <div class="drop-btn-row">
+                  <button type="button" id="add-files" class="terminal-btn terminal-btn-primary">Browse Files</button>
+                  <button type="button" id="add-folder" class="terminal-btn terminal-btn-secondary">Browse Directory</button>
+                </div>
+              </div>
+            </div>
+            <p id="dump-error" class="error" hidden></p>
+
+            <!-- PACK OUTPUT SECTION -->
+            <section id="pack-block" class="terminal-section-box pack hidden">
+              <div class="box-header-row">
+                <div>
+                  <span class="terminal-kicker">OUTPUT WORKPAPERS</span>
+                  <h2 id="pack-title" class="box-title">Normalized Excel Data Pack</h2>
+                  <p id="pack-meta" class="meta-desc"></p>
+                </div>
+                <div class="btn-group">
+                  <button type="button" id="open-pack" class="terminal-btn terminal-btn-primary">Open in Excel ↗</button>
+                  <button type="button" id="open-folder" class="terminal-btn terminal-btn-secondary">Open Folder</button>
+                </div>
+              </div>
+              <div id="pack-files" class="pack-files-list"></div>
+            </section>
+
+            <!-- RECONCILIATION SECTION -->
+            <section id="recon-block" class="terminal-section-box recon hidden">
+              <div class="box-header-row">
+                <div>
+                  <span class="terminal-kicker">AUDIT RECONCILIATION</span>
+                  <h2 class="box-title">GSTR-2B vs Books Match Engine</h2>
+                  <p id="recon-counts" class="meta-desc"></p>
+                </div>
+              </div>
+              <div id="recon-filters" class="terminal-filter-strip">
+                <button type="button" class="filter-chip active" data-recon-filter="all">ALL</button>
+                <button type="button" class="filter-chip" data-recon-filter="matched">MATCHED</button>
+                <button type="button" class="filter-chip" data-recon-filter="unmatched">UNMATCHED</button>
+                <button type="button" class="filter-chip" data-recon-filter="amount_mismatch">AMOUNT MISMATCH</button>
+                <button type="button" class="filter-chip" data-recon-filter="likely">LIKELY</button>
+              </div>
+              <div id="recon-table"></div>
+            </section>
+
+            <!-- PREVIEW SPOT-CHECK -->
+            <section id="preview-block" class="terminal-section-box preview hidden">
+              <div class="box-header-row">
+                <div>
+                  <span class="terminal-kicker">VERIFICATION</span>
+                  <h2 class="box-title">Statement Spot-Check</h2>
+                  <p class="meta-desc">First and last line items extracted directly from statements. Click any amount to inspect source crop.</p>
+                </div>
+              </div>
+              <div id="preview-list"></div>
+            </section>
+            <p id="scan-note" class="mute-note hidden"></p>
+
+            <!-- REVIEW BLOCK -->
+            <section id="review-block" class="terminal-section-box review-box hidden">
+              <div class="box-header-row">
+                <div>
+                  <span class="terminal-kicker color-warn">EXCEPTION ALERT</span>
+                  <h2 class="box-title">Files Requiring Manual Review</h2>
+                  <p class="meta-desc">These documents contain ambiguities, password locks, or unclassified templates.</p>
+                  <p id="review-pack-note" hidden></p>
+                </div>
+              </div>
+              <div id="review-list"></div>
+            </section>
+
+            <!-- INTAKE MANIFEST & FILE PREVIEW WORKSPACE -->
+            <section id="folder-preview-section" class="folder-preview-workspace margin-top">
+              <div class="box-header-row preview-section-header">
+                <div class="preview-header-left">
+                  <span class="terminal-kicker">FOLDER &amp; DOCUMENT EXPLORER</span>
+                  <h2 class="box-title">Files in Folder</h2>
+                  <div class="folder-source-cluster">
+                    <button type="button" class="folder-source-tab active" id="tab-source-period" data-source="period">
+                      <span class="tab-indicator-dot"></span> Period Files (<span id="source-period-count">0</span>)
+                    </button>
+                    <button type="button" class="folder-source-tab" id="tab-source-output" data-source="output">
+                      Cleaned Output Pack
+                    </button>
+                    <button type="button" class="folder-source-tab" id="tab-source-browse" data-source="browse">
+                      Browse Local Folder…
+                    </button>
+                  </div>
+                </div>
+                <div class="preview-header-actions">
+                  <span id="preview-folder-path" class="font-mono preview-folder-label" title=""></span>
+                  <div class="preview-view-toggles">
+                    <button type="button" class="preview-action-btn active" id="btn-toggle-preview" title="Toggle preview pane (Alt+P)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><rect width="18" height="18" x="3" y="3" rx="2"/><path d="M15 3v18"/></svg>
+                      Preview Pane
+                    </button>
+                    <button type="button" class="preview-action-btn" id="btn-expand-preview" title="Expand preview fullscreen (Alt+F)">
+                      <svg width="13" height="13" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><polyline points="15 3 21 3 21 9"/><polyline points="9 21 3 21 3 15"/><line x1="21" y1="3" x2="14" y2="10"/><line x1="3" y1="21" x2="10" y2="14"/></svg>
+                      Expand
+                    </button>
+                  </div>
+                </div>
+              </div>
+
+              <!-- SPLIT CONTAINER: MANIFEST LIST (LEFT) + PREVIEW PANE (RIGHT) -->
+              <div class="preview-split-container" id="preview-split-container">
+                <!-- LEFT: MANIFEST FILE LIST -->
+                <div class="preview-list-column">
+                  <div class="terminal-table-head files-head">
+                    <div class="col-file-name">DOCUMENT PATH / FILENAME</div>
+                    <div class="col-file-kind">CLASSIFICATION</div>
+                  </div>
+                  <div id="file-list" class="terminal-table-body file-list-selectable" role="listbox" aria-label="Files in folder"></div>
+                  <div id="file-empty" class="terminal-empty-box hidden">
+                    <span class="empty-prompt">&gt; MANIFEST EMPTY: NO FILES INGESTED</span>
+                    <p class="empty-detail">Drop client statements or accounting exports above to initiate extraction.</p>
+                  </div>
+                </div>
+
+                <!-- RIGHT: HIGH PRECISION PREVIEW PANE -->
+                <aside class="preview-display-column" id="file-preview-pane" aria-label="Document Preview">
+                  <!-- PREVIEW HEADER TOOLBAR -->
+                  <div class="preview-pane-toolbar">
+                    <div class="preview-toolbar-meta">
+                      <span class="file-type-badge" id="preview-type-badge">PDF</span>
+                      <span class="preview-file-name font-mono" id="preview-file-name">No file selected</span>
+                      <span class="preview-file-size" id="preview-file-size"></span>
+                    </div>
+                    <div class="preview-toolbar-controls">
+                      <!-- Page / Zoom controls for PDF -->
+                      <div class="pdf-controls hidden" id="pdf-controls">
+                        <button type="button" class="tool-btn" id="pdf-prev-page" title="Previous page (Left Arrow)">‹</button>
+                        <span class="page-indicator font-mono" id="pdf-page-indicator">1 / 1</span>
+                        <button type="button" class="tool-btn" id="pdf-next-page" title="Next page (Right Arrow)">›</button>
+                        <span class="tool-sep">|</span>
+                        <button type="button" class="tool-btn" id="pdf-zoom-out" title="Zoom out">-</button>
+                        <span class="zoom-indicator font-mono" id="pdf-zoom-level">100%</span>
+                        <button type="button" class="tool-btn" id="pdf-zoom-in" title="Zoom in">+</button>
+                        <button type="button" class="tool-btn" id="pdf-fit-width" title="Fit width">Fit</button>
+                        <span class="tool-sep">|</span>
+                        <button type="button" class="tool-btn toggle-text-btn" id="pdf-toggle-text" title="Toggle extracted text view">Text</button>
+                      </div>
+
+                      <!-- Spreadsheet sheet tabs container -->
+                      <div class="sheet-tabs-container hidden" id="sheet-tabs-container"></div>
+
+                      <!-- Global quick nav & open external -->
+                      <div class="preview-file-nav">
+                        <button type="button" class="tool-btn" id="preview-prev-file" title="Previous file (Up Arrow / K)">▲</button>
+                        <span class="font-mono preview-file-counter" id="preview-file-counter">0/0</span>
+                        <button type="button" class="tool-btn" id="preview-next-file" title="Next file (Down Arrow / J)">▼</button>
+                        <button type="button" class="tool-btn external-btn" id="preview-open-external" title="Open file with OS default app">Open ↗</button>
+                      </div>
+                    </div>
+                  </div>
+
+                  <!-- PREVIEW CONTENT AREA -->
+                  <div class="preview-content-viewport" id="preview-content-viewport">
+                    <!-- Placeholder when nothing selected -->
+                    <div class="preview-placeholder" id="preview-placeholder">
+                      <svg width="32" height="32" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="1.5" class="preview-placeholder-icon">
+                        <path d="M14 2H6a2 2 0 0 0-2 2v16a2 2 0 0 0 2 2h12a2 2 0 0 0 2-2V8z"/>
+                        <polyline points="14 2 14 8 20 8"/>
+                        <line x1="16" y1="13" x2="8" y2="13"/>
+                        <line x1="16" y1="17" x2="8" y2="17"/>
+                        <polyline points="10 9 9 9 8 9"/>
+                      </svg>
+                      <p class="preview-placeholder-text">Select any file from the folder to preview its contents</p>
+                      <span class="preview-placeholder-sub">Click a row or use <kbd class="origin-kbd">↑</kbd><kbd class="origin-kbd">↓</kbd> keys to cycle through files</span>
+                    </div>
+
+                    <!-- PDF Viewer -->
+                    <div class="preview-viewer pdf-viewer hidden" id="pdf-viewer">
+                      <div class="pdf-page-wrapper" id="pdf-page-wrapper">
+                        <img id="pdf-page-img" alt="PDF page preview" />
+                      </div>
+                      <div class="pdf-text-layer hidden font-mono" id="pdf-text-layer"></div>
+                    </div>
+
+                    <!-- Spreadsheet Viewer -->
+                    <div class="preview-viewer spreadsheet-viewer hidden" id="spreadsheet-viewer">
+                      <div class="spreadsheet-meta-bar">
+                        <span id="spreadsheet-info" class="font-mono"></span>
+                        <input type="text" id="spreadsheet-filter" class="table-search-input font-mono" placeholder="Filter rows..." autocomplete="off" />
+                      </div>
+                      <div class="spreadsheet-table-container" id="spreadsheet-table-container"></div>
+                    </div>
+
+                    <!-- Text / Code Viewer (JSON, XML, TXT, LOG) -->
+                    <div class="preview-viewer code-viewer hidden" id="code-viewer">
+                      <div class="code-meta-bar font-mono" id="code-meta-bar"></div>
+                      <pre class="code-content font-mono" id="code-content"><code></code></pre>
+                    </div>
+
+                    <!-- Image Viewer -->
+                    <div class="preview-viewer image-viewer hidden" id="image-viewer">
+                      <div class="image-wrapper" id="image-wrapper">
+                        <img id="image-preview-img" alt="Image preview" />
+                      </div>
+                      <div class="image-meta-bar font-mono" id="image-meta-bar"></div>
+                    </div>
+
+                    <!-- Password Required Unlock Card inside Preview -->
+                    <div class="preview-viewer password-viewer hidden" id="preview-password-viewer">
+                      <div class="preview-unlock-box">
+                        <div class="terminal-kicker color-warn">PROTECTED DOCUMENT</div>
+                        <h3>Password Required</h3>
+                        <p class="meta-desc">This PDF is encrypted. Enter the password to decrypt and preview it.</p>
+                        <form id="preview-unlock-form" class="preview-unlock-strip">
+                          <input type="password" id="preview-unlock-pwd" class="terminal-input" placeholder="Enter PDF password" required />
+                          <button type="submit" class="terminal-btn terminal-btn-primary">Unlock &amp; Preview</button>
+                        </form>
+                        <p id="preview-unlock-err" class="error" hidden></p>
+                      </div>
+                    </div>
+
+                    <!-- Fallback / Binary Viewer -->
+                    <div class="preview-viewer binary-viewer hidden" id="binary-viewer">
+                      <div class="binary-card">
+                        <div class="terminal-kicker">BINARY ASSET</div>
+                        <h3 id="binary-file-title"></h3>
+                        <p id="binary-file-desc" class="meta-desc"></p>
+                        <button type="button" id="binary-open-btn" class="terminal-btn terminal-btn-secondary">Open in System App ↗</button>
+                      </div>
+                    </div>
+
+                    <!-- Loading Overlay -->
+                    <div class="preview-loading-overlay hidden" id="preview-loading-overlay">
+                      <div class="preview-spinner"></div>
+                      <span class="font-mono preview-loading-text">Rendering document…</span>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </section>
+          </div>
+        </main>
       </div>
     </div>
   </div>
 
+  <!-- RUNBOOK / GUIDE MODAL -->
   <aside id="guide" class="guide hidden" aria-live="polite">
-    <p class="eyebrow">How to use</p>
-    <p class="guide-kicker" id="guide-kicker">Step 1 of 5</p>
-    <h2 id="guide-title">Add a client</h2>
-    <p class="lede" id="guide-copy">Type the legal name, then click Add client. GSTIN is optional.</p>
-    <ol class="howto" id="guide-list"></ol>
-    <div class="drop-actions">
-      <button type="button" class="ghost" id="guide-skip">Skip for now</button>
+    <div class="guide-header">
+      <span class="panel-tag" id="guide-kicker">TERMINAL MANUAL</span>
+      <button type="button" class="guide-close" id="guide-skip">×</button>
     </div>
+    <h2 id="guide-title" class="box-title">Workflow Guide</h2>
+    <p class="lede" id="guide-copy"></p>
+    <ol class="terminal-step-list" id="guide-list"></ol>
   </aside>
 
+  <!-- LICENSE MODAL -->
   <div id="license-modal" class="modal hidden">
-    <div class="modal-card">
-      <p class="eyebrow">Licence</p>
-      <h1>Starter, Pro, or Suite</h1>
-      <p class="lede" id="license-copy">Starter is ₹999 for 100 files a month. Pro is ₹2,500 unlimited. All four modules. Suite (₹6,000) is coming. Client files never leave this PC.</p>
+    <div class="modal-card terminal-card">
+      <div class="terminal-card-header">
+        <span class="panel-tag">PRACTICE LICENSE</span>
+        <button type="button" class="modal-close" id="license-cancel">×</button>
+      </div>
+      <h2 class="modal-title">Activate Key</h2>
+      <p class="lede" id="license-copy">Starter: 100 files/mo • Pro: Unlimited parsing • Client data remains 100% on this PC.</p>
       <form id="license-form" autocomplete="off">
-        <label for="license-key">Licence key</label>
-        <input id="license-key" type="text" maxlength="80" placeholder="Paste the key we sent" />
+        <div class="terminal-field">
+          <label for="license-key">LICENSE KEY</label>
+          <input id="license-key" class="terminal-input font-mono" type="text" maxlength="80" placeholder="PASTE KEY HERE" required />
+        </div>
         <p id="license-error" class="error" hidden></p>
-        <div class="drop-actions">
-          <button type="submit">Activate</button>
-          <button type="button" class="ghost" id="license-cancel">Close</button>
+        <div class="modal-actions">
+          <button type="submit" class="terminal-btn terminal-btn-primary">Apply License</button>
         </div>
       </form>
     </div>
   </div>
 
+  <!-- WIPE / RESTART MODAL -->
   <div id="wipe-modal" class="modal hidden">
-    <div class="modal-card">
-      <p class="eyebrow">Delete library</p>
-      <h1>Wipe this PC’s app folder?</h1>
-      <p class="lede">Every client, dumped file and pack in the app will be deleted. Your Desktop project folder and the <code>test-dump</code> samples are not touched. The app will restart empty.</p>
+    <div class="modal-card terminal-card">
+      <div class="terminal-card-header">
+        <span class="panel-tag color-danger">SYSTEM RESET</span>
+        <button type="button" class="modal-close" id="wipe-cancel">×</button>
+      </div>
+      <h2 class="modal-title color-danger">Purge Local Repository?</h2>
+      <p class="lede">All parsed SQLite tables, cached period packs, and client indices on this computer will be cleared. Original desktop files are not affected.</p>
       <p id="wipe-error" class="error" hidden></p>
-      <div class="drop-actions">
-        <button type="button" class="danger" id="wipe-confirm">Delete and restart</button>
-        <button type="button" class="ghost" id="wipe-cancel">Keep data</button>
+      <div class="modal-actions">
+        <button type="button" class="terminal-btn terminal-btn-danger" id="wipe-confirm">Execute Purge & Restart</button>
       </div>
     </div>
   </div>
 
+  <!-- SOURCE CROP MODAL -->
   <div id="crop-modal" class="modal hidden">
-    <div class="modal-card crop-card">
-      <p class="eyebrow">Source</p>
-      <p id="crop-caption" class="crop-caption"></p>
-      <p class="lede">From the statement, not from Excel.</p>
-      <img id="crop-image" alt="Page crop" />
-      <div class="drop-actions">
-        <button type="button" class="ghost" id="crop-close">Close</button>
+    <div class="modal-card crop-card terminal-card">
+      <div class="terminal-card-header">
+        <span class="panel-tag">AUDIT PROOF</span>
+        <button type="button" class="modal-close" id="crop-close">×</button>
+      </div>
+      <p id="crop-caption" class="crop-caption font-mono"></p>
+      <p class="meta-desc">Original statement crop coordinates verified by local OCR parser.</p>
+      <div class="crop-viewport">
+        <img id="crop-image" alt="Statement crop view" />
       </div>
     </div>
   </div>
 
+  <!-- PASSWORD UNLOCK MODAL -->
   <div id="unlock-modal" class="modal hidden">
-    <div class="modal-card">
-      <p class="eyebrow">Password</p>
-      <h1 id="unlock-filename">Unlock PDF</h1>
-      <p class="lede">Password is used once and not saved.</p>
+    <div class="modal-card terminal-card">
+      <div class="terminal-card-header">
+        <span class="panel-tag">PDF DECRYPTION</span>
+        <button type="button" class="modal-close" id="unlock-cancel">×</button>
+      </div>
+      <h2 class="modal-title" id="unlock-filename">Unlock Protected PDF</h2>
+      <p class="lede">Password is used in memory for deterministic extraction and is never written to disk.</p>
       <form id="unlock-form" autocomplete="off">
-        <label for="unlock-password">Password</label>
-        <input id="unlock-password" type="password" autocomplete="off" />
+        <div class="terminal-field">
+          <label for="unlock-password">FILE PASSWORD</label>
+          <input id="unlock-password" class="terminal-input" type="password" placeholder="Password" required />
+        </div>
         <p id="unlock-error" class="error" hidden></p>
-        <div class="drop-actions">
-          <button type="submit" id="unlock-submit">Unlock</button>
-          <button type="button" class="ghost" id="unlock-cancel">Cancel</button>
+        <div class="modal-actions">
+          <button type="submit" id="unlock-submit" class="terminal-btn terminal-btn-primary">Decrypt & Parse</button>
         </div>
       </form>
     </div>

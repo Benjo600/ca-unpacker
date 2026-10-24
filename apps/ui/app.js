@@ -66,6 +66,75 @@ const profileMeterFillEl = document.getElementById("profile-meter-fill");
 const authErrorEl = document.getElementById("auth-error");
 const authNoticeEl = document.getElementById("auth-notice");
 
+// Preview Workspace Elements
+const folderPreviewSection = document.getElementById("folder-preview-section");
+const filePreviewPane = document.getElementById("file-preview-pane");
+const previewSplitContainer = document.getElementById("preview-split-container");
+const btnTogglePreview = document.getElementById("btn-toggle-preview");
+const btnExpandPreview = document.getElementById("btn-expand-preview");
+const previewFolderPathEl = document.getElementById("preview-folder-path");
+const sourcePeriodCountEl = document.getElementById("source-period-count");
+const tabSourcePeriod = document.getElementById("tab-source-period");
+const tabSourceOutput = document.getElementById("tab-source-output");
+const tabSourceBrowse = document.getElementById("tab-source-browse");
+const previewTypeBadge = document.getElementById("preview-type-badge");
+const previewFileName = document.getElementById("preview-file-name");
+const previewFileSize = document.getElementById("preview-file-size");
+const previewFileCounter = document.getElementById("preview-file-counter");
+const btnPrevFile = document.getElementById("preview-prev-file");
+const btnNextFile = document.getElementById("preview-next-file");
+const btnOpenExternal = document.getElementById("preview-open-external");
+const pdfControls = document.getElementById("pdf-controls");
+const pdfPrevPage = document.getElementById("pdf-prev-page");
+const pdfNextPage = document.getElementById("pdf-next-page");
+const pdfPageIndicator = document.getElementById("pdf-page-indicator");
+const pdfZoomOut = document.getElementById("pdf-zoom-out");
+const pdfZoomIn = document.getElementById("pdf-zoom-in");
+const pdfZoomLevel = document.getElementById("pdf-zoom-level");
+const pdfFitWidth = document.getElementById("pdf-fit-width");
+const pdfToggleText = document.getElementById("pdf-toggle-text");
+const sheetTabsContainer = document.getElementById("sheet-tabs-container");
+const previewContentViewport = document.getElementById("preview-content-viewport");
+const previewPlaceholder = document.getElementById("preview-placeholder");
+const pdfViewer = document.getElementById("pdf-viewer");
+const pdfPageWrapper = document.getElementById("pdf-page-wrapper");
+const pdfPageImg = document.getElementById("pdf-page-img");
+const pdfTextLayer = document.getElementById("pdf-text-layer");
+const spreadsheetViewer = document.getElementById("spreadsheet-viewer");
+const spreadsheetInfo = document.getElementById("spreadsheet-info");
+const spreadsheetFilter = document.getElementById("spreadsheet-filter");
+const spreadsheetTableContainer = document.getElementById("spreadsheet-table-container");
+const codeViewer = document.getElementById("code-viewer");
+const codeMetaBar = document.getElementById("code-meta-bar");
+const codeContent = document.getElementById("code-content");
+const imageViewer = document.getElementById("image-viewer");
+const imagePreviewImg = document.getElementById("image-preview-img");
+const imageMetaBar = document.getElementById("image-meta-bar");
+const previewPasswordViewer = document.getElementById("preview-password-viewer");
+const previewUnlockForm = document.getElementById("preview-unlock-form");
+const previewUnlockPwd = document.getElementById("preview-unlock-pwd");
+const previewUnlockErr = document.getElementById("preview-unlock-err");
+const binaryViewer = document.getElementById("binary-viewer");
+const binaryFileTitle = document.getElementById("binary-file-title");
+const binaryFileDesc = document.getElementById("binary-file-desc");
+const binaryOpenBtn = document.getElementById("binary-open-btn");
+const previewLoadingOverlay = document.getElementById("preview-loading-overlay");
+
+// Preview Workspace State
+let currentFolderSource = "period"; // "period" | "output" | "browse"
+let currentFolderFiles = [];
+let selectedFileIndex = -1;
+let selectedFile = null;
+let currentPdfPage = 1;
+let totalPdfPages = 1;
+let currentPdfZoom = 1.0;
+let isPdfTextMode = false;
+let currentSpreadsheet = null;
+let isPreviewPaneOpen = true;
+let isPreviewFullscreen = false;
+let customFolderPath = "";
+let previewReqCounter = 0;
+
 let currentClient = null;
 let currentPeriod = null;
 let kindOptions = [];
@@ -370,12 +439,49 @@ function renderClients(clients) {
     const row = document.createElement("div");
     row.className = "client-row";
     row.tabIndex = 0;
+
+    // Entity cluster with avatar badge (Origin UI / 21st.dev style)
+    const cluster = document.createElement("div");
+    cluster.className = "client-entity-cluster";
+
+    const badge = document.createElement("span");
+    badge.className = "client-avatar-badge";
+    const initials = (client.name || "CL")
+      .split(/\s+/)
+      .map((w) => w[0])
+      .filter(Boolean)
+      .slice(0, 2)
+      .join("")
+      .toUpperCase();
+    badge.textContent = initials || "CL";
+
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = client.name;
+    cluster.append(badge, name);
+
+    // GSTIN
     const gstin = document.createElement("span");
-    gstin.className = "gstin";
+    gstin.className = "gstin font-mono";
     gstin.textContent = client.gstin || "—";
+
+    // Status Pill with live emerald pulse
+    const status = document.createElement("span");
+    status.className = "table-status-pill";
+    const dot = document.createElement("span");
+    dot.className = "pulse-dot";
+    const statusText = document.createTextNode(" Active");
+    status.append(dot, statusText);
+
+    // Action cluster
+    const actions = document.createElement("div");
+    actions.className = "row-action-cluster";
+
+    const openBtn = document.createElement("button");
+    openBtn.type = "button";
+    openBtn.className = "row-open-trigger";
+    openBtn.textContent = "Open →";
+
     const del = document.createElement("button");
     del.type = "button";
     del.className = "row-delete";
@@ -384,7 +490,10 @@ function renderClients(clients) {
       event.stopPropagation();
       deleteClientRow(client);
     });
-    row.append(name, gstin, del);
+
+    actions.append(openBtn, del);
+    row.append(cluster, gstin, status, actions);
+
     row.addEventListener("click", () => openClient(client.id));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openClient(client.id);
@@ -490,34 +599,88 @@ function fileNeedsPassword(file) {
   return (file.classify_reason || "").toLowerCase().includes("password");
 }
 
-function appendFileRow(container, file, className) {
+function getFileExt(filename) {
+  if (!filename) return "";
+  const parts = String(filename).split(".");
+  return parts.length > 1 ? "." + parts.pop().toLowerCase() : "";
+}
+
+function getFileExtBadge(filename) {
+  const ext = getFileExt(filename);
+  if (ext === ".pdf") return "PDF";
+  if (ext === ".xlsx" || ext === ".xls") return "XLSX";
+  if (ext === ".csv") return "CSV";
+  if (ext === ".json") return "JSON";
+  if (ext === ".xml") return "XML";
+  if ([".png", ".jpg", ".jpeg", ".webp", ".bmp", ".tif", ".tiff"].includes(ext)) return "IMG";
+  if ([".txt", ".log", ".md", ".py", ".sql"].includes(ext)) return "TXT";
+  if (ext === ".docx") return "DOCX";
+  return ext ? ext.replace(".", "").toUpperCase() : "FILE";
+}
+
+function appendFileRow(container, file, className, globalIndex) {
   const row = document.createElement("div");
   row.className = className;
+  if (globalIndex != null) {
+    row.setAttribute("data-file-index", String(globalIndex));
+    if (globalIndex === selectedFileIndex) {
+      row.classList.add("selected");
+    }
+  }
+
   const details = document.createElement("div");
   details.className = "file-details";
+
+  const badge = document.createElement("span");
+  const extTag = getFileExtBadge(file.original_name || file.name || "");
+  badge.className = `file-ext-badge ext-${extTag.toLowerCase()}`;
+  badge.textContent = extTag;
+
   const name = document.createElement("span");
   name.className = "name";
-  name.textContent = file.original_name;
-  name.title = file.parse_reason_message || file.classify_reason || "";
+  name.textContent = file.original_name || file.name || "Untitled";
+  name.title = file.parse_reason_message || file.classify_reason || file.path || "";
+
   const outcome = document.createElement("span");
-  const outcomeName = window.CAStatusSummary.outcomeLabel(file.parse_outcome);
+  const outcomeName = window.CAStatusSummary ? window.CAStatusSummary.outcomeLabel(file.parse_outcome) : (file.parse_outcome || "file");
   outcome.className = `pill outcome-${file.parse_outcome || "unclassified"}`;
   outcome.textContent = outcomeName;
   outcome.setAttribute("aria-label", `Outcome: ${outcomeName}`);
-  details.append(name, outcome);
+
+  details.append(badge, name, outcome);
+
   if (file.parse_outcome === "processed" && Number.isFinite(Number(file.parse_row_count))) {
     const rows = document.createElement("span");
     const count = Number(file.parse_row_count);
     rows.className = "file-meta";
     rows.textContent = `${count} ${count === 1 ? "row" : "rows"}`;
     details.append(rows);
+  } else if (file.size_formatted || file.size) {
+    const sizeSpan = document.createElement("span");
+    sizeSpan.className = "file-meta font-mono";
+    sizeSpan.textContent = file.size_formatted || (file.size ? (file.size > 1024*1024 ? (file.size/(1024*1024)).toFixed(1) + " MB" : (file.size/1024).toFixed(1) + " KB") : "");
+    details.append(sizeSpan);
   }
+
   const reasonLine = document.createElement("p");
   reasonLine.className = "file-reason";
   reasonLine.textContent = file.parse_reason_message || file.classify_reason || "";
   if (reasonLine.textContent) details.append(reasonLine);
+
   const actions = document.createElement("div");
   actions.className = "file-actions";
+
+  const previewBtn = document.createElement("button");
+  previewBtn.type = "button";
+  previewBtn.className = "tool-btn preview-item-btn";
+  previewBtn.textContent = "Preview";
+  previewBtn.title = "Preview file contents";
+  previewBtn.addEventListener("click", (event) => {
+    event.stopPropagation();
+    if (globalIndex != null) selectFileByIndex(globalIndex);
+  });
+  actions.append(previewBtn);
+
   if (fileNeedsPassword(file)) {
     const unlock = document.createElement("button");
     unlock.type = "button";
@@ -525,37 +688,647 @@ function appendFileRow(container, file, className) {
     unlock.textContent = "Unlock";
     unlock.addEventListener("click", (event) => {
       event.preventDefault();
+      event.stopPropagation();
       openUnlockModal(file);
     });
     actions.append(unlock);
   }
-  actions.append(kindSelect(file, false));
+
+  if (file.id != null) {
+    actions.append(kindSelect(file, false));
+  }
+
   row.append(details, actions);
+
+  row.addEventListener("click", () => {
+    if (globalIndex != null) selectFileByIndex(globalIndex);
+  });
+
   container.append(row);
 }
 
 function renderFiles(files) {
   lastFiles = files || [];
   lastFileCount = lastFiles.length;
-  const review = lastFiles.filter((file) =>
-    window.CAStatusSummary.isReviewOutcome(file.parse_outcome)
+  if (sourcePeriodCountEl) {
+    sourcePeriodCountEl.textContent = String(lastFileCount);
+  }
+
+  if (currentFolderSource === "period") {
+    currentFolderFiles = lastFiles;
+    if (previewFolderPathEl && currentPeriod) {
+      previewFolderPathEl.textContent = `Period: ${currentPeriod.label || ""}`;
+      previewFolderPathEl.title = `Stored period intake files: ${currentPeriod.label || ""}`;
+    }
+  }
+
+  renderActiveFolderList();
+  updateScanNote();
+}
+
+function renderActiveFolderList() {
+  const review = currentFolderFiles.filter((file) =>
+    window.CAStatusSummary && window.CAStatusSummary.isReviewOutcome(file.parse_outcome)
   );
-  const rest = lastFiles.filter((file) =>
-    !window.CAStatusSummary.isReviewOutcome(file.parse_outcome)
+  const rest = currentFolderFiles.filter((file) =>
+    !(window.CAStatusSummary && window.CAStatusSummary.isReviewOutcome(file.parse_outcome))
   );
+
   reviewBlock.classList.toggle("hidden", review.length === 0);
   updateReviewNote();
   reviewListEl.innerHTML = "";
   for (const file of review) {
-    appendFileRow(reviewListEl, file, "review-row");
+    const idx = currentFolderFiles.indexOf(file);
+    appendFileRow(reviewListEl, file, "review-row", idx);
   }
 
   fileListEl.innerHTML = "";
-  fileEmptyEl.classList.toggle("hidden", lastFiles.length > 0);
+  fileEmptyEl.classList.toggle("hidden", currentFolderFiles.length > 0);
   for (const file of rest) {
-    appendFileRow(fileListEl, file, "file-row");
+    const idx = currentFolderFiles.indexOf(file);
+    appendFileRow(fileListEl, file, "file-row", idx);
   }
-  updateScanNote();
+
+  // Update preview selection
+  if (currentFolderFiles.length > 0) {
+    if (selectedFileIndex < 0 || selectedFileIndex >= currentFolderFiles.length) {
+      selectFileByIndex(0, false);
+    } else {
+      selectFileByIndex(selectedFileIndex, false);
+    }
+  } else {
+    selectedFileIndex = -1;
+    selectedFile = null;
+    updatePreviewToolbar();
+    showPreviewPlaceholder();
+  }
+}
+
+function updatePreviewToolbar() {
+  if (!selectedFile) {
+    if (previewFileName) previewFileName.textContent = "No file selected";
+    if (previewFileSize) previewFileSize.textContent = "";
+    if (previewTypeBadge) {
+      previewTypeBadge.textContent = "NONE";
+      previewTypeBadge.className = "file-type-badge";
+    }
+    if (previewFileCounter) previewFileCounter.textContent = "0/0";
+    if (pdfControls) pdfControls.classList.add("hidden");
+    if (sheetTabsContainer) sheetTabsContainer.classList.add("hidden");
+    if (btnOpenExternal) btnOpenExternal.disabled = true;
+    return;
+  }
+
+  if (btnOpenExternal) btnOpenExternal.disabled = false;
+  const name = selectedFile.original_name || selectedFile.name || "Document";
+  if (previewFileName) {
+    previewFileName.textContent = name;
+    previewFileName.title = name;
+  }
+  const size = selectedFile.size_formatted || (selectedFile.size ? (selectedFile.size > 1024*1024 ? (selectedFile.size/(1024*1024)).toFixed(1) + " MB" : (selectedFile.size/1024).toFixed(1) + " KB") : "");
+  if (previewFileSize) previewFileSize.textContent = size;
+  const badge = getFileExtBadge(name);
+  if (previewTypeBadge) {
+    previewTypeBadge.textContent = badge;
+    previewTypeBadge.className = `file-type-badge ext-${badge.toLowerCase()}`;
+  }
+  const total = currentFolderFiles.length;
+  if (previewFileCounter) {
+    previewFileCounter.textContent = `${selectedFileIndex >= 0 ? selectedFileIndex + 1 : 0}/${total}`;
+  }
+}
+
+async function selectFileByIndex(index, forceScroll = true) {
+  if (!currentFolderFiles.length) {
+    selectedFileIndex = -1;
+    selectedFile = null;
+    updatePreviewToolbar();
+    showPreviewPlaceholder();
+    return;
+  }
+  const clamped = Math.max(0, Math.min(index, currentFolderFiles.length - 1));
+  selectedFileIndex = clamped;
+  selectedFile = currentFolderFiles[clamped];
+  currentPdfPage = 1;
+  isPdfTextMode = false;
+
+  const allRows = document.querySelectorAll(".file-row, .review-row");
+  allRows.forEach((row) => row.classList.remove("selected"));
+  const activeRow = document.querySelector(`[data-file-index="${clamped}"]`);
+  if (activeRow) {
+    activeRow.classList.add("selected");
+    if (forceScroll) {
+      activeRow.scrollIntoView({ block: "nearest", behavior: "smooth" });
+    }
+  }
+
+  updatePreviewToolbar();
+  await loadSelectedFilePreview();
+}
+
+function showPreviewPlaceholder(msg) {
+  hideAllPreviewViewers();
+  if (previewPlaceholder) {
+    previewPlaceholder.classList.remove("hidden");
+    const txt = previewPlaceholder.querySelector(".preview-placeholder-text");
+    if (txt) {
+      txt.textContent = msg || "Select any file from the folder to preview its contents";
+    }
+  }
+}
+
+function hideAllPreviewViewers() {
+  if (previewPlaceholder) previewPlaceholder.classList.add("hidden");
+  if (pdfViewer) pdfViewer.classList.add("hidden");
+  if (spreadsheetViewer) spreadsheetViewer.classList.add("hidden");
+  if (codeViewer) codeViewer.classList.add("hidden");
+  if (imageViewer) imageViewer.classList.add("hidden");
+  if (previewPasswordViewer) previewPasswordViewer.classList.add("hidden");
+  if (binaryViewer) binaryViewer.classList.add("hidden");
+  if (pdfControls) pdfControls.classList.add("hidden");
+  if (sheetTabsContainer) sheetTabsContainer.classList.add("hidden");
+}
+
+async function loadSelectedFilePreview(sheetName = null, passwordOverride = null) {
+  if (!selectedFile) return;
+  const reqId = ++previewReqCounter;
+  if (previewLoadingOverlay) previewLoadingOverlay.classList.remove("hidden");
+
+  try {
+    const api = desktopApi();
+    if (!api || !api.get_file_preview) {
+      if (previewLoadingOverlay) previewLoadingOverlay.classList.add("hidden");
+      return;
+    }
+
+    const fileId = selectedFile.id != null ? selectedFile.id : null;
+    const filePath = selectedFile.path || null;
+    const page = currentPdfPage || 1;
+
+    const data = await api.get_file_preview(
+      fileId,
+      filePath,
+      page,
+      sheetName,
+      passwordOverride
+    );
+
+    if (reqId !== previewReqCounter) return;
+
+    hideAllPreviewViewers();
+
+    if (!data.ok) {
+      if (data.needs_password) {
+        if (previewPasswordViewer) {
+          previewPasswordViewer.classList.remove("hidden");
+          if (previewUnlockPwd) {
+            previewUnlockPwd.value = "";
+            previewUnlockPwd.focus();
+          }
+          if (previewUnlockErr) previewUnlockErr.hidden = true;
+        }
+      } else {
+        showPreviewPlaceholder(data.error || "Could not load preview");
+      }
+      return;
+    }
+
+    if (data.type === "pdf") {
+      renderPdfView(data);
+    } else if (data.type === "spreadsheet") {
+      renderSpreadsheetView(data);
+    } else if (data.type === "json" || data.type === "xml" || data.type === "text") {
+      renderCodeView(data);
+    } else if (data.type === "image") {
+      renderImageView(data);
+    } else {
+      renderBinaryView(data);
+    }
+  } catch (err) {
+    if (reqId === previewReqCounter) {
+      showPreviewPlaceholder("Preview failed: " + err.message);
+    }
+  } finally {
+    if (reqId === previewReqCounter && previewLoadingOverlay) {
+      previewLoadingOverlay.classList.add("hidden");
+    }
+  }
+}
+
+function renderPdfView(data) {
+  currentPdfPage = data.page || 1;
+  totalPdfPages = data.total_pages || 1;
+
+  if (pdfControls) pdfControls.classList.remove("hidden");
+  if (pdfPageIndicator) pdfPageIndicator.textContent = `${currentPdfPage} / ${totalPdfPages}`;
+  if (pdfPrevPage) pdfPrevPage.disabled = currentPdfPage <= 1;
+  if (pdfNextPage) pdfNextPage.disabled = currentPdfPage >= totalPdfPages;
+
+  if (pdfPageImg && data.image_data) {
+    pdfPageImg.src = data.image_data;
+  }
+  if (pdfTextLayer) {
+    pdfTextLayer.textContent = data.text || "(No selectable text on this page)";
+  }
+
+  applyPdfZoom();
+  updatePdfViewMode();
+  if (pdfViewer) pdfViewer.classList.remove("hidden");
+}
+
+function applyPdfZoom() {
+  if (pdfPageWrapper) {
+    pdfPageWrapper.style.transform = `scale(${currentPdfZoom})`;
+  }
+  if (pdfZoomLevel) {
+    pdfZoomLevel.textContent = `${Math.round(currentPdfZoom * 100)}%`;
+  }
+}
+
+function updatePdfViewMode() {
+  if (isPdfTextMode) {
+    if (pdfPageWrapper) pdfPageWrapper.classList.add("hidden");
+    if (pdfTextLayer) pdfTextLayer.classList.remove("hidden");
+    if (pdfToggleText) {
+      pdfToggleText.classList.add("active");
+      pdfToggleText.textContent = "Visual";
+    }
+  } else {
+    if (pdfPageWrapper) pdfPageWrapper.classList.remove("hidden");
+    if (pdfTextLayer) pdfTextLayer.classList.add("hidden");
+    if (pdfToggleText) {
+      pdfToggleText.classList.remove("active");
+      pdfToggleText.textContent = "Text";
+    }
+  }
+}
+
+function renderSpreadsheetView(data) {
+  currentSpreadsheet = data;
+  if (spreadsheetInfo) {
+    spreadsheetInfo.textContent = `${data.total_rows || 0} rows · ${data.columns ? data.columns.length : 0} columns${data.truncated ? ' (first 250 shown)' : ''}`;
+  }
+
+  if (sheetTabsContainer) {
+    sheetTabsContainer.innerHTML = "";
+    if (data.sheets && data.sheets.length > 1) {
+      sheetTabsContainer.classList.remove("hidden");
+      data.sheets.forEach((sheet) => {
+        const btn = document.createElement("button");
+        btn.type = "button";
+        btn.className = `sheet-tab-btn ${sheet === data.active_sheet ? "active" : ""}`;
+        btn.textContent = sheet;
+        btn.addEventListener("click", () => {
+          loadSelectedFilePreview(sheet);
+        });
+        sheetTabsContainer.appendChild(btn);
+      });
+    } else {
+      sheetTabsContainer.classList.add("hidden");
+    }
+  }
+
+  if (spreadsheetFilter) spreadsheetFilter.value = "";
+  renderSpreadsheetRows(data.columns || [], data.rows || []);
+  if (spreadsheetViewer) spreadsheetViewer.classList.remove("hidden");
+}
+
+function renderSpreadsheetRows(columns, rows, filter = "") {
+  if (!spreadsheetTableContainer) return;
+  spreadsheetTableContainer.innerHTML = "";
+
+  const q = (filter || "").toLowerCase().trim();
+  const filtered = q
+    ? rows.filter((r) => r.some((c) => String(c).toLowerCase().includes(q)))
+    : rows;
+
+  const table = document.createElement("table");
+  table.className = "preview-grid-table";
+
+  const thead = document.createElement("thead");
+  const trHead = document.createElement("tr");
+
+  const thIdx = document.createElement("th");
+  thIdx.textContent = "#";
+  thIdx.style.width = "40px";
+  trHead.appendChild(thIdx);
+
+  columns.forEach((col) => {
+    const th = document.createElement("th");
+    th.textContent = col;
+    trHead.appendChild(th);
+  });
+  thead.appendChild(trHead);
+  table.appendChild(thead);
+
+  const tbody = document.createElement("tbody");
+  filtered.forEach((r, idx) => {
+    const tr = document.createElement("tr");
+    const tdIdx = document.createElement("td");
+    tdIdx.textContent = idx + 1;
+    tdIdx.style.color = "var(--term-text-dim)";
+    tr.appendChild(tdIdx);
+
+    r.forEach((cell) => {
+      const td = document.createElement("td");
+      td.textContent = cell !== "" ? cell : "—";
+      const isNum = cell !== "" && !isNaN(Number(String(cell).replace(/,/g, "")));
+      if (isNum) td.className = "num";
+      tr.appendChild(td);
+    });
+    tbody.appendChild(tr);
+  });
+
+  table.appendChild(tbody);
+  spreadsheetTableContainer.appendChild(table);
+}
+
+function renderCodeView(data) {
+  if (codeContent) {
+    const codeNode = codeContent.querySelector("code") || codeContent;
+    codeNode.textContent = data.content || "";
+  }
+  if (codeMetaBar) {
+    const label = data.type === "json" ? "JSON Document" : data.type === "xml" ? "XML Document" : "Text Document";
+    const extra = data.meta && data.meta.key_count != null ? ` · ${data.meta.key_count} keys` : (data.line_count ? ` · ${data.line_count} lines` : "");
+    codeMetaBar.textContent = `${label} · ${data.size_formatted || ""}${extra}`;
+  }
+  if (codeViewer) codeViewer.classList.remove("hidden");
+}
+
+function renderImageView(data) {
+  if (imagePreviewImg && data.image_data) {
+    imagePreviewImg.src = data.image_data;
+  }
+  if (imageMetaBar) {
+    imageMetaBar.textContent = `${data.format || "Image"} · ${data.width} × ${data.height} px · ${data.size_formatted || ""}`;
+  }
+  if (imageViewer) imageViewer.classList.remove("hidden");
+}
+
+function renderBinaryView(data) {
+  if (binaryFileTitle) binaryFileTitle.textContent = data.filename || "File";
+  if (binaryFileDesc) {
+    binaryFileDesc.textContent = `${data.detected_kind ? data.detected_kind.toUpperCase() : "Binary Asset"} · ${data.size_formatted || ""}`;
+  }
+  if (binaryViewer) binaryViewer.classList.remove("hidden");
+}
+
+function togglePreviewPane() {
+  isPreviewPaneOpen = !isPreviewPaneOpen;
+  if (previewSplitContainer) {
+    previewSplitContainer.classList.toggle("preview-collapsed", !isPreviewPaneOpen);
+  }
+  if (btnTogglePreview) {
+    btnTogglePreview.classList.toggle("active", isPreviewPaneOpen);
+  }
+}
+
+function togglePreviewFullscreen() {
+  isPreviewFullscreen = !isPreviewFullscreen;
+  if (folderPreviewSection) {
+    folderPreviewSection.classList.toggle("expanded-fullscreen", isPreviewFullscreen);
+  }
+  if (btnExpandPreview) {
+    btnExpandPreview.classList.toggle("active", isPreviewFullscreen);
+    btnExpandPreview.textContent = isPreviewFullscreen ? "Exit" : "Expand";
+  }
+}
+
+async function switchFolderSource(source) {
+  currentFolderSource = source;
+  if (tabSourcePeriod) tabSourcePeriod.classList.toggle("active", source === "period");
+  if (tabSourceOutput) tabSourceOutput.classList.toggle("active", source === "output");
+  if (tabSourceBrowse) tabSourceBrowse.classList.toggle("active", source === "browse");
+
+  const api = desktopApi();
+  if (!api) return;
+
+  if (source === "period") {
+    currentFolderFiles = lastFiles;
+    if (previewFolderPathEl && currentPeriod) {
+      previewFolderPathEl.textContent = `Period: ${currentPeriod.label || ""}`;
+      previewFolderPathEl.title = `Stored period intake files`;
+    }
+    renderActiveFolderList();
+    return;
+  }
+
+  if (source === "output") {
+    if (!currentPeriod) {
+      showPreviewPlaceholder("Open a period first to view output workpapers.");
+      return;
+    }
+    const outRes = api.get_period_output_path
+      ? await api.get_period_output_path(currentPeriod.id)
+      : null;
+    const path = outRes && outRes.ok ? outRes.path : null;
+    if (!path) {
+      showPreviewPlaceholder("Output folder not initialized or no workpapers generated yet.");
+      return;
+    }
+    if (previewFolderPathEl) {
+      previewFolderPathEl.textContent = path;
+      previewFolderPathEl.title = path;
+    }
+    const listRes = await api.list_folder_files(path);
+    if (listRes && listRes.ok) {
+      currentFolderFiles = listRes.files || [];
+      renderActiveFolderList();
+    } else {
+      showPreviewPlaceholder("No output pack files found in folder.");
+    }
+    return;
+  }
+
+  if (source === "browse") {
+    const picked = await api.pick_folder();
+    if (!picked || !picked.ok || !picked.paths || !picked.paths.length) {
+      // Revert to period source if cancelled
+      switchFolderSource("period");
+      return;
+    }
+    const folder = picked.paths[0];
+    customFolderPath = folder;
+    if (previewFolderPathEl) {
+      previewFolderPathEl.textContent = folder;
+      previewFolderPathEl.title = folder;
+    }
+    const listRes = await api.list_folder_files(folder);
+    if (listRes && listRes.ok) {
+      currentFolderFiles = listRes.files || [];
+      renderActiveFolderList();
+    } else {
+      showPreviewPlaceholder("Could not read files from selected folder.");
+    }
+  }
+}
+
+function initFilePreview() {
+  if (btnTogglePreview) {
+    btnTogglePreview.addEventListener("click", togglePreviewPane);
+  }
+  if (btnExpandPreview) {
+    btnExpandPreview.addEventListener("click", togglePreviewFullscreen);
+  }
+
+  if (tabSourcePeriod) {
+    tabSourcePeriod.addEventListener("click", () => switchFolderSource("period"));
+  }
+  if (tabSourceOutput) {
+    tabSourceOutput.addEventListener("click", () => switchFolderSource("output"));
+  }
+  if (tabSourceBrowse) {
+    tabSourceBrowse.addEventListener("click", () => switchFolderSource("browse"));
+  }
+
+  if (btnPrevFile) {
+    btnPrevFile.addEventListener("click", () => {
+      if (selectedFileIndex > 0) selectFileByIndex(selectedFileIndex - 1);
+    });
+  }
+  if (btnNextFile) {
+    btnNextFile.addEventListener("click", () => {
+      if (selectedFileIndex < currentFolderFiles.length - 1) selectFileByIndex(selectedFileIndex + 1);
+    });
+  }
+
+  if (btnOpenExternal) {
+    btnOpenExternal.addEventListener("click", async () => {
+      if (!selectedFile) return;
+      const api = desktopApi();
+      if (!api || !api.open_file_in_os) return;
+      const path = selectedFile.path || (selectedFile.id != null ? null : null);
+      if (path) {
+        await api.open_file_in_os(path);
+      } else if (selectedFile.id != null && api.get_file_preview) {
+        // Fetch path via preview
+        const p = await api.get_file_preview(selectedFile.id);
+        if (p && p.path) await api.open_file_in_os(p.path);
+      }
+    });
+  }
+
+  if (pdfPrevPage) {
+    pdfPrevPage.addEventListener("click", () => {
+      if (currentPdfPage > 1) {
+        currentPdfPage--;
+        loadSelectedFilePreview();
+      }
+    });
+  }
+  if (pdfNextPage) {
+    pdfNextPage.addEventListener("click", () => {
+      if (currentPdfPage < totalPdfPages) {
+        currentPdfPage++;
+        loadSelectedFilePreview();
+      }
+    });
+  }
+  if (pdfZoomIn) {
+    pdfZoomIn.addEventListener("click", () => {
+      currentPdfZoom = Math.min(2.5, currentPdfZoom + 0.25);
+      applyPdfZoom();
+    });
+  }
+  if (pdfZoomOut) {
+    pdfZoomOut.addEventListener("click", () => {
+      currentPdfZoom = Math.max(0.5, currentPdfZoom - 0.25);
+      applyPdfZoom();
+    });
+  }
+  if (pdfFitWidth) {
+    pdfFitWidth.addEventListener("click", () => {
+      currentPdfZoom = 1.0;
+      applyPdfZoom();
+    });
+  }
+  if (pdfToggleText) {
+    pdfToggleText.addEventListener("click", () => {
+      isPdfTextMode = !isPdfTextMode;
+      updatePdfViewMode();
+    });
+  }
+
+  if (spreadsheetFilter) {
+    spreadsheetFilter.addEventListener("input", (e) => {
+      if (currentSpreadsheet) {
+        renderSpreadsheetRows(currentSpreadsheet.columns || [], currentSpreadsheet.rows || [], e.target.value);
+      }
+    });
+  }
+
+  if (previewUnlockForm) {
+    previewUnlockForm.addEventListener("submit", async (e) => {
+      e.preventDefault();
+      const pwd = (previewUnlockPwd.value || "").trim();
+      if (!pwd) return;
+      if (selectedFile && selectedFile.id != null) {
+        const api = desktopApi();
+        if (api && api.set_file_password) {
+          await api.set_file_password(selectedFile.id, pwd);
+        }
+      }
+      await loadSelectedFilePreview(null, pwd);
+    });
+  }
+
+  if (binaryOpenBtn) {
+    binaryOpenBtn.addEventListener("click", () => {
+      if (btnOpenExternal) btnOpenExternal.click();
+    });
+  }
+
+  // Global keyboard navigation
+  window.addEventListener("keydown", (e) => {
+    const isInput = ["INPUT", "TEXTAREA", "SELECT"].includes(document.activeElement.tagName);
+
+    if (e.key === "Escape") {
+      if (isPreviewFullscreen) {
+        togglePreviewFullscreen();
+        e.preventDefault();
+        return;
+      }
+    }
+
+    if (e.altKey && (e.key === "p" || e.key === "P")) {
+      togglePreviewPane();
+      e.preventDefault();
+      return;
+    }
+
+    if (e.altKey && (e.key === "f" || e.key === "F")) {
+      togglePreviewFullscreen();
+      e.preventDefault();
+      return;
+    }
+
+    if (!isInput && isPreviewPaneOpen) {
+      if (e.key === "ArrowUp" || e.key === "k") {
+        if (selectedFileIndex > 0) {
+          selectFileByIndex(selectedFileIndex - 1);
+          e.preventDefault();
+        }
+      } else if (e.key === "ArrowDown" || e.key === "j") {
+        if (selectedFileIndex < currentFolderFiles.length - 1) {
+          selectFileByIndex(selectedFileIndex + 1);
+          e.preventDefault();
+        }
+      } else if (e.key === "ArrowLeft" && totalPdfPages > 1) {
+        if (currentPdfPage > 1) {
+          currentPdfPage--;
+          loadSelectedFilePreview();
+          e.preventDefault();
+        }
+      } else if (e.key === "ArrowRight" && totalPdfPages > 1) {
+        if (currentPdfPage < totalPdfPages) {
+          currentPdfPage++;
+          loadSelectedFilePreview();
+          e.preventDefault();
+        }
+      }
+    }
+  });
 }
 
 function setOutputLabel(path) {
@@ -817,7 +1590,8 @@ function renderPack(pack) {
   packOpenKey = bankOut ? "bank" : purchaseOut ? "purchase" : "";
   if (pack.balance_status === "match") packBlock.classList.add("match");
   if (pack.balance_status === "mismatch") packBlock.classList.add("mismatch");
-  packMetaEl.textContent = `Excel ready · ${pack.row_count || 0} rows`;
+  const packRows = Number(pack.row_count || 0);
+  packMetaEl.textContent = `Excel ready · ${packRows} ${packRows === 1 ? "row" : "rows"}`;
   packFilesEl.innerHTML = "";
   if (bankOut && !pack.balance_status) {
     const note = document.createElement("p");
@@ -831,7 +1605,8 @@ function renderPack(pack) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "text-btn";
-    btn.textContent = `${out.label} · ${out.rows} rows${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
+    const rowsWord = Number(out.rows) === 1 ? "row" : "rows";
+    btn.textContent = `${out.label} · ${out.rows} ${rowsWord}${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
     btn.addEventListener("click", async () => {
       const opened = await window.pywebview.api.open_bank_pack(currentPeriod.id, out.key);
       if (!opened.ok) showError(dumpErrorEl, opened.error);
@@ -1013,7 +1788,8 @@ function renderPreview(preview) {
   for (const file of files) {
     const title = document.createElement("p");
     title.className = "eyebrow";
-    title.textContent = `${file.filename} · ${file.kind || ""} · ${file.row_count} rows`;
+    const previewRows = Number(file.row_count || 0);
+    title.textContent = `${file.filename} · ${file.kind || ""} · ${previewRows} ${previewRows === 1 ? "row" : "rows"}`;
     const table = document.createElement("table");
     table.className = "preview-table";
     const isBank = file.kind === "bank";
@@ -1596,6 +2372,201 @@ async function deleteClientRow(client) {
     return;
   }
   if (currentClient && currentClient.id === client.id) {
+    showError(setupErrorEl, picked.error);
+    return "";
+  }
+  setOutputLabel(picked.output_path);
+  setPathWarnings(picked.path_warnings || []);
+  syncGuide();
+  return picked.output_path;
+}
+
+function clearGuideHighlight() {
+  if (lastGuideHighlight) {
+    lastGuideHighlight.classList.remove("guide-target");
+    lastGuideHighlight = null;
+  }
+}
+
+function highlightGuide(selector) {
+  clearGuideHighlight();
+  if (!selector) return;
+  const el = document.querySelector(selector);
+  if (!el) return;
+  el.classList.add("guide-target");
+  lastGuideHighlight = el;
+}
+
+function guideOnSetup() {
+  return !setupEl.classList.contains("hidden");
+}
+
+function currentGuideCard() {
+  const onSetup = guideOnSetup();
+  const onClients = !paneClients.classList.contains("hidden");
+  const onPeriods = !panePeriods.classList.contains("hidden");
+  const onDump = !paneDump.classList.contains("hidden");
+  const clientCount = clientListEl.children.length;
+  const periodCount = periodListEl.children.length;
+  const hasFiles = lastFileCount > 0;
+  const hasPack = packVisible;
+  const folderChosen = Boolean(document.getElementById("output-path") && document.getElementById("output-path").value);
+
+  if (onSetup) {
+    if (!folderChosen) {
+      return {
+        kicker: "Step 1 of 5",
+        title: "Name the firm, then pick a folder",
+        copy: "Type the firm name. Then click Choose folder — that is where cleaned Excels will be saved.",
+        items: ["Type the firm name.", "Click Choose folder.", "After the path appears, click Open the desk."],
+        highlight: "#pick-output",
+      };
+    }
+    return {
+      kicker: "Step 1 of 5",
+      title: "Open the desk",
+      copy: "Folder is set. Click Open the desk to continue.",
+      items: ["Click Open the desk."],
+      highlight: "#save-firm",
+    };
+  }
+  if (onClients && clientCount === 0) {
+    return {
+      kicker: "Step 2 of 5",
+      title: "Add the first client",
+      copy: "Type the legal name as you file it, then click Add client. GSTIN is optional.",
+      items: ["Type the client name.", "Click Add client."],
+      highlight: "#add-form",
+    };
+  }
+  if (onClients && clientCount > 0) {
+    return {
+      kicker: "Step 3 of 5",
+      title: "Open that client",
+      copy: "Click the client row you just added. Periods live under the client.",
+      items: ["Click the client name in the list."],
+      highlight: "#client-list .client-row",
+    };
+  }
+  if (onPeriods && periodCount === 0) {
+    return {
+      kicker: "Step 3 of 5",
+      title: "Add this month’s period",
+      copy: "Type the month you are working on, for example Aug 2026, then click Add period.",
+      items: ["Check the period box.", "Click Add period."],
+      highlight: "#period-form",
+    };
+  }
+  if (onPeriods && periodCount > 0) {
+    return {
+      kicker: "Step 4 of 5",
+      title: "Open the period",
+      copy: "Click the period row. That is the dump tray for this month.",
+      items: ["Click the period in the list."],
+      highlight: "#period-list .period-row",
+    };
+  }
+  if (onDump && !hasFiles) {
+    return {
+      kicker: "Step 4 of 5",
+      title: "Dump this month’s files",
+      copy: "Click Add folder and pick the mixed folder, or drop that folder onto the dashed box. Nested files are included. Bank PDFs, invoices, GSTR JSON and Tally/Zoho can go in together.",
+      items: ["Click Add folder, or drop a folder on the dashed box."],
+      highlight: "#add-folder",
+    };
+  }
+  if (onDump && hasFiles && !hasPack) {
+    return {
+      kicker: "Step 4 of 5",
+      title: "Wait for the pack",
+      copy: "The app is sorting files on this PC. Unknown or unreadable files stay in Needs review until they convert.",
+      items: ["Wait until an Excel pack appears below.", "If a file is Unknown, set its type."],
+      highlight: "#drop-zone",
+    };
+  }
+  if (onDump && hasPack) {
+    return {
+      kicker: "Step 5 of 5",
+      title: "Open the Excel pack",
+      copy: "Click Open in Excel. Click an amount in Spot-check if you want to see it on the original page.",
+      items: ["Click Open in Excel.", "Optional: click an amount to see the source crop."],
+      highlight: "#open-pack",
+    };
+  }
+  return null;
+}
+
+function renderGuideList(items) {
+  const list = document.getElementById("guide-list");
+  if (!list) return;
+  list.innerHTML = "";
+  for (const item of items || []) {
+    const li = document.createElement("li");
+    li.textContent = item;
+    list.append(li);
+  }
+}
+
+function deskIsVisible() {
+  return deskEl && !deskEl.classList.contains("hidden");
+}
+
+function syncGuide() {
+  const card = document.getElementById("guide");
+  if (!card) return;
+  const onSetup = guideOnSetup();
+  if (onSetup || guideDismissed || !deskIsVisible()) {
+    card.classList.add("hidden");
+    clearGuideHighlight();
+    if (onSetup) {
+      const folderChosen = Boolean(document.getElementById("output-path") && document.getElementById("output-path").value);
+      highlightGuide(folderChosen ? "#save-firm" : "#pick-output");
+    }
+    return;
+  }
+  const step = currentGuideCard();
+  if (!step) {
+    card.classList.add("hidden");
+    clearGuideHighlight();
+    return;
+  }
+  document.getElementById("guide-kicker").textContent = step.kicker;
+  document.getElementById("guide-title").textContent = step.title;
+  document.getElementById("guide-copy").textContent = step.copy;
+  renderGuideList(step.items);
+  card.classList.remove("hidden");
+  highlightGuide(step.highlight);
+}
+
+async function dismissGuide() {
+  guideDismissed = true;
+  const api = desktopApi();
+  if (api && api.set_guide_dismissed) {
+    await api.set_guide_dismissed(true);
+  }
+  syncGuide();
+}
+
+async function reopenGuide() {
+  guideDismissed = false;
+  const api = desktopApi();
+  if (api && api.set_guide_dismissed) {
+    await api.set_guide_dismissed(false);
+  }
+  syncGuide();
+}
+
+async function deleteClientRow(client) {
+  if (!window.confirm(`Delete ${client.name} and every file dumped for them on this PC?`)) {
+    return;
+  }
+  showError(deskErrorEl, "");
+  const result = await window.pywebview.api.delete_client_desk(client.id);
+  if (!result.ok) {
+    showError(deskErrorEl, result.error);
+    return;
+  }
+  if (currentClient && currentClient.id === client.id) {
     currentClient = null;
     currentPeriod = null;
     showPane("clients");
@@ -1606,6 +2577,9 @@ async function deleteClientRow(client) {
 }
 
 async function boot() {
+  initPasswordToggles();
+  initActionSearchBar();
+  initFilePreview();
   const state = await window.pywebview.api.get_state();
   lastAppState = state;
   guideDismissed = Boolean(state.guide_dismissed);
@@ -2030,4 +3004,369 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+/* ==========================================================================
+   21st.dev Component Logics:
+   - Origin UI Password Toggle (@originui/input)
+   - Kokonut UI Action Search Bar (@kokonutd/action-search-bar)
+   ========================================================================== */
+function initPasswordToggles() {
+  const authToggleBtn = document.getElementById("auth-show-password");
+  const authPw = document.getElementById("auth-password");
+  if (authToggleBtn && authPw) {
+    authToggleBtn.addEventListener("click", () => {
+      const isPw = authPw.type === "password";
+      authPw.type = isPw ? "text" : "password";
+      authToggleBtn.title = isPw ? "Hide password" : "Show password";
+    });
+  }
+}
+
+let actionSearchBarInitialized = false;
+function initActionSearchBar() {
+  if (actionSearchBarInitialized) return;
+  const input = document.getElementById("action-search-input");
+  const dropdown = document.getElementById("action-search-dropdown");
+  const list = document.getElementById("action-dropdown-list");
+  const bar = document.getElementById("action-search-bar");
+  if (!input || !dropdown || !list || !bar) return;
+  actionSearchBarInitialized = true;
+
+  let activeIndex = -1;
+  let currentItems = [];
+
+  const defaultActions = [
+    {
+      id: "act-new-client",
+      title: "Register New Client",
+      meta: "Entity Details",
+      icon: "+",
+      short: "N",
+      run: () => {
+        showScreen("desk");
+        const clientInput = document.getElementById("client-name");
+        if (clientInput) {
+          if (paneClients && paneClients.classList.contains("hidden")) {
+            document.getElementById("back-to-clients")?.click();
+          }
+          setTimeout(() => clientInput.focus(), 60);
+        }
+      }
+    },
+    {
+      id: "act-guide",
+      title: "Open Terminal Runbook",
+      meta: "Bank Guides & Workflows",
+      icon: "📖",
+      short: "R",
+      run: () => {
+        document.getElementById("guide-open")?.click();
+      }
+    },
+    {
+      id: "act-license",
+      title: "Manage License Key",
+      meta: "Air-gap Hardware Verification",
+      icon: "🔑",
+      short: "L",
+      run: () => {
+        document.getElementById("license-open")?.click();
+      }
+    },
+    {
+      id: "act-refresh",
+      title: "Force Refresh Desk",
+      meta: "Synchronize Repository State",
+      icon: "↻",
+      short: "F5",
+      run: () => {
+        refreshCurrentView();
+      }
+    },
+    {
+      id: "act-output",
+      title: "Change Workpapers Folder",
+      meta: "Excel Output Directory",
+      icon: "📁",
+      short: "O",
+      run: () => {
+        document.getElementById("change-output")?.click();
+      }
+    }
+  ];
+
+  function renderDropdown(items) {
+    currentItems = items;
+    activeIndex = -1;
+    list.innerHTML = "";
+    if (!items.length) {
+      const empty = document.createElement("div");
+      empty.className = "action-item";
+      empty.style.color = "var(--term-text-muted)";
+      empty.style.justifyContent = "center";
+      empty.textContent = "No matching actions or clients found";
+      list.appendChild(empty);
+      return;
+    }
+
+    items.forEach((item, index) => {
+      const el = document.createElement("div");
+      el.className = "action-item";
+      el.id = `action-item-${item.id}`;
+
+      const left = document.createElement("div");
+      left.className = "action-item-left";
+
+      const icon = document.createElement("span");
+      icon.className = "action-item-icon font-mono";
+      icon.textContent = item.icon || "•";
+
+      const title = document.createElement("span");
+      title.className = "action-item-title";
+      title.textContent = item.title;
+
+      left.append(icon, title);
+
+      if (item.meta) {
+        const meta = document.createElement("span");
+        meta.className = "action-item-meta font-mono";
+        meta.textContent = item.meta;
+        left.append(meta);
+      }
+
+      const right = document.createElement("span");
+      right.className = "action-item-shortcut font-mono";
+      right.textContent = item.short || "";
+
+      el.append(left, right);
+
+      el.addEventListener("click", () => {
+        closeDropdown();
+        item.run?.();
+      });
+
+      list.appendChild(el);
+    });
+  }
+
+  function openDropdown() {
+    bar.classList.add("active");
+    dropdown.classList.remove("hidden");
+    filterItems(input.value);
+  }
+
+  function closeDropdown() {
+    bar.classList.remove("active");
+    dropdown.classList.add("hidden");
+    activeIndex = -1;
+  }
+
+  function filterItems(query) {
+    const q = (query || "").trim().toLowerCase();
+    const clients = (lastAppState && lastAppState.clients) || [];
+
+    const clientItems = clients.map((c) => ({
+      id: `client-${c.id}`,
+      title: c.name,
+      meta: c.gstin || "Client Entity",
+      icon: "🏢",
+      short: "↵",
+      run: () => openClient(c.id)
+    }));
+
+    if (!q) {
+      renderDropdown([...defaultActions, ...clientItems.slice(0, 6)]);
+      return;
+    }
+
+    const matchedClients = clientItems.filter(
+      (c) => c.title.toLowerCase().includes(q) || c.meta.toLowerCase().includes(q)
+    );
+
+    const matchedActions = defaultActions.filter(
+      (a) => a.title.toLowerCase().includes(q) || (a.meta && a.meta.toLowerCase().includes(q))
+    );
+
+    renderDropdown([...matchedActions, ...matchedClients]);
+  }
+
+  input.addEventListener("focus", openDropdown);
+  input.addEventListener("input", (e) => filterItems(e.target.value));
+
+  input.addEventListener("keydown", (e) => {
+    if (e.key === "ArrowDown") {
+      e.preventDefault();
+      if (!currentItems.length) return;
+      activeIndex = (activeIndex + 1) % currentItems.length;
+      updateActive();
+    } else if (e.key === "ArrowUp") {
+      e.preventDefault();
+      if (!currentItems.length) return;
+      activeIndex = (activeIndex - 1 + currentItems.length) % currentItems.length;
+      updateActive();
+    } else if (e.key === "Enter") {
+      e.preventDefault();
+      if (activeIndex >= 0 && currentItems[activeIndex]) {
+        closeDropdown();
+        currentItems[activeIndex].run?.();
+      }
+    } else if (e.key === "Escape") {
+      closeDropdown();
+      input.blur();
+    }
+  });
+
+  function updateActive() {
+    const children = list.querySelectorAll(".action-item");
+    children.forEach((c, idx) => {
+      c.classList.toggle("focused", idx === activeIndex);
+      if (idx === activeIndex) c.scrollIntoView({ block: "nearest" });
+    });
+  }
+
+  document.addEventListener("click", (e) => {
+    if (!document.getElementById("action-search-container")?.contains(e.target)) {
+      closeDropdown();
+    }
+  });
+
+  window.addEventListener("keydown", (e) => {
+    if ((e.metaKey || e.ctrlKey) && e.key.toLowerCase() === "k") {
+      e.preventDefault();
+      input.focus();
+      input.select();
+    } else if (e.key === "/" && !isTypingTarget(document.activeElement)) {
+      e.preventDefault();
+      input.focus();
+    }
+  });
+}
+
 window.addEventListener("pywebviewready", boot);
+
+// Browser preview fallback when opened directly in Google Chrome / Web Browser
+if (!window.pywebview) {
+  let mockState = {
+    firm: { name: "Mehta & Associates, Chartered Accountants" },
+    output_path: "C:\\CA_Workpapers",
+    clients: [
+      { id: 1, name: "Rajesh Trading Corporation", gstin: "27AABCR1234F1Z5" },
+      { id: 2, name: "Shivani Healthcare LLP", gstin: "24AAECS9876E1Z2" },
+      { id: 3, name: "Apex Logistics India Pvt Ltd", gstin: "27AAGCA5678B1ZP" },
+      { id: 4, name: "Kothari Textiles & Yarn Mill", gstin: "24AAEFK4321A1Z9" }
+    ],
+    auth: { signed_in: true, email: "partner@mehta-associates.in" },
+    license: { plan: "Pro", plan_label: "PRO TIER (AIR-GAP)", tier: "pro", active: true, usage: { total_files: 14, limit: 500 } },
+    guide_dismissed: true,
+    path_warnings: []
+  };
+  let mockPeriods = [
+    { id: 101, client_id: 1, label: "Aug 2026", status: "ready" },
+    { id: 102, client_id: 1, label: "Jul 2026", status: "ready" },
+    { id: 103, client_id: 2, label: "Q1 FY 2026-27", status: "ready" }
+  ];
+  let mockFiles = [
+    { id: 1, period_id: 101, name: "HDFC_Current_Account_Aug2026.pdf", kind: "bank", status: "ready" },
+    { id: 2, period_id: 101, name: "GSTR2B_27AABCR1234F1Z5_082026.json", kind: "gstr2b", status: "ready" },
+    { id: 3, period_id: 101, name: "Tally_Purchase_Register_Aug.xlsx", kind: "books", status: "ready" }
+  ];
+
+  window.pywebview = {
+    api: {
+      get_state: async () => JSON.parse(JSON.stringify(mockState)),
+      get_auth_state: async () => ({ ok: true, signed_in: mockState.auth.signed_in, email: mockState.auth.email, plan: mockState.license.plan }),
+      login_with_password: async (email, pw) => {
+        mockState.auth.signed_in = true;
+        mockState.auth.email = email || "partner@mehta-associates.in";
+        return { ok: true, session: { email: mockState.auth.email } };
+      },
+      signup_with_password: async (email, pw) => {
+        mockState.auth.signed_in = true;
+        mockState.auth.email = email || "partner@mehta-associates.in";
+        return { ok: true, session: { email: mockState.auth.email } };
+      },
+      logout: async () => {
+        mockState.auth.signed_in = false;
+        return { ok: true };
+      },
+      request_password_reset: async (email) => ({ ok: true }),
+      save_firm: async (name) => {
+        mockState.firm = { name: name || "Mehta & Associates, Chartered Accountants" };
+        return { ok: true, firm: mockState.firm, clients: mockState.clients, license: mockState.license };
+      },
+      set_output_folder: async (p) => {
+        mockState.output_path = p || "C:\\CA_Workpapers";
+        return { ok: true, output_path: mockState.output_path, path_warnings: [] };
+      },
+      pick_output_folder: async () => ({ ok: true, output_path: "C:\\CA_Workpapers" }),
+      pick_folder: async () => ({ ok: true, paths: ["C:\\CA_Workpapers\\Client_Dumps\\Aug2026"] }),
+      pick_files: async () => ({ ok: true, paths: ["HDFC_Statement_Aug2026.pdf", "GSTR2B_Aug2026.json"] }),
+      create_client: async (name, gstin) => {
+        const c = { id: Date.now(), name, gstin: gstin || "" };
+        mockState.clients.push(c);
+        return { ok: true, clients: mockState.clients };
+      },
+      get_client_desk: async (cid) => {
+        const client = mockState.clients.find(c => c.id === cid) || mockState.clients[0];
+        const periods = mockPeriods.filter(p => p.client_id === client.id);
+        return { ok: true, client, periods };
+      },
+      delete_client_desk: async (cid) => {
+        mockState.clients = mockState.clients.filter(c => c.id !== cid);
+        return { ok: true, clients: mockState.clients };
+      },
+      create_period: async (cid, label) => {
+        const p = { id: Date.now(), client_id: cid, label: label || "Aug 2026" };
+        mockPeriods.push(p);
+        return { ok: true, periods: mockPeriods.filter(x => x.client_id === cid) };
+      },
+      get_period_desk: async (pid) => {
+        const p = mockPeriods.find(x => x.id === pid) || mockPeriods[0];
+        return { ok: true, period: p, files: mockFiles, pack: null };
+      },
+      start_dump: async (pid, paths) => ({ ok: true, job_id: "demo-job-1" }),
+      get_job: async (jid) => ({ ok: true, job: { id: jid, status: "completed", progress: 100 } }),
+      open_bank_pack: async (pid, key) => ({ ok: true }),
+      open_pack_folder: async (pid) => ({ ok: true }),
+      activate_license: async (key) => ({ ok: true, license: { plan: "Pro", tier: "pro", active: true } }),
+      wipe_and_restart: async () => { location.reload(); return { ok: true }; },
+      set_guide_dismissed: async (val) => { mockState.guide_dismissed = val; return { ok: true }; },
+      get_file_preview: async (file_id, file_path, page, sheet_name) => {
+        return {
+          ok: true,
+          type: "spreadsheet",
+          filename: "HDFC_Current_Account_Aug2026.xlsx",
+          size_formatted: "142.5 KB",
+          sheets: ["Transactions", "Summary"],
+          active_sheet: sheet_name || "Transactions",
+          columns: ["Date", "Description", "Debit (₹)", "Credit (₹)", "Balance (₹)"],
+          rows: [
+            ["01-Aug-2026", "Opening Balance", "", "", "1,45,230.00"],
+            ["02-Aug-2026", "NEFT/MUM/INFOSYS/SALARY", "", "75,000.00", "2,20,230.00"],
+            ["04-Aug-2026", "UPI/OFFICE/SUPPLIES/AMZN", "1,240.00", "", "2,18,990.00"],
+            ["08-Aug-2026", "CHQ 001248 MUNICIPAL TAX", "12,500.00", "", "2,06,490.00"],
+            ["15-Aug-2026", "RTGS/VENDOR PAYMENT/TATA", "55,000.00", "", "1,51,490.00"]
+          ],
+          total_rows: 5
+        };
+      },
+      list_folder_files: async (folder_path) => ({
+        ok: true,
+        folder_path: folder_path || "C:\\CA_Workpapers",
+        files: mockFiles
+      }),
+      get_period_output_path: async (pid) => ({
+        ok: true,
+        path: "C:\\CA_Workpapers\\Rajesh Trading\\Aug 2026"
+      }),
+      open_file_in_os: async (path) => ({ ok: true, path })
+    }
+  };
+
+  window.addEventListener("DOMContentLoaded", () => {
+    setTimeout(async () => {
+      await boot();
+    }, 40);
+  });
+}
+
+
