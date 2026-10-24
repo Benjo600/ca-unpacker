@@ -13,7 +13,8 @@ import webview
 
 from apps.engine.clients import create_client, delete_client, get_client, list_clients
 from apps.engine.currency import currency_options
-from apps.engine.db import get_engine
+from apps.engine.dashboard import get_dashboard as dashboard_state
+from apps.engine.db import ExtractedRow, StoredFile, get_engine, get_session
 from apps.engine.dump import (
     fail_job,
     get_job,
@@ -30,7 +31,16 @@ from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
-from apps.engine.library import get_library_path, init_library
+from apps.engine.library import (
+    get_library_path,
+    init_library,
+    resolve_storage_key,
+)
+from apps.engine.recon_workflows import (
+    reconciliation_workspace,
+    run_reconciliation as run_recon_workflow,
+)
+from apps.engine.reports import list_reports as report_packs
 from apps.engine.settings import (
     get_output_root,
     is_guide_dismissed,
@@ -207,6 +217,95 @@ class DesktopApi:
                 str(library), str(output) if output else ""
             ),
         }
+
+    def get_dashboard(self) -> dict:
+        try:
+            return {"ok": True, **dashboard_state()}
+        except Exception:
+            return {"ok": False, "error": "Could not load the dashboard."}
+
+    def get_reconciliation_workspace(self) -> dict:
+        try:
+            return {"ok": True, **reconciliation_workspace()}
+        except Exception:
+            return {
+                "ok": False,
+                "error": "Could not load reconciliation data.",
+            }
+
+    def run_reconciliation(self, period_id: int, workflow_id: str) -> dict:
+        try:
+            period_key = int(period_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Period was not found."}
+        try:
+            result = run_recon_workflow(period_key, str(workflow_id or ""))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {
+                "ok": False,
+                "error": "Could not calculate this reconciliation.",
+            }
+        return {"ok": True, **result}
+
+    def get_reports(self) -> dict:
+        try:
+            return {"ok": True, **report_packs()}
+        except Exception:
+            return {"ok": False, "error": "Could not load generated packs."}
+
+    def get_extracted_record(self, row_id: int) -> dict:
+        try:
+            row_pk = int(row_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "That extracted record was not found."}
+        session = get_session()
+        try:
+            extracted = session.get(ExtractedRow, row_pk)
+            if extracted is None:
+                return {"ok": False, "error": "That extracted record was not found."}
+            stored = session.get(StoredFile, extracted.file_id)
+            try:
+                payload = json.loads(extracted.payload_json)
+            except (TypeError, ValueError, json.JSONDecodeError):
+                payload = {"raw": extracted.payload_json}
+            return {
+                "ok": True,
+                "record": payload,
+                "file": {
+                    "id": stored.id if stored else None,
+                    "name": stored.original_name if stored else "",
+                    "kind": extracted.kind,
+                },
+                "source_page": extracted.source_page,
+                "source_bbox": extracted.source_bbox,
+            }
+        finally:
+            session.close()
+
+    def open_source_file(self, file_id: int) -> dict:
+        try:
+            file_pk = int(file_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "That source file was not found."}
+        session = get_session()
+        try:
+            stored = session.get(StoredFile, file_pk)
+            if stored is None:
+                return {"ok": False, "error": "That source file was not found."}
+            path = resolve_storage_key(stored.storage_key)
+            if not path.is_file():
+                return {
+                    "ok": False,
+                    "error": "The stored source file is missing.",
+                }
+            _open_path(str(path))
+            return {"ok": True, "name": stored.original_name}
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not open the source file. {exc}"}
+        finally:
+            session.close()
 
     def save_firm(self, name: str) -> dict:
         try:

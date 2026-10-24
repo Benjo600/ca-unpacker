@@ -14,6 +14,12 @@ MONEY_KEYS = {
     "taxable_value",
     "amount",
     "rate",
+    "gross",
+    "discount",
+    "cgst",
+    "sgst",
+    "igst",
+    "cess",
     "debit",
     "credit",
     "balance",
@@ -26,7 +32,21 @@ MONEY_KEYS = {
     "aging_91_120",
     "aging_over_120",
 }
-FLAG_MARKERS = ("gstin_checksum", "hsn_length", "invoice_math", "sap_")
+FLAG_MARKERS = (
+    "gstin_checksum",
+    "hsn_length",
+    "invoice_math",
+    "item_layout_uncertain",
+    "unparsed_rows",
+    "invoice_number_missing",
+    "date_missing",
+    "date_unlabelled",
+    "currency_unknown",
+    "taxable_derived",
+    "tax_derived",
+    "invoice_value_derived",
+    "sap_",
+)
 RED_FILL = PatternFill("solid", fgColor="FFCDD2")
 
 
