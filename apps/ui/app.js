@@ -18,6 +18,9 @@ const deskErrorEl = document.getElementById("desk-error");
 const paneClients = document.getElementById("pane-clients");
 const panePeriods = document.getElementById("pane-periods");
 const paneDump = document.getElementById("pane-dump");
+const paneDashboard = document.getElementById("pane-dashboard");
+const paneRecon = document.getElementById("pane-recon");
+const paneReports = document.getElementById("pane-reports");
 const periodClientNameEl = document.getElementById("period-client-name");
 const periodForm = document.getElementById("period-form");
 const periodLabelEl = document.getElementById("period-label");
@@ -43,6 +46,41 @@ const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
 const reconFiltersEl = document.getElementById("recon-filters");
+const dashboardLoadingEl = document.getElementById("dashboard-loading");
+const dashboardContentEl = document.getElementById("dashboard-content");
+const dashboardEmptyEl = document.getElementById("dashboard-empty");
+const dashboardErrorEl = document.getElementById("dashboard-error");
+const reconPageErrorEl = document.getElementById("recon-page-error");
+const reconLoadingEl = document.getElementById("recon-loading");
+const reconWorkspaceEl = document.getElementById("recon-workspace");
+const reconEmptyEl = document.getElementById("recon-empty");
+const reconWorkflowsEl = document.getElementById("recon-workflows");
+const reconMissingEl = document.getElementById("recon-missing");
+const reconCalculatingEl = document.getElementById("recon-calculating");
+const reconResultsEl = document.getElementById("recon-results");
+const reconPeriodEl = document.getElementById("recon-period");
+const reconResultTitleEl = document.getElementById("recon-result-title");
+const reconResultSubEl = document.getElementById("recon-result-sub");
+const reconResultStampEl = document.getElementById("recon-result-stamp");
+const reconRulesEl = document.getElementById("recon-rules");
+const reconSummaryEl = document.getElementById("recon-summary");
+const reconTotalsEl = document.getElementById("recon-totals");
+const reconTableHeadEl = document.getElementById("recon-table-head");
+const reconTableBodyEl = document.getElementById("recon-table-body");
+const reconTableEmptyEl = document.getElementById("recon-table-empty");
+const reconPageFiltersEl = document.getElementById("recon-page-filters");
+const reconSearchEl = document.getElementById("recon-search");
+const reconDetailModal = document.getElementById("recon-detail-modal");
+const reconDetailTitleEl = document.getElementById("recon-detail-title");
+const reconDetailStatusEl = document.getElementById("recon-detail-status");
+const reconDetailExplanationEl = document.getElementById("recon-detail-explanation");
+const reconDetailDiffsEl = document.getElementById("recon-detail-diffs");
+const reconDetailBodyEl = document.getElementById("recon-detail-body");
+const reconDetailErrorEl = document.getElementById("recon-detail-error");
+const reportsLoadingEl = document.getElementById("reports-loading");
+const reportsErrorEl = document.getElementById("reports-error");
+const reportsListEl = document.getElementById("reports-list");
+const reportsEmptyEl = document.getElementById("reports-empty");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
 const scanNoteEl = document.getElementById("scan-note");
@@ -99,6 +137,15 @@ let navHistory = [];
 let navIndex = -1;
 let navSilent = false;
 let navBusy = false;
+let dashboardData = null;
+let reconWorkspaceData = null;
+let selectedReconPeriodId = null;
+let activeReconWorkflowId = "";
+let lastReconPageResult = null;
+let reconPageFilter = "all";
+let reconPageSearch = "";
+let reconPageBusy = false;
+let reportsData = null;
 
 const UI_SESSION_KEY = "caUnpackerUiSession";
 const UI_REMEMBER_KEY = "caUnpackerRememberUser";
@@ -121,23 +168,63 @@ function showPane(name) {
   paneClients.classList.toggle("hidden", name !== "clients");
   panePeriods.classList.toggle("hidden", name !== "periods");
   paneDump.classList.toggle("hidden", name !== "dump");
+  if (paneDashboard) paneDashboard.classList.toggle("hidden", name !== "dashboard");
+  if (paneRecon) paneRecon.classList.toggle("hidden", name !== "recon");
+  if (paneReports) paneReports.classList.toggle("hidden", name !== "reports");
   if (name === "clients") navLabelEl.textContent = "Clients";
   if (name === "periods") navLabelEl.textContent = "Periods";
-  if (name === "dump") navLabelEl.textContent = "Dump tray";
+  if (name === "dump") navLabelEl.textContent = "Document Workspace";
+  if (name === "dashboard") navLabelEl.textContent = "Dashboard";
+  if (name === "recon") navLabelEl.textContent = "Reconciliation";
+  if (name === "reports") navLabelEl.textContent = "Reports";
+  setRailPage(
+    name === "dashboard" || name === "recon" || name === "reports"
+      ? name
+      : "documents"
+  );
   updateDeskContext(name);
+}
+
+function setRailPage(page) {
+  const items = {
+    documents: "nav-documents",
+    dashboard: "nav-dashboard",
+    recon: "nav-recon",
+    reports: "nav-reports",
+  };
+  for (const [name, id] of Object.entries(items)) {
+    const button = document.getElementById(id);
+    if (!button) continue;
+    const active = name === page;
+    button.classList.toggle("is-active", active);
+    if (active) button.setAttribute("aria-current", "page");
+    else button.removeAttribute("aria-current");
+  }
 }
 
 function updateDeskContext(pane) {
   const el = document.getElementById("desk-context");
   if (!el) return;
   const current = pane || currentDeskPane();
+  if (current === "dashboard") {
+    el.textContent = "Practice / Dashboard";
+    return;
+  }
+  if (current === "recon") {
+    el.textContent = "Practice / Reconciliation";
+    return;
+  }
+  if (current === "reports") {
+    el.textContent = "Practice / Reports";
+    return;
+  }
   const parts = ["Clients"];
   if (current === "periods" || current === "dump") {
     const clientName =
       (currentClient && currentClient.name) ||
       (periodClientNameEl && periodClientNameEl.textContent) ||
       (dumpEyebrowEl && dumpEyebrowEl.textContent);
-    if (clientName && clientName !== "Dump tray") parts.push(clientName);
+    if (clientName && clientName !== "Document Workspace") parts.push(clientName);
   }
   if (current === "dump") {
     const periodLabel =
@@ -149,6 +236,9 @@ function updateDeskContext(pane) {
 }
 
 function currentDeskPane() {
+  if (paneDashboard && !paneDashboard.classList.contains("hidden")) return "dashboard";
+  if (paneRecon && !paneRecon.classList.contains("hidden")) return "recon";
+  if (paneReports && !paneReports.classList.contains("hidden")) return "reports";
   if (paneDump && !paneDump.classList.contains("hidden")) return "dump";
   if (panePeriods && !panePeriods.classList.contains("hidden")) return "periods";
   return "clients";
@@ -156,7 +246,7 @@ function currentDeskPane() {
 
 function navEntryKey(entry) {
   if (!entry) return "";
-  return `${entry.pane}:${entry.clientId || ""}:${entry.periodId || ""}`;
+  return `${entry.pane}:${entry.clientId || ""}:${entry.periodId || ""}:${entry.reconPeriodId || ""}`;
 }
 
 function currentNavEntry() {
@@ -166,6 +256,9 @@ function currentNavEntry() {
   if (pane === "dump") {
     if (currentClient) entry.clientId = currentClient.id;
     if (currentPeriod) entry.periodId = currentPeriod.id;
+  }
+  if (pane === "recon" && selectedReconPeriodId) {
+    entry.reconPeriodId = selectedReconPeriodId;
   }
   return entry;
 }
@@ -197,6 +290,21 @@ async function applyNavEntry(entry) {
     let state = lastAppState;
     if (api && api.get_state) state = await api.get_state();
     if (state) showDesk(state);
+    return;
+  }
+  if (entry.pane === "dashboard") {
+    await showDashboard({ record: false });
+    return;
+  }
+  if (entry.pane === "recon") {
+    await showReconciliation({
+      record: false,
+      periodId: entry.reconPeriodId || selectedReconPeriodId,
+    });
+    return;
+  }
+  if (entry.pane === "reports") {
+    await showReports({ record: false });
     return;
   }
   if (entry.pane === "periods" && entry.clientId) {
@@ -245,7 +353,13 @@ async function refreshCurrentView() {
   navSilent = true;
   try {
     const pane = currentDeskPane();
-    if (pane === "dump" && currentPeriod) {
+    if (pane === "dashboard") {
+      await loadDashboard();
+    } else if (pane === "recon") {
+      await loadReconciliationWorkspace({ keepSelection: true });
+    } else if (pane === "reports") {
+      await loadReports();
+    } else if (pane === "dump" && currentPeriod) {
       await openPeriod(currentPeriod.id);
     } else if (pane === "periods" && currentClient) {
       await openClient(currentClient.id);
@@ -411,7 +525,7 @@ function renderPeriods(periods) {
     name.textContent = period.label;
     const hint = document.createElement("span");
     hint.className = "period-action";
-    hint.textContent = "Open dump tray";
+    hint.textContent = "Open Document Workspace";
     row.append(name, hint);
     row.addEventListener("click", () => openPeriod(period.id));
     row.addEventListener("keydown", (event) => {
@@ -848,10 +962,11 @@ async function openPeriod(periodId) {
     return;
   }
   currentPeriod = result.period;
+  if (result.client) currentClient = result.client;
   kindOptions = result.kinds || [];
   currencyOptions = result.currencies || [];
   dumpTitleEl.textContent = result.period.label;
-  dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
+  dumpEyebrowEl.textContent = result.client ? result.client.name : "Document Workspace";
   renderFiles(result.files || []);
   renderPack(result.pack);
   renderPreview(result.preview);
@@ -1035,6 +1150,1126 @@ function renderRecon(pack) {
   }
   table.append(body);
   reconTableEl.append(table);
+}
+
+/* ------------------------------------------------------------------ */
+/* Dashboard                                                          */
+/* ------------------------------------------------------------------ */
+
+function setText(id, value) {
+  const el = document.getElementById(id);
+  if (el) el.textContent = value === null || value === undefined ? "" : String(value);
+}
+
+function formatWhen(value) {
+  if (!value) return "";
+  const when = new Date(value);
+  if (Number.isNaN(when.getTime())) return "";
+  return when.toLocaleString("en-IN", {
+    day: "2-digit",
+    month: "short",
+    hour: "2-digit",
+    minute: "2-digit",
+  });
+}
+
+function clearNode(node) {
+  if (node) node.innerHTML = "";
+}
+
+async function openDocumentWorkspace() {
+  const api = desktopApi();
+  let state = lastAppState;
+  if (api && api.get_state) {
+    try {
+      state = await api.get_state();
+    } catch {
+      state = lastAppState;
+    }
+  }
+  if (state && state.firm && state.output_path) {
+    showDesk(state);
+    return;
+  }
+  showPane("clients");
+  recordNav({ pane: "clients" });
+  syncGuide();
+}
+
+async function showDashboard(options = {}) {
+  showPane("dashboard");
+  if (options.record !== false) recordNav({ pane: "dashboard" });
+  syncGuide();
+  await loadDashboard();
+}
+
+async function loadDashboard() {
+  if (!dashboardLoadingEl) return;
+  dashboardLoadingEl.classList.remove("hidden");
+  dashboardContentEl.classList.add("hidden");
+  dashboardEmptyEl.classList.add("hidden");
+  showError(dashboardErrorEl, "");
+  const api = desktopApi();
+  if (!api || !api.get_dashboard) {
+    dashboardLoadingEl.classList.add("hidden");
+    showError(dashboardErrorEl, "Update the app to open the dashboard.");
+    return;
+  }
+  let result;
+  try {
+    result = await api.get_dashboard();
+  } catch {
+    result = { ok: false, error: "Could not load the dashboard." };
+  }
+  dashboardLoadingEl.classList.add("hidden");
+  if (!result || !result.ok) {
+    showError(
+      dashboardErrorEl,
+      (result && result.error) || "Could not load the dashboard."
+    );
+    return;
+  }
+  dashboardData = result;
+  renderDashboard(result);
+}
+
+function renderDashboard(data) {
+  const totals = data.totals || {};
+  dashboardContentEl.classList.remove("hidden");
+  setText("dash-documents", Number(totals.documents) || 0);
+  setText(
+    "dash-documents-note",
+    `${Number(totals.rows_extracted) || 0} rows extracted`
+  );
+  setText("dash-processed", Number(totals.processed) || 0);
+  setText("dash-attention-count", Number(totals.attention) || 0);
+  setText(
+    "dash-attention-summary",
+    `${Number(totals.needs_review) || 0} review · ${Number(totals.failed) || 0} failed · ${Number(totals.unclassified) || 0} unclassified`
+  );
+  setText("dash-periods", Number(totals.periods) || 0);
+  setText(
+    "dash-periods-note",
+    `${Number(totals.recon_ready_periods) || 0} with a comparison`
+  );
+  setText("dash-clients", Number(totals.clients) || 0);
+  const generated = formatWhen(data.generated_at);
+  setText(
+    "dashboard-sub",
+    generated
+      ? `Live counts from this PC’s document library · updated ${generated}`
+      : "Live counts from this PC’s document library."
+  );
+  renderDashboardActivity(data.recent_activity || []);
+  renderDashboardAttention(data.attention || []);
+  renderDashboardTypes(data.document_types || []);
+  renderDashboardRecon(data.latest_reconciliation);
+  dashboardEmptyEl.classList.toggle(
+    "hidden",
+    (Number(totals.documents) || 0) > 0
+  );
+}
+
+function renderDashboardActivity(activity) {
+  const list = document.getElementById("dashboard-activity");
+  if (!list) return;
+  clearNode(list);
+  const empty = document.getElementById("dashboard-activity-empty");
+  if (!activity.length) {
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+  for (const item of activity) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "practice-row";
+    const main = document.createElement("span");
+    main.className = "practice-row-main";
+    const title = document.createElement("span");
+    title.className = "practice-row-title";
+    title.textContent = `${item.client_name || "Client"} · ${item.period_label || "Period"}`;
+    const meta = document.createElement("span");
+    meta.className = "practice-row-meta";
+    const when = formatWhen(item.finished_at || item.created_at);
+    meta.textContent = `${window.CAPracticeSummary.jobStatusLabel(item.status)} · ${Number(item.files) || 0} files${when ? ` · ${when}` : ""}`;
+    main.append(title, meta);
+    const side = document.createElement("span");
+    side.className = "practice-row-side";
+    const count = document.createElement("span");
+    count.className = "num";
+    count.textContent = `${Number(item.processed) || 0} / ${Number(item.files) || 0}`;
+    const note = document.createElement("span");
+    note.className = "practice-note";
+    const attention =
+      (Number(item.needs_review) || 0) +
+      (Number(item.failed) || 0) +
+      (Number(item.unclassified) || 0);
+    note.textContent = attention ? `${attention} need attention` : "Processed";
+    side.append(count, note);
+    row.append(main, side);
+    row.addEventListener("click", () => openPeriod(item.period_id));
+    list.append(row);
+  }
+}
+
+function renderDashboardAttention(items) {
+  const list = document.getElementById("dashboard-attention");
+  if (!list) return;
+  clearNode(list);
+  const empty = document.getElementById("dashboard-attention-empty");
+  if (!items.length) {
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+  for (const item of items) {
+    const row = document.createElement("button");
+    row.type = "button";
+    row.className = "practice-row";
+    const main = document.createElement("span");
+    main.className = "practice-row-main";
+    const title = document.createElement("span");
+    title.className = "practice-row-title";
+    title.textContent = item.file_name || "Document";
+    const meta = document.createElement("span");
+    meta.className = "practice-row-meta";
+    meta.textContent = `${item.client_name || "Client"} · ${item.period_label || "Period"} · ${item.kind_label || item.kind || ""}`;
+    const reason = document.createElement("span");
+    reason.className = "practice-row-meta";
+    reason.textContent = item.reason || "";
+    main.append(title, meta, reason);
+    const side = document.createElement("span");
+    side.className = "practice-row-side";
+    const pill = document.createElement("span");
+    const outcome = item.outcome || "needs_review";
+    pill.className = `pill outcome-${outcome}`;
+    pill.textContent = window.CAStatusSummary.outcomeLabel(outcome);
+    side.append(pill);
+    row.append(main, side);
+    row.addEventListener("click", () => openPeriod(item.period_id));
+    list.append(row);
+  }
+}
+
+function renderDashboardTypes(types) {
+  const body = document.getElementById("dashboard-types");
+  if (!body) return;
+  clearNode(body);
+  const empty = document.getElementById("dashboard-types-empty");
+  if (!types.length) {
+    if (empty) empty.classList.remove("hidden");
+    return;
+  }
+  if (empty) empty.classList.add("hidden");
+  for (const item of types) {
+    const tr = document.createElement("tr");
+    const name = document.createElement("td");
+    name.textContent = item.label || item.kind;
+    const count = document.createElement("td");
+    count.className = "num";
+    count.textContent = String(Number(item.count) || 0);
+    const processed = document.createElement("td");
+    processed.className = "num";
+    processed.textContent = String(Number(item.processed) || 0);
+    const attention = document.createElement("td");
+    attention.className = "num";
+    attention.textContent = String(
+      (Number(item.needs_review) || 0) +
+        (Number(item.failed) || 0) +
+        (Number(item.unclassified) || 0)
+    );
+    tr.append(name, count, processed, attention);
+    body.append(tr);
+  }
+}
+
+function renderDashboardRecon(latest) {
+  const box = document.getElementById("dashboard-recon");
+  if (!box) return;
+  clearNode(box);
+  if (!latest || !latest.available) {
+    const message = document.createElement("p");
+    message.className = "practice-note";
+    message.textContent =
+      (latest && latest.message) ||
+      "No period has two compatible processed datasets yet.";
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "ui-btn ui-btn-secondary";
+    button.textContent = "Open Reconciliation";
+    button.addEventListener("click", () => showReconciliation());
+    box.append(message, button);
+    return;
+  }
+  const title = document.createElement("p");
+  title.className = "practice-recon-title";
+  title.textContent = latest.workflow_label || "Reconciliation";
+  const line = document.createElement("p");
+  line.className = "practice-recon-line";
+  line.textContent = `${latest.client_name || "Client"} · ${latest.period_label || "Period"}${latest.generated_at ? ` · ${formatWhen(latest.generated_at)}` : ""}`;
+  const counts = document.createElement("p");
+  counts.className = "practice-recon-counts";
+  const summary = window.CAPracticeSummary.countsText(
+    latest.counts || {},
+    latest
+  );
+  for (const part of summary.split(" · ")) {
+    const span = document.createElement("span");
+    span.textContent = part;
+    counts.append(span);
+  }
+  const button = document.createElement("button");
+  button.type = "button";
+  button.className = "ui-btn ui-btn-secondary";
+  button.textContent = "Open this reconciliation";
+  button.addEventListener("click", () =>
+    showReconciliation({
+      periodId: latest.period_id,
+      workflowId: latest.workflow_id,
+    })
+  );
+  box.append(title, line, counts, button);
+}
+
+/* ------------------------------------------------------------------ */
+/* Reconciliation page                                                */
+/* ------------------------------------------------------------------ */
+
+async function showReconciliation(options = {}) {
+  showPane("recon");
+  if (options.record !== false) {
+    recordNav({
+      pane: "recon",
+      reconPeriodId: options.periodId || selectedReconPeriodId,
+    });
+  }
+  syncGuide();
+  await loadReconciliationWorkspace(options);
+}
+
+async function loadReconciliationWorkspace(options = {}) {
+  if (!reconLoadingEl) return;
+  reconLoadingEl.classList.remove("hidden");
+  reconEmptyEl.classList.add("hidden");
+  reconWorkspaceEl.classList.add("hidden");
+  showError(reconPageErrorEl, "");
+  const api = desktopApi();
+  if (!api || !api.get_reconciliation_workspace) {
+    reconLoadingEl.classList.add("hidden");
+    showError(reconPageErrorEl, "Update the app to open reconciliation.");
+    return;
+  }
+  let result;
+  try {
+    result = await api.get_reconciliation_workspace();
+  } catch {
+    result = { ok: false, error: "Could not load reconciliation data." };
+  }
+  reconLoadingEl.classList.add("hidden");
+  if (!result || !result.ok) {
+    showError(
+      reconPageErrorEl,
+      (result && result.error) || "Could not load reconciliation data."
+    );
+    return;
+  }
+  reconWorkspaceData = result;
+  const periods = result.periods || [];
+  if (!periods.length) {
+    reconEmptyEl.classList.remove("hidden");
+    return;
+  }
+  const requested = Number(options.periodId || selectedReconPeriodId || 0);
+  const chosen =
+    periods.find((item) => item.id === requested) ||
+    periods.find((item) => item.id === result.selected_period_id) ||
+    periods[0];
+  selectedReconPeriodId = chosen.id;
+  renderReconPeriodOptions(periods);
+  reconWorkspaceEl.classList.remove("hidden");
+
+  const periodChanged = requested !== chosen.id;
+  if (periodChanged) {
+    lastReconPageResult = null;
+    reconResultsEl.classList.add("hidden");
+    reconMissingEl.classList.add("hidden");
+  }
+
+  const workflowId = options.workflowId || "";
+  renderReconWorkspaceForSelection(workflowId || activeReconWorkflowId);
+  const active = findReconWorkflow(chosen, workflowId || activeReconWorkflowId);
+  if (active && active.available) {
+    await runReconPage(active.id, { periodId: chosen.id });
+  } else if (active && !active.available) {
+    activeReconWorkflowId = active.id;
+    showReconMissing(chosen, active);
+  } else if (options.keepSelection && activeReconWorkflowId) {
+    const kept = findReconWorkflow(chosen, activeReconWorkflowId);
+    if (kept && kept.available) {
+      await runReconPage(kept.id, { periodId: chosen.id });
+    }
+  }
+}
+
+function renderReconPeriodOptions(periods) {
+  if (!reconPeriodEl) return;
+  reconPeriodEl.innerHTML = "";
+  for (const period of periods) {
+    const option = document.createElement("option");
+    option.value = String(period.id);
+    option.textContent = `${period.client_name} · ${period.label}`;
+    if (period.id === selectedReconPeriodId) option.selected = true;
+    reconPeriodEl.append(option);
+  }
+}
+
+function currentReconPeriod() {
+  const periods = (reconWorkspaceData && reconWorkspaceData.periods) || [];
+  return periods.find((item) => item.id === selectedReconPeriodId) || null;
+}
+
+function findReconWorkflow(period, workflowId) {
+  if (!period || !workflowId) return null;
+  return (
+    (period.workflows || []).find((item) => item.id === workflowId) || null
+  );
+}
+
+function renderReconWorkspaceForSelection(activeId) {
+  const period = currentReconPeriod();
+  if (!period) return;
+  setText(
+    "recon-period-meta",
+    `${period.client_name} · ${Number(period.file_count) || 0} files · GSTR-2B ${Number(period.datasets.gstr_2b) || 0} · Invoices ${Number(period.datasets.invoices) || 0} · Purchase register ${Number(period.datasets.purchase_register) || 0} · Bank ${Number(period.datasets.bank) || 0} · Ledger ${Number(period.datasets.bank_ledger) || 0}`
+  );
+  renderReconWorkflowCards(period, activeId);
+}
+
+function renderReconWorkflowCards(period, activeId) {
+  if (!reconWorkflowsEl) return;
+  clearNode(reconWorkflowsEl);
+  const definitions = (reconWorkspaceData && reconWorkspaceData.workflows) || [];
+  const statusById = {};
+  for (const status of period.workflows || []) statusById[status.id] = status;
+  for (const definition of definitions) {
+    const status = statusById[definition.id] || {
+      available: false,
+      missing: [definition.left_label, definition.right_label],
+      left_count: 0,
+      right_count: 0,
+    };
+    const button = document.createElement("button");
+    button.type = "button";
+    button.className = "recon-workflow";
+    if (definition.id === activeId) button.classList.add("is-active");
+    if (!status.available) button.classList.add("is-unavailable");
+    const title = document.createElement("span");
+    title.className = "recon-workflow-title";
+    title.textContent = definition.label;
+    const pill = document.createElement("span");
+    pill.className = `pill ${status.available ? "match" : "review"}`;
+    pill.textContent = status.available ? "Ready" : "Missing input";
+    const desc = document.createElement("span");
+    desc.className = "recon-workflow-desc";
+    desc.textContent = definition.description;
+    const meta = document.createElement("span");
+    meta.className = "recon-workflow-meta";
+    const left = document.createElement("span");
+    left.textContent = `${definition.left_label} ${Number(status.left_count) || 0}`;
+    const right = document.createElement("span");
+    right.textContent = `${definition.right_label} ${Number(status.right_count) || 0}`;
+    meta.append(left, right);
+    button.append(title, pill, desc, meta);
+    button.addEventListener("click", () => {
+      if (reconPageBusy) return;
+      activeReconWorkflowId = definition.id;
+      renderReconWorkflowCards(period, definition.id);
+      if (status.available) {
+        runReconPage(definition.id, { periodId: period.id });
+      } else {
+        lastReconPageResult = null;
+        reconResultsEl.classList.add("hidden");
+        showReconMissing(period, status);
+      }
+    });
+    reconWorkflowsEl.append(button);
+  }
+}
+
+function showReconMissing(period, status) {
+  if (!reconMissingEl) return;
+  reconMissingEl.innerHTML = "";
+  const title = document.createElement("strong");
+  title.textContent = "Required input is missing";
+  const message = document.createElement("p");
+  const missing = (status && status.missing) || [];
+  message.textContent = missing.length
+    ? `This period does not have ${missing.join(" and ")} data. Process the source documents in the Document Workspace, then refresh. No reconciliation is calculated until both datasets are available.`
+    : "This comparison needs more processed data.";
+  reconMissingEl.append(title, message);
+  reconMissingEl.classList.remove("hidden");
+  reconResultsEl.classList.add("hidden");
+  reconCalculatingEl.classList.add("hidden");
+}
+
+async function runReconPage(workflowId, options = {}) {
+  if (reconPageBusy) return;
+  const periodId = Number(options.periodId || selectedReconPeriodId || 0);
+  if (!periodId) return;
+  const period = currentReconPeriod();
+  const status = findReconWorkflow(period, workflowId);
+  if (status && !status.available) {
+    showReconMissing(period, status);
+    return;
+  }
+  const api = desktopApi();
+  if (!api || !api.run_reconciliation) {
+    showError(reconPageErrorEl, "Update the app to run reconciliation.");
+    return;
+  }
+  reconPageBusy = true;
+  activeReconWorkflowId = workflowId;
+  reconPageFilter = "all";
+  reconPageSearch = "";
+  if (reconSearchEl) reconSearchEl.value = "";
+  updateReconFilterButtons();
+  showError(reconPageErrorEl, "");
+  reconMissingEl.classList.add("hidden");
+  reconResultsEl.classList.add("hidden");
+  reconCalculatingEl.classList.remove("hidden");
+  renderReconWorkflowCards(period, workflowId);
+  let result;
+  try {
+    result = await api.run_reconciliation(periodId, workflowId);
+  } catch {
+    result = { ok: false, error: "Could not calculate this reconciliation." };
+  }
+  reconPageBusy = false;
+  reconCalculatingEl.classList.add("hidden");
+  if (Number(selectedReconPeriodId) !== periodId) return;
+  if (!result || !result.ok) {
+    showError(
+      reconPageErrorEl,
+      (result && result.error) || "Could not calculate this reconciliation."
+    );
+    return;
+  }
+  if (!result.available) {
+    lastReconPageResult = null;
+    showReconMissing(
+      period,
+      {
+        available: false,
+        missing: result.missing || [],
+      }
+    );
+    return;
+  }
+  lastReconPageResult = result;
+  renderReconPageResult(result);
+}
+
+function updateReconFilterButtons() {
+  const filters = document.getElementById("recon-page-filters");
+  if (!filters) return;
+  for (const button of filters.querySelectorAll("[data-recon-page-filter]")) {
+    const active =
+      (button.getAttribute("data-recon-page-filter") || "all") === reconPageFilter;
+    button.setAttribute("aria-pressed", active ? "true" : "false");
+  }
+}
+
+function renderReconPageResult(result) {
+  const workflow = result.workflow || {};
+  if (reconResultTitleEl) reconResultTitleEl.textContent = workflow.label || "Reconciliation";
+  setText(
+    "recon-result-sub",
+    `${result.period?.client_name || "Client"} · ${result.period?.label || "Period"} · ${formatWhen(result.generated_at)}`
+  );
+  if (reconResultStampEl) {
+    reconResultStampEl.textContent = `${result.datasets?.left?.count || 0} + ${result.datasets?.right?.count || 0} rows`;
+  }
+  if (reconRulesEl) {
+    reconRulesEl.textContent = `Rules: ${(workflow.rules || []).join(" ")}`;
+  }
+  renderReconDatasets(result);
+  renderReconSummary(result);
+  renderReconTotals(result);
+  renderReconTableHead(result);
+  updateReconFilterButtons();
+  renderReconPageRows();
+  reconResultsEl.classList.remove("hidden");
+}
+
+function renderReconDatasets(result) {
+  const box = document.getElementById("recon-datasets");
+  if (!box) return;
+  clearNode(box);
+  for (const side of ["left", "right"]) {
+    const data = (result.datasets && result.datasets[side]) || {};
+    const item = document.createElement("div");
+    item.className = "recon-dataset";
+    const label = document.createElement("strong");
+    label.textContent = `${data.label || (side === "left" ? "Left" : "Right")} · ${Number(data.count) || 0} rows`;
+    const files = (data.sources || [])
+      .map((source) => source.file_name)
+      .filter(Boolean);
+    const text = document.createElement("span");
+    text.textContent = files.length ? files.join(" · ") : "No source file recorded";
+    item.append(label, text);
+    box.append(item);
+  }
+}
+
+function renderReconSummary(result) {
+  if (!reconSummaryEl) return;
+  clearNode(reconSummaryEl);
+  const counts = result.counts || {};
+  const workflow = result.workflow || {};
+  const order = window.CAPracticeSummary.STATUS_KEYS;
+  let shown = 0;
+  for (const key of order) {
+    const value = Number(counts[key]) || 0;
+    if (!value) continue;
+    shown += 1;
+    const span = document.createElement("span");
+    span.append(
+      document.createTextNode(
+        `${window.CAPracticeSummary.statusLabel(key, workflow)} `
+      )
+    );
+    const strong = document.createElement("strong");
+    strong.textContent = String(value);
+    span.append(strong);
+    reconSummaryEl.append(span);
+  }
+  if (!shown) {
+    const span = document.createElement("span");
+    span.textContent = "No rows";
+    reconSummaryEl.append(span);
+  }
+}
+
+function renderReconTotals(result) {
+  if (!reconTotalsEl) return;
+  clearNode(reconTotalsEl);
+  const totals = result.totals || {};
+  const workflow = result.workflow || {};
+  const items = [
+    [`${workflow.left_label || "Left"} total`, totals.left_amount],
+    [`${workflow.right_label || "Right"} total`, totals.right_amount],
+    ["Matched amount", totals.matched_amount],
+    ["Difference (left − right)", totals.difference],
+  ];
+  for (const [label, value] of items) {
+    const box = document.createElement("div");
+    box.className = "recon-total";
+    const key = document.createElement("span");
+    key.className = "recon-total-k";
+    key.textContent = label;
+    const amount = document.createElement("span");
+    amount.className = "recon-total-v";
+    amount.textContent = money(value);
+    box.append(key, amount);
+    reconTotalsEl.append(box);
+  }
+}
+
+function renderReconTableHead(result) {
+  if (!reconTableHeadEl) return;
+  clearNode(reconTableHeadEl);
+  const workflow = result.workflow || {};
+  const row = document.createElement("tr");
+  const labels = [
+    "Status",
+    "Reference",
+    "Party",
+    "Date",
+    `${workflow.left_label || "Left"} amount`,
+    `${workflow.right_label || "Right"} amount`,
+    "Difference",
+    "Explanation",
+  ];
+  for (const label of labels) {
+    const th = document.createElement("th");
+    th.scope = "col";
+    th.textContent = label;
+    row.append(th);
+  }
+  reconTableHeadEl.append(row);
+}
+
+function reconReference(row) {
+  const left = row.left && row.left.reference ? row.left.reference : "";
+  const right = row.right && row.right.reference ? row.right.reference : "";
+  if (left && right && left !== right) return `${left} / ${right}`;
+  return left || right || "—";
+}
+
+function reconParty(row) {
+  const left = row.left && row.left.party ? row.left.party : "";
+  const right = row.right && row.right.party ? row.right.party : "";
+  if (left && right && left !== right) return `${left} / ${right}`;
+  return left || right || "—";
+}
+
+function reconDate(row) {
+  const left = row.left && row.left.date ? row.left.date : "";
+  const right = row.right && row.right.date ? row.right.date : "";
+  if (left && right && left !== right) return `${left} / ${right}`;
+  return left || right || "—";
+}
+
+function reconAmountCell(value, currency) {
+  const td = document.createElement("td");
+  td.className = "num";
+  td.textContent = money(value, currency);
+  return td;
+}
+
+function reconStatusPillForPage(status, workflow) {
+  const pill = document.createElement("span");
+  const tone = window.CAPracticeSummary.statusTone(status);
+  pill.className = `pill ${tone === "muted" ? "mute" : tone}`;
+  pill.textContent = window.CAPracticeSummary.statusLabel(status, workflow);
+  return pill;
+}
+
+function renderReconPageRows() {
+  if (!reconTableBodyEl || !lastReconPageResult) return;
+  const result = lastReconPageResult;
+  const workflow = result.workflow || {};
+  const rows = window.CAPracticeSummary.filterRows(
+    result.rows || [],
+    reconPageFilter,
+    reconPageSearch
+  );
+  clearNode(reconTableBodyEl);
+  reconTableEmptyEl.classList.toggle("hidden", rows.length > 0);
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.className = "is-clickable";
+    tr.tabIndex = 0;
+    const status = document.createElement("td");
+    status.append(reconStatusPillForPage(row.status, workflow));
+    const reference = document.createElement("td");
+    reference.className = "practice-mono";
+    reference.textContent = reconReference(row);
+    const party = document.createElement("td");
+    party.className = "practice-wrap recon-party";
+    party.textContent = reconParty(row);
+    const date = document.createElement("td");
+    date.className = "practice-mono";
+    date.textContent = reconDate(row);
+    const leftAmount = reconAmountCell(
+      row.left ? row.left.amount : null,
+      row.left ? row.left.currency : ""
+    );
+    const rightAmount = reconAmountCell(
+      row.right ? row.right.amount : null,
+      row.right ? row.right.currency : ""
+    );
+    const difference = reconAmountCell(
+      row.differences ? row.differences.amount : null
+    );
+    const explanation = document.createElement("td");
+    explanation.className = "recon-explanation";
+    explanation.textContent = row.explanation || "";
+    tr.append(
+      status,
+      reference,
+      party,
+      date,
+      leftAmount,
+      rightAmount,
+      difference,
+      explanation
+    );
+    const open = () => openReconDetail(row);
+    tr.addEventListener("click", open);
+    tr.addEventListener("keydown", (event) => {
+      if (event.key === "Enter" || event.key === " ") {
+        event.preventDefault();
+        open();
+      }
+    });
+    reconTableBodyEl.append(tr);
+  }
+}
+
+/* ------------------------------------------------------------------ */
+/* Reconciliation detail                                              */
+/* ------------------------------------------------------------------ */
+
+function sourceFieldValue(value) {
+  if (value === null || value === undefined || value === "") return "—";
+  if (typeof value === "number") {
+    return value.toLocaleString("en-IN", {
+      minimumFractionDigits: 2,
+      maximumFractionDigits: 2,
+    });
+  }
+  if (Array.isArray(value)) return value.length ? value.join(", ") : "—";
+  if (typeof value === "object") return JSON.stringify(value);
+  return String(value);
+}
+
+function appendReconFieldGrid(container, record) {
+  const fields = [
+    ["Reference", record.reference],
+    ["Date", record.date],
+    ["Party", record.party],
+    ["GSTIN", record.gstin],
+    ["Amount", record.amount],
+    ["Taxable", record.taxable],
+    ["Tax", record.tax],
+    ["Currency", record.currency],
+    ["Description", record.description],
+    ["Source row", record.source],
+  ];
+  const list = document.createElement("dl");
+  list.className = "recon-field-grid";
+  for (const [label, value] of fields) {
+    if (value === null || value === undefined || value === "") continue;
+    const dt = document.createElement("dt");
+    dt.textContent = label;
+    const dd = document.createElement("dd");
+    dd.textContent = sourceFieldValue(value);
+    list.append(dt, dd);
+  }
+  if (!list.children.length) {
+    const empty = document.createElement("p");
+    empty.className = "recon-empty-side";
+    empty.textContent = "No readable fields on this side.";
+    container.append(empty);
+    return;
+  }
+  container.append(list);
+}
+
+function isPageSource(record) {
+  const name = String((record && record.file_name) || "").toLowerCase();
+  return /\.(pdf|png|jpe?g|webp|tiff?|bmp)$/.test(name);
+}
+
+function appendReconSourceSide(label, record) {
+  const panel = document.createElement("section");
+  panel.className = "recon-source";
+  const title = document.createElement("h2");
+  title.textContent = label;
+  panel.append(title);
+  if (!record) {
+    const empty = document.createElement("p");
+    empty.className = "recon-empty-side";
+    empty.textContent = "No record on this side.";
+    panel.append(empty);
+    return panel;
+  }
+  const meta = document.createElement("p");
+  meta.className = "recon-source-meta";
+  const bits = [
+    record.file_name || "Source file",
+    record.kind || "",
+    record.source_page ? `page ${record.source_page}` : "",
+  ].filter(Boolean);
+  meta.textContent = bits.join(" · ");
+  panel.append(meta);
+
+  const actions = document.createElement("div");
+  actions.className = "recon-source-actions";
+  if (record.file_id) {
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "ui-btn ui-btn-secondary";
+    open.textContent = "Open original file";
+    open.addEventListener("click", () => openReconSourceFile(record));
+    actions.append(open);
+  }
+  if (record.file_id && record.source_page && isPageSource(record)) {
+    const crop = document.createElement("button");
+    crop.type = "button";
+    crop.className = "ui-btn ui-btn-secondary";
+    crop.textContent = "Show source page";
+    crop.addEventListener("click", () => openReconSourceCrop(record, label));
+    actions.append(crop);
+  }
+  if (actions.children.length) panel.append(actions);
+  appendReconFieldGrid(panel, record);
+
+  const extracted = document.createElement("div");
+  extracted.className = "recon-extracted";
+  const heading = document.createElement("p");
+  heading.className = "practice-note";
+  heading.textContent = "Extracted record";
+  const detail = document.createElement("div");
+  detail.textContent = "Loading…";
+  extracted.append(heading, detail);
+  panel.append(extracted);
+  if (record.row_id) {
+    loadReconExtractedRecord(record.row_id, detail);
+  } else {
+    detail.textContent = "No extracted-row id is available.";
+  }
+  return panel;
+}
+
+async function loadReconExtractedRecord(rowId, container) {
+  const api = desktopApi();
+  if (!api || !api.get_extracted_record) {
+    container.textContent = "Update the app to inspect extracted records.";
+    return;
+  }
+  let result;
+  try {
+    result = await api.get_extracted_record(rowId);
+  } catch {
+    result = { ok: false };
+  }
+  if (!result || !result.ok) {
+    container.textContent = "Could not load the extracted record.";
+    return;
+  }
+  container.innerHTML = "";
+  const record = result.record || {};
+  const list = document.createElement("dl");
+  list.className = "recon-field-grid";
+  for (const [key, value] of Object.entries(record)) {
+    if (key === "fields" || key === "source_bbox") continue;
+    if (value === null || value === undefined || value === "") continue;
+    const dt = document.createElement("dt");
+    dt.textContent = key.replaceAll("_", " ");
+    const dd = document.createElement("dd");
+    dd.textContent = sourceFieldValue(value);
+    list.append(dt, dd);
+  }
+  if (list.children.length) container.append(list);
+  else container.textContent = "The extracted record is empty.";
+}
+
+async function openReconSourceFile(record) {
+  const api = desktopApi();
+  if (!api || !api.open_source_file) {
+    showError(reconDetailErrorEl, "Update the app to open source files.");
+    return;
+  }
+  showError(reconDetailErrorEl, "");
+  let result;
+  try {
+    result = await api.open_source_file(record.file_id);
+  } catch {
+    result = { ok: false, error: "Could not open the source file." };
+  }
+  if (!result || !result.ok) {
+    showError(
+      reconDetailErrorEl,
+      (result && result.error) || "Could not open the source file."
+    );
+  }
+}
+
+async function openReconSourceCrop(record, label) {
+  const api = desktopApi();
+  if (!api || !api.get_source_crop) {
+    showError(reconDetailErrorEl, "Update the app to show source pages.");
+    return;
+  }
+  let result;
+  try {
+    result = await api.get_source_crop(
+      record.file_id,
+      Number(record.source_page) || 1,
+      record.source_bbox || ""
+    );
+  } catch {
+    result = { ok: false, error: "Could not load the source page." };
+  }
+  if (!result || !result.ok) {
+    showError(
+      reconDetailErrorEl,
+      (result && result.error) || "Could not load the source page."
+    );
+    return;
+  }
+  const src = result.data_url || result.path || "";
+  if (!src) {
+    showError(reconDetailErrorEl, "Could not load the source page.");
+    return;
+  }
+  showError(reconDetailErrorEl, "");
+  cropImageEl.src = src;
+  cropImageEl.alt = `${record.file_name || label} page ${record.source_page || 1}`;
+  cropCaptionEl.textContent = `${record.file_name || label} · page ${record.source_page || 1} · ${label}`;
+  cropModal.classList.remove("hidden");
+}
+
+function openReconDetail(row) {
+  if (!reconDetailModal) return;
+  const result = lastReconPageResult || {};
+  const workflow = result.workflow || {};
+  reconDetailTitleEl.textContent = reconReference(row);
+  reconDetailStatusEl.innerHTML = "";
+  reconDetailStatusEl.append(reconStatusPillForPage(row.status, workflow));
+  reconDetailExplanationEl.textContent = row.explanation || "";
+  showError(reconDetailErrorEl, "");
+
+  clearNode(reconDetailDiffsEl);
+  const diffs = row.differences || {};
+  const items = [
+    ["Amount difference", diffs.amount],
+    ["Tax difference", diffs.tax],
+    ["Taxable difference", diffs.taxable],
+    ["Date gap", diffs.date_days === null || diffs.date_days === undefined ? null : `${diffs.date_days} days`],
+  ];
+  for (const [label, value] of items) {
+    const box = document.createElement("div");
+    box.className = "recon-total";
+    const key = document.createElement("span");
+    key.className = "recon-total-k";
+    key.textContent = label;
+    const shown = document.createElement("span");
+    shown.className = "recon-total-v";
+    shown.textContent =
+      typeof value === "number" && label !== "Date gap"
+        ? money(value)
+        : sourceFieldValue(value);
+    box.append(key, shown);
+    reconDetailDiffsEl.append(box);
+  }
+
+  clearNode(reconDetailBodyEl);
+  reconDetailBodyEl.append(
+    appendReconSourceSide(workflow.left_label || "Left dataset", row.left),
+    appendReconSourceSide(workflow.right_label || "Right dataset", row.right)
+  );
+  reconDetailModal.classList.remove("hidden");
+  const closeButton = document.getElementById("recon-detail-close");
+  if (closeButton) closeButton.focus();
+}
+
+function closeReconDetail() {
+  if (!reconDetailModal) return;
+  reconDetailModal.classList.add("hidden");
+  showError(reconDetailErrorEl, "");
+}
+
+/* ------------------------------------------------------------------ */
+/* Reports                                                            */
+/* ------------------------------------------------------------------ */
+
+async function showReports(options = {}) {
+  showPane("reports");
+  if (options.record !== false) recordNav({ pane: "reports" });
+  syncGuide();
+  await loadReports();
+}
+
+async function loadReports() {
+  if (!reportsLoadingEl) return;
+  reportsLoadingEl.classList.remove("hidden");
+  reportsEmptyEl.classList.add("hidden");
+  reportsListEl.classList.add("hidden");
+  showError(reportsErrorEl, "");
+  const api = desktopApi();
+  if (!api || !api.get_reports) {
+    reportsLoadingEl.classList.add("hidden");
+    showError(reportsErrorEl, "Update the app to open reports.");
+    return;
+  }
+  let result;
+  try {
+    result = await api.get_reports();
+  } catch {
+    result = { ok: false, error: "Could not load generated packs." };
+  }
+  reportsLoadingEl.classList.add("hidden");
+  if (!result || !result.ok) {
+    showError(
+      reportsErrorEl,
+      (result && result.error) || "Could not load generated packs."
+    );
+    return;
+  }
+  reportsData = result;
+  renderReports(result.packs || []);
+}
+
+function renderReports(packs) {
+  clearNode(reportsListEl);
+  reportsEmptyEl.classList.toggle("hidden", packs.length > 0);
+  reportsListEl.classList.toggle("hidden", packs.length === 0);
+  for (const pack of packs) {
+    const section = document.createElement("section");
+    section.className = "report-pack";
+    const head = document.createElement("div");
+    head.className = "report-pack-head";
+    const titleWrap = document.createElement("div");
+    const title = document.createElement("h2");
+    title.textContent = `${pack.client_name} · ${pack.period_label}`;
+    const meta = document.createElement("p");
+    meta.className = "practice-note";
+    const when = formatWhen(pack.created_at);
+    meta.textContent = `${Number(pack.row_count) || 0} rows${when ? ` · ${when}` : ""}`;
+    titleWrap.append(title, meta);
+    const folder = document.createElement("button");
+    folder.type = "button";
+    folder.className = "ui-btn ui-btn-secondary";
+    folder.textContent = "Open folder";
+    folder.addEventListener("click", () => openReportFolder(pack.period_id));
+    head.append(titleWrap, folder);
+    section.append(head);
+    for (const output of pack.outputs || []) {
+      const row = document.createElement("div");
+      row.className = "report-output";
+      const name = document.createElement("span");
+      name.className = "report-output-name";
+      name.textContent = output.label || output.key || "Excel";
+      const details = document.createElement("span");
+      details.className = "report-output-meta";
+      details.textContent = `${Number(output.rows) || 0} rows${output.status && output.status !== "ready" ? ` · ${output.status}` : ""}`;
+      const open = document.createElement("button");
+      open.type = "button";
+      open.className = "ui-btn ui-btn-secondary";
+      open.textContent = "Open";
+      open.addEventListener("click", () =>
+        openReportOutput(pack.period_id, output.key)
+      );
+      row.append(name, details, open);
+      section.append(row);
+    }
+    reportsListEl.append(section);
+  }
+}
+
+async function openReportOutput(periodId, key) {
+  const api = desktopApi();
+  if (!api || !api.open_bank_pack) return;
+  let result;
+  try {
+    result = await api.open_bank_pack(periodId, key || "");
+  } catch {
+    result = { ok: false, error: "Could not open that pack." };
+  }
+  if (!result || !result.ok) {
+    showError(reportsErrorEl, (result && result.error) || "Could not open that pack.");
+  }
+}
+
+async function openReportFolder(periodId) {
+  const api = desktopApi();
+  if (!api || !api.open_pack_folder) return;
+  let result;
+  try {
+    result = await api.open_pack_folder(periodId);
+  } catch {
+    result = { ok: false, error: "Could not open the pack folder." };
+  }
+  if (!result || !result.ok) {
+    showError(
+      reportsErrorEl,
+      (result && result.error) || "Could not open the pack folder."
+    );
+  }
 }
 
 function looksLikeGstin(value) {
@@ -1626,7 +2861,7 @@ function currentGuideCard() {
     return {
       kicker: "Step 4 of 5",
       title: "Open the period",
-      copy: "Click the period row. That is the dump tray for this month.",
+      copy: "Click the period row. That is the Document Workspace for this month.",
       items: ["Click the period in the list."],
       highlight: "#period-list .period-row",
     };
@@ -1915,6 +3150,75 @@ const navRefreshBtn = document.getElementById("nav-refresh");
 if (navBackBtn) navBackBtn.addEventListener("click", goNavBack);
 if (navForwardBtn) navForwardBtn.addEventListener("click", goNavForward);
 if (navRefreshBtn) navRefreshBtn.addEventListener("click", refreshCurrentView);
+
+const navDocumentsBtn = document.getElementById("nav-documents");
+const navDashboardBtn = document.getElementById("nav-dashboard");
+const navReconBtn = document.getElementById("nav-recon");
+const navReportsBtn = document.getElementById("nav-reports");
+if (navDocumentsBtn) navDocumentsBtn.addEventListener("click", openDocumentWorkspace);
+if (navDashboardBtn) navDashboardBtn.addEventListener("click", () => showDashboard());
+if (navReconBtn) navReconBtn.addEventListener("click", () => showReconciliation());
+if (navReportsBtn) navReportsBtn.addEventListener("click", () => showReports());
+
+const dashboardRefreshBtn = document.getElementById("dashboard-refresh");
+if (dashboardRefreshBtn) dashboardRefreshBtn.addEventListener("click", loadDashboard);
+for (const id of ["quick-workspace", "dashboard-start", "recon-go-workspace", "reports-go-workspace"]) {
+  const button = document.getElementById(id);
+  if (button) button.addEventListener("click", openDocumentWorkspace);
+}
+const quickReconBtn = document.getElementById("quick-recon");
+if (quickReconBtn) quickReconBtn.addEventListener("click", () => showReconciliation());
+const quickReportsBtn = document.getElementById("quick-reports");
+if (quickReportsBtn) quickReportsBtn.addEventListener("click", () => showReports());
+
+if (reconPeriodEl) {
+  reconPeriodEl.addEventListener("change", () => {
+    selectedReconPeriodId = Number(reconPeriodEl.value) || null;
+    lastReconPageResult = null;
+    reconResultsEl.classList.add("hidden");
+    reconMissingEl.classList.add("hidden");
+    showError(reconPageErrorEl, "");
+    recordNav({ pane: "recon", reconPeriodId: selectedReconPeriodId });
+    renderReconWorkspaceForSelection(activeReconWorkflowId);
+    const period = currentReconPeriod();
+    const active = findReconWorkflow(period, activeReconWorkflowId);
+    if (active && active.available) {
+      runReconPage(active.id, { periodId: selectedReconPeriodId });
+    } else if (active && !active.available) {
+      showReconMissing(period, active);
+    }
+  });
+}
+const reconRefreshBtn = document.getElementById("recon-refresh");
+if (reconRefreshBtn) {
+  reconRefreshBtn.addEventListener("click", () =>
+    loadReconciliationWorkspace({ keepSelection: true })
+  );
+}
+if (reconPageFiltersEl) {
+  reconPageFiltersEl.addEventListener("click", (event) => {
+    const button = event.target.closest("[data-recon-page-filter]");
+    if (!button) return;
+    reconPageFilter = button.getAttribute("data-recon-page-filter") || "all";
+    updateReconFilterButtons();
+    renderReconPageRows();
+  });
+}
+if (reconSearchEl) {
+  reconSearchEl.addEventListener("input", () => {
+    reconPageSearch = reconSearchEl.value || "";
+    renderReconPageRows();
+  });
+}
+if (reconDetailModal) {
+  reconDetailModal.addEventListener("click", (event) => {
+    if (event.target === reconDetailModal) closeReconDetail();
+  });
+}
+const reconDetailCloseBtn = document.getElementById("recon-detail-close");
+if (reconDetailCloseBtn) reconDetailCloseBtn.addEventListener("click", closeReconDetail);
+const reportsRefreshBtn = document.getElementById("reports-refresh");
+if (reportsRefreshBtn) reportsRefreshBtn.addEventListener("click", loadReports);
 
 document.getElementById("open-pack").addEventListener("click", async () => {
   if (!currentPeriod) return;
@@ -2225,6 +3529,10 @@ document.addEventListener("keydown", (event) => {
     }
     if (unlockModal && !unlockModal.classList.contains("hidden")) {
       closeUnlockModal();
+      return;
+    }
+    if (reconDetailModal && !reconDetailModal.classList.contains("hidden")) {
+      closeReconDetail();
     }
     return;
   }

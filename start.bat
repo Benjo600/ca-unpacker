@@ -8,20 +8,19 @@ if exist "%~dp0.env" (
 ) else (
   echo No .env file found.
   echo Will use baked production Supabase from apps/config.json for perfect direct in-app auth.
-  echo (This gives you the strict email/password flow with no browser needed.)
+  echo This gives you the strict email/password flow with no browser needed.
   echo Copy .env.example to .env ONLY if testing against local Supabase.
 )
 
 set "URLCHK=MISSING"
 if defined SUPABASE_URL (
-  set "URLCHK=PRODUCTION (from .env)"
-  if not "%SUPABASE_URL:127.0.0.1=%"=="%SUPABASE_URL%" set "URLCHK=LOCALHOST (from .env)"
-  if /i not "%SUPABASE_URL:localhost=%"=="%SUPABASE_URL%" set "URLCHK=LOCALHOST (from .env)"
+  set "URLCHK=PRODUCTION from .env"
+  echo "%SUPABASE_URL%" | findstr /i /c:"127.0.0.1" /c:"localhost" >nul && set "URLCHK=LOCALHOST from .env"
 ) else (
   if exist "apps\config.json" (
-    set "URLCHK=PRODUCTION (from apps/config.json)"
+    set "URLCHK=PRODUCTION from apps/config.json"
   ) else (
-    set "URLCHK=MISSING (no .env and no config.json)"
+    set "URLCHK=MISSING no .env and no config.json"
   )
 )
 echo SUPABASE_URL: %URLCHK%
@@ -30,19 +29,19 @@ if defined SUPABASE_ANON_KEY (
   echo SUPABASE_ANON_KEY: PRESENT
 ) else (
   if exist "apps\config.json" (
-    echo SUPABASE_ANON_KEY: PRESENT (from apps/config.json - Python will load it)
+    echo SUPABASE_ANON_KEY: PRESENT from apps/config.json - Python will load it
   ) else (
     echo SUPABASE_ANON_KEY: MISSING
   )
 )
 
 if defined CA_UNPACKER_AUTH_URL (
-  echo CA_UNPACKER_AUTH_URL: PRESENT (legacy - no longer used for auth)
+  echo CA_UNPACKER_AUTH_URL: PRESENT legacy - no longer used for auth
 ) else (
   if exist "apps\config.json" (
-    echo CA_UNPACKER_AUTH_URL: PRESENT in config (legacy - ignored)
+    echo CA_UNPACKER_AUTH_URL: PRESENT in config legacy - ignored
   ) else (
-    echo CA_UNPACKER_AUTH_URL: MISSING (legacy)
+    echo CA_UNPACKER_AUTH_URL: MISSING legacy
   )
 )
 
@@ -88,7 +87,7 @@ if not exist "%PY%" (
   echo Setup complete.
   echo.
   echo === Perfect Auth Baked In ===
-  echo - Direct Supabase connection (production keys from apps/config.json)
+  echo - Direct Supabase connection: production keys from apps/config.json
   echo - Strict in-app auth gate (email + password only)
   echo - No more automatic browser signup
   echo - You will be required to sign in before choosing your Excel folder

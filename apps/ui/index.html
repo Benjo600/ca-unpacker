@@ -203,21 +203,14 @@
       </div>
       <p class="firm-line rail-sr-only" id="firm-label"></p>
 
-      <p class="rail-section">Workspace</p>
-      <nav class="rail-nav">
-        <span class="nav-current" id="nav-label">Clients</span>
-        <span class="nav-later">Packs <span class="rail-soon">Coming soon</span></span>
+      <p class="rail-section">Practice</p>
+      <nav class="rail-nav" aria-label="Practice">
+        <button type="button" class="rail-nav-item is-active" id="nav-documents">Documents</button>
+        <button type="button" class="rail-nav-item" id="nav-dashboard">Dashboard</button>
+        <button type="button" class="rail-nav-item" id="nav-recon">Reconciliation</button>
+        <button type="button" class="rail-nav-item" id="nav-reports">Reports</button>
+        <span class="rail-sr-only" id="nav-label">Clients</span>
       </nav>
-
-      <div class="rail-practice">
-        <p class="rail-section">Practice</p>
-        <ul class="rail-soon-list">
-          <li>Dashboard <span class="rail-soon">Coming soon</span></li>
-          <li>Documents <span class="rail-soon">Coming soon</span></li>
-          <li>Reconciliation <span class="rail-soon">Coming soon</span></li>
-          <li>Reports <span class="rail-soon">Coming soon</span></li>
-        </ul>
-      </div>
 
       <div class="rail-meta">
         <p class="rail-foot rail-sr-only" id="output-label">No output folder</p>
@@ -343,7 +336,7 @@
       <header class="sheet-head">
         <div>
           <button type="button" class="text-btn" id="back-to-periods">Periods</button>
-          <p class="eyebrow" id="dump-eyebrow">Dump tray</p>
+          <p class="eyebrow" id="dump-eyebrow">Document Workspace</p>
           <h1 id="dump-title">Period</h1>
         </div>
         <p class="count" id="dump-status"></p>
@@ -407,6 +400,206 @@
         </div>
         <div id="file-list"></div>
         <p id="file-empty" class="empty hidden">No files in this period yet. Drop a folder or add files to begin.</p>
+      </div>
+    </main>
+
+    <main class="sheet practice-sheet hidden" id="pane-dashboard">
+      <header class="practice-head">
+        <div>
+          <p class="eyebrow">Practice overview</p>
+          <h1>Dashboard</h1>
+          <p class="practice-sub" id="dashboard-sub">Live counts from this PC’s document library.</p>
+        </div>
+        <div class="practice-head-actions">
+          <button type="button" class="ui-btn ui-btn-secondary" id="dashboard-refresh">Refresh</button>
+        </div>
+      </header>
+
+      <p id="dashboard-error" class="error" hidden></p>
+      <p id="dashboard-loading" class="practice-loading">Loading dashboard…</p>
+
+      <div id="dashboard-content" class="hidden">
+        <section class="practice-totals" aria-label="Library totals">
+          <div class="practice-total">
+            <span class="practice-total-k">Documents</span>
+            <strong class="num" id="dash-documents">0</strong>
+            <span class="practice-total-note" id="dash-documents-note">0 rows extracted</span>
+          </div>
+          <div class="practice-total">
+            <span class="practice-total-k">Processed</span>
+            <strong class="num" id="dash-processed">0</strong>
+            <span class="practice-total-note">Parsed successfully</span>
+          </div>
+          <div class="practice-total">
+            <span class="practice-total-k">Needs attention</span>
+            <strong class="num" id="dash-attention-count">0</strong>
+            <span class="practice-total-note" id="dash-attention-note">Review, failed or unclassified</span>
+          </div>
+          <div class="practice-total">
+            <span class="practice-total-k">Periods</span>
+            <strong class="num" id="dash-periods">0</strong>
+            <span class="practice-total-note" id="dash-periods-note">0 with a comparison</span>
+          </div>
+          <div class="practice-total">
+            <span class="practice-total-k">Clients</span>
+            <strong class="num" id="dash-clients">0</strong>
+            <span class="practice-total-note">On this PC</span>
+          </div>
+        </section>
+
+        <div class="practice-quick" aria-label="Quick actions">
+          <button type="button" class="ui-btn ui-btn-primary" id="quick-workspace">Open Document Workspace</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="quick-recon">Open Reconciliation</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="quick-reports">Open Reports</button>
+        </div>
+
+        <div class="practice-grid">
+          <section class="practice-panel">
+            <div class="practice-panel-head">
+              <h2>Recent processing</h2>
+              <span class="practice-note" id="dash-activity-note"></span>
+            </div>
+            <div id="dashboard-activity" class="practice-rows"></div>
+            <p id="dashboard-activity-empty" class="empty hidden">No processing runs yet. Add a client, create a period and drop the month’s files.</p>
+          </section>
+
+          <section class="practice-panel">
+            <div class="practice-panel-head">
+              <h2>Needs attention</h2>
+              <span class="practice-note" id="dash-attention-summary"></span>
+            </div>
+            <div id="dashboard-attention" class="practice-rows"></div>
+            <p id="dashboard-attention-empty" class="empty hidden">No files are waiting for review.</p>
+          </section>
+
+          <section class="practice-panel">
+            <div class="practice-panel-head">
+              <h2>Documents by type</h2>
+              <span class="practice-note">Effective type after manual overrides</span>
+            </div>
+            <table class="practice-table" aria-label="Documents by type">
+              <thead>
+                <tr><th>Type</th><th class="num">Files</th><th class="num">Processed</th><th class="num">Attention</th></tr>
+              </thead>
+              <tbody id="dashboard-types"></tbody>
+            </table>
+            <p id="dashboard-types-empty" class="empty hidden">No documents yet.</p>
+          </section>
+
+          <section class="practice-panel">
+            <div class="practice-panel-head">
+              <h2>Latest reconciliation</h2>
+              <span class="practice-note">Calculated from processed records</span>
+            </div>
+            <div id="dashboard-recon" class="practice-recon"></div>
+          </section>
+        </div>
+      </div>
+
+      <div id="dashboard-empty" class="practice-empty hidden">
+        <h2>No documents processed yet</h2>
+        <p>Open the Document Workspace, add a client and period, then drop the client’s files. The dashboard fills with real counts once processing finishes.</p>
+        <button type="button" class="ui-btn ui-btn-primary" id="dashboard-start">Open Document Workspace</button>
+      </div>
+    </main>
+
+    <main class="sheet practice-sheet hidden" id="pane-recon">
+      <header class="practice-head">
+        <div>
+          <p class="eyebrow">Practice</p>
+          <h1>Reconciliation</h1>
+          <p class="practice-sub">Compare processed records without changing either source. Similar amounts alone never create a match.</p>
+        </div>
+      </header>
+
+      <p id="recon-page-error" class="error" hidden></p>
+
+      <section class="practice-controls" aria-label="Reconciliation period">
+        <div class="ui-field practice-period-field">
+          <label class="ui-field-label" for="recon-period">Client period</label>
+          <select id="recon-period" class="ui-select"></select>
+        </div>
+        <button type="button" class="ui-btn ui-btn-secondary" id="recon-refresh">Refresh data</button>
+        <p id="recon-period-meta" class="practice-note"></p>
+      </section>
+
+      <p id="recon-loading" class="practice-loading">Loading reconciliation data…</p>
+
+      <div id="recon-empty" class="practice-empty hidden">
+        <h2>No periods to reconcile</h2>
+        <p>Process documents in the Document Workspace first. Reconciliation reads the extracted rows already stored for a period.</p>
+        <button type="button" class="ui-btn ui-btn-primary" id="recon-go-workspace">Open Document Workspace</button>
+      </div>
+
+      <div id="recon-workspace" class="hidden">
+        <section class="practice-panel">
+          <div class="practice-panel-head">
+            <h2>Choose a comparison</h2>
+            <span class="practice-note">Only workflows with both datasets can run</span>
+          </div>
+          <div id="recon-workflows" class="recon-workflows"></div>
+        </section>
+
+        <div id="recon-missing" class="practice-notice hidden" aria-live="polite"></div>
+        <p id="recon-calculating" class="practice-loading hidden">Calculating reconciliation…</p>
+
+        <section id="recon-results" class="practice-panel hidden">
+          <div class="practice-panel-head">
+            <div>
+              <h2 id="recon-result-title">Reconciliation</h2>
+              <p id="recon-result-sub" class="practice-note"></p>
+            </div>
+            <span id="recon-result-stamp" class="practice-stamp"></span>
+          </div>
+
+          <p id="recon-rules" class="practice-rules"></p>
+          <div id="recon-datasets" class="recon-datasets"></div>
+          <div id="recon-summary" class="recon-summary"></div>
+          <div id="recon-totals" class="recon-totals"></div>
+
+          <div class="recon-toolbar">
+            <div id="recon-page-filters" class="practice-filters" role="group" aria-label="Filter reconciliation rows">
+              <button type="button" data-recon-page-filter="all" aria-pressed="true">All</button>
+              <button type="button" data-recon-page-filter="matched" aria-pressed="false">Matched</button>
+              <button type="button" data-recon-page-filter="review" aria-pressed="false">Review</button>
+              <button type="button" data-recon-page-filter="amount_mismatch" aria-pressed="false">Amount differences</button>
+              <button type="button" data-recon-page-filter="unmatched" aria-pressed="false">Only one side</button>
+              <button type="button" data-recon-page-filter="duplicate" aria-pressed="false">Duplicates</button>
+            </div>
+            <input id="recon-search" class="practice-input" type="search" placeholder="Search reference, party, GSTIN or source" autocomplete="off" />
+          </div>
+
+          <div class="recon-table-wrap">
+            <table class="practice-table recon-table" aria-label="Reconciliation results">
+              <thead id="recon-table-head"></thead>
+              <tbody id="recon-table-body"></tbody>
+            </table>
+          </div>
+          <p id="recon-table-empty" class="empty hidden">No rows match this filter.</p>
+          <p class="practice-note">Click a row to inspect both extracted records and open the original source file. Nothing is written back to the source data.</p>
+        </section>
+      </div>
+    </main>
+
+    <main class="sheet practice-sheet hidden" id="pane-reports">
+      <header class="practice-head">
+        <div>
+          <p class="eyebrow">Practice</p>
+          <h1>Reports</h1>
+          <p class="practice-sub">Generated Excel packs from this PC. Open a pack or its folder; no data is rewritten.</p>
+        </div>
+        <div class="practice-head-actions">
+          <button type="button" class="ui-btn ui-btn-secondary" id="reports-refresh">Refresh</button>
+        </div>
+      </header>
+
+      <p id="reports-error" class="error" hidden></p>
+      <p id="reports-loading" class="practice-loading">Loading generated packs…</p>
+      <div id="reports-list" class="reports-list"></div>
+      <div id="reports-empty" class="practice-empty hidden">
+        <h2>No generated packs yet</h2>
+        <p>Process a period in the Document Workspace. Excel packs appear here after the files are parsed.</p>
+        <button type="button" class="ui-btn ui-btn-primary" id="reports-go-workspace">Open Document Workspace</button>
       </div>
     </main>
       </div>
@@ -496,8 +689,24 @@
     </div>
   </div>
 
+  <div id="recon-detail-modal" class="modal hidden">
+    <div class="modal-card recon-detail-card" role="dialog" aria-modal="true" aria-labelledby="recon-detail-title">
+      <p class="eyebrow">Reconciliation row</p>
+      <h1 id="recon-detail-title">Record</h1>
+      <p id="recon-detail-status" class="recon-detail-status"></p>
+      <p id="recon-detail-explanation" class="recon-detail-explanation"></p>
+      <div id="recon-detail-diffs" class="recon-detail-diffs"></div>
+      <div id="recon-detail-body" class="recon-detail-body"></div>
+      <p id="recon-detail-error" class="error" hidden></p>
+      <div class="drop-actions">
+        <button type="button" class="ghost" id="recon-detail-close">Close</button>
+      </div>
+    </div>
+  </div>
+
   <script src="status-summary.js"></script>
   <script src="recon-summary.js"></script>
+  <script src="practice-summary.js"></script>
   <script src="remove-file.js"></script>
   <script src="app.js"></script>
 </body>
