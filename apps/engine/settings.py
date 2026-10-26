@@ -36,7 +36,16 @@ def get_output_root() -> Path | None:
     if not raw:
         return None
     path = Path(raw)
-    return path if path.exists() else None
+    if path.exists():
+        return path
+    # The folder was chosen once but is gone (moved, renamed, network drive
+    # back after a reboot). Recreate it instead of returning None — that is
+    # what kept throwing the app back to first-run setup on every relaunch.
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except OSError:
+        return None
 
 
 def is_guide_dismissed() -> bool:
