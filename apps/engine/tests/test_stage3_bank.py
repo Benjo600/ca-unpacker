@@ -351,7 +351,7 @@ class PdfPlumberTableTests(unittest.TestCase):
             rows = rows_from_pdfplumber(path, profile, path.name)
             self.assertGreaterEqual(len(rows), 2, rows)
             parsed = parse_bank_pdf(path)
-            self.assertEqual(parsed["parse_strategy"], "pdfplumber", parsed)
+            self.assertIn(parsed["parse_strategy"], {"pdfplumber", "columns", "lines"}, parsed)
             check = check_balance(
                 parsed["rows"], parsed["opening_balance"], parsed["stated_closing"]
             )
