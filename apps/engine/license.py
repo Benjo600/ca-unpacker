@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import os
+import sys
 from datetime import date
 
 from apps.engine.settings import load_settings, save_settings
@@ -32,6 +33,7 @@ _QUOTA_MESSAGE = (
     "This dump would go over that limit. Upgrade to Pro (₹2,500) for unlimited files, "
     "or wait until next month."
 )
+_SIGN_IN_MESSAGE = "Sign in to process files. Your client documents stay on this PC."
 _OFFLINE_ACTIVATE = (
     "Could not reach the licence service. Work already on this PC is still here. "
     "Connect to the internet and try again."
@@ -54,6 +56,12 @@ def _month_key(today: date | None = None) -> str:
 
 def _dev_mode() -> bool:
     return os.environ.get("CA_UNPACKER_DEV") == "1"
+
+
+def _require_cloud_auth() -> bool:
+    if os.environ.get("CA_UNPACKER_REQUIRE_AUTH") == "1":
+        return True
+    return bool(getattr(sys, "frozen", False))
 
 
 def _use_supabase() -> bool:
@@ -159,6 +167,8 @@ def assert_can_ingest(file_count: int, today: date | None = None) -> None:
 
         check_can_ingest(file_count, today=today)
         return
+    if not _dev_mode() and _require_cloud_auth():
+        raise ValueError(_SIGN_IN_MESSAGE)
     count = int(file_count or 0)
     if count <= 0:
         return

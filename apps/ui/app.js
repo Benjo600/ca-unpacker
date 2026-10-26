@@ -14,11 +14,25 @@ const emptyEl = document.getElementById("empty");
 const addForm = document.getElementById("add-form");
 const clientNameEl = document.getElementById("client-name");
 const clientGstinEl = document.getElementById("client-gstin");
+const clientProfessionEl = document.getElementById("client-profession");
+const clientEntityEl = document.getElementById("client-entity");
+const clientProfessionCustomWrap = document.getElementById("client-profession-custom-wrap");
+const clientProfessionCustomEl = document.getElementById("client-profession-custom");
 const deskErrorEl = document.getElementById("desk-error");
 const paneClients = document.getElementById("pane-clients");
 const panePeriods = document.getElementById("pane-periods");
 const paneDump = document.getElementById("pane-dump");
 const periodClientNameEl = document.getElementById("period-client-name");
+const profileForm = document.getElementById("profile-form");
+const profileProfessionEl = document.getElementById("profile-profession");
+const profileEntityEl = document.getElementById("profile-entity");
+const profileGstEl = document.getElementById("profile-gst");
+const profileProfessionCustomWrap = document.getElementById("profile-profession-custom-wrap");
+const profileProfessionCustomEl = document.getElementById("profile-profession-custom");
+const profileSummaryEl = document.getElementById("profile-summary");
+const profileStateEl = document.getElementById("profile-state");
+const profileNoteEl = document.getElementById("profile-note");
+const profileErrorEl = document.getElementById("profile-error");
 const periodForm = document.getElementById("period-form");
 const periodLabelEl = document.getElementById("period-label");
 const periodErrorEl = document.getElementById("period-error");
@@ -39,6 +53,16 @@ const reviewPackNoteEl = document.getElementById("review-pack-note");
 const packBlock = document.getElementById("pack-block");
 const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
+const treatmentBlock = document.getElementById("treatment-block");
+const treatmentMetaEl = document.getElementById("treatment-meta");
+const treatmentCountEl = document.getElementById("treatment-count");
+const treatmentListEl = document.getElementById("treatment-list");
+const treatmentNoteEl = document.getElementById("treatment-note");
+const fileReviewBlock = document.getElementById("file-review-block");
+const fileReviewMetaEl = document.getElementById("file-review-meta");
+const fileReviewCountEl = document.getElementById("file-review-count");
+const fileReviewListEl = document.getElementById("file-review-list");
+const fileReviewNoteEl = document.getElementById("file-review-note");
 const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
@@ -49,6 +73,14 @@ const scanNoteEl = document.getElementById("scan-note");
 const cropModal = document.getElementById("crop-modal");
 const cropCaptionEl = document.getElementById("crop-caption");
 const cropImageEl = document.getElementById("crop-image");
+const cropTitleEl = document.getElementById("crop-title");
+const cropReadoutEl = document.getElementById("crop-readout");
+const cropValueEl = document.getElementById("crop-value");
+const previewPaneEl = document.getElementById("preview-pane");
+const previewBodyEl = document.getElementById("preview-body");
+const previewFootEl = document.getElementById("preview-foot");
+const previewTitleEl = document.getElementById("preview-title");
+const previewMetaEl = document.getElementById("preview-meta");
 const unlockModal = document.getElementById("unlock-modal");
 const unlockFilenameEl = document.getElementById("unlock-filename");
 const unlockPasswordEl = document.getElementById("unlock-password");
@@ -80,6 +112,7 @@ let packOpenKey = "";
 let lastPack = null;
 let reconFilter = "all";
 let unlockFile = null;
+let cropSource = null;
 let tesseractChecked = false;
 let tesseractFound = true;
 let guideDismissed = false;
@@ -88,6 +121,16 @@ let lastPeriodCount = 0;
 let authState = null;
 let devMode = false;
 let lastAppState = null;
+let previewFile = null;
+let previewPage = 1;
+let previewPassword = "";
+let previewFormatted = true;
+let previewSheet = "";
+let previewFit = true;
+let previewPageCount = 0;
+let previewSeq = 0;
+let previewTrigger = null;
+let profileOptions = { professions: [], entity_types: [] };
 let uiSessionActive = false;
 let navHistory = [];
 let navIndex = -1;
@@ -253,6 +296,7 @@ async function refreshCurrentView() {
         setOutputLabel(state.output_path || "");
         setPathWarnings(state.path_warnings || []);
         renderLicense(state.license);
+        renderProfileOptions(state.profile_options);
         renderClients(state.clients || []);
         syncGuide();
       }
@@ -362,6 +406,367 @@ function routeAfterLogin(state) {
   showSetup(state);
 }
 
+function renderProfileOptions(options) {
+  if (!options) return;
+  profileOptions = options;
+  const professions = options.professions || [];
+  const groups = new Map();
+  for (const item of professions) {
+    if (!groups.has(item.group || "Other")) groups.set(item.group || "Other", []);
+    groups.get(item.group || "Other").push(item);
+  }
+
+  for (const select of [clientProfessionEl, profileProfessionEl]) {
+    if (!select) continue;
+    const previous = select.value;
+    select.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Not set";
+    select.append(none);
+    for (const [group, items] of groups) {
+      const optgroup = document.createElement("optgroup");
+      optgroup.label = group;
+      for (const item of items) {
+        const option = document.createElement("option");
+        option.value = item.key;
+        option.textContent = item.label;
+        optgroup.append(option);
+      }
+      select.append(optgroup);
+    }
+    const custom = document.createElement("option");
+    custom.value = "custom";
+    custom.textContent = "Other (type below)";
+    select.append(custom);
+    select.value = previous || "";
+  }
+
+  for (const select of [clientEntityEl, profileEntityEl]) {
+    if (!select) continue;
+    const previous = select.value;
+    select.innerHTML = "";
+    const none = document.createElement("option");
+    none.value = "";
+    none.textContent = "Not set";
+    select.append(none);
+    for (const item of options.entity_types || []) {
+      const option = document.createElement("option");
+      option.value = item.key;
+      option.textContent = item.label;
+      select.append(option);
+    }
+    select.value = previous || "";
+  }
+  syncProfileCustomFields();
+}
+
+async function ensureProfileOptions() {
+  if ((profileOptions.professions || []).length) return;
+  try {
+    const options = await window.pywebview.api.get_profile_options();
+    if (options && options.professions) renderProfileOptions(options);
+  } catch (error) {
+    /* the form still works without the catalog */
+  }
+}
+
+function syncProfileCustomFields() {
+  if (clientProfessionCustomWrap) {
+    clientProfessionCustomWrap.classList.toggle(
+      "hidden",
+      !clientProfessionEl || clientProfessionEl.value !== "custom"
+    );
+  }
+  if (profileProfessionCustomWrap) {
+    profileProfessionCustomWrap.classList.toggle(
+      "hidden",
+      !profileProfessionEl || profileProfessionEl.value !== "custom"
+    );
+  }
+}
+
+function readProfile(professionEl, entityEl, gstEl, customEl) {
+  const key = professionEl ? professionEl.value : "";
+  const profile = {
+    profession_key: key,
+    profession_label: key === "custom" ? (customEl ? customEl.value.trim() : "") : "",
+    entity_type: entityEl ? entityEl.value : "",
+    gst_registered: null,
+  };
+  if (gstEl && gstEl.value === "yes") profile.gst_registered = true;
+  if (gstEl && gstEl.value === "no") profile.gst_registered = false;
+  return profile;
+}
+
+function fillProfileForm(client) {
+  const profile = (client && client.profile) || {};
+  if (profileProfessionEl) profileProfessionEl.value = profile.profession_key || "";
+  if (profileEntityEl) profileEntityEl.value = profile.entity_type || "";
+  if (profileGstEl) {
+    profileGstEl.value =
+      profile.gst_registered === true ? "yes" : profile.gst_registered === false ? "no" : "";
+  }
+  if (profileProfessionCustomEl) {
+    profileProfessionCustomEl.value =
+      profile.profession_key === "custom" ? profile.profession_label || "" : "";
+  }
+  syncProfileCustomFields();
+  if (profileSummaryEl) {
+    profileSummaryEl.textContent = client && client.profile_is_set
+      ? client.profile_summary || "Profile set"
+      : "No profile set. Pick a profession to turn on treatment checks.";
+  }
+  if (profileStateEl) {
+    profileStateEl.textContent = client && client.profile_is_set ? "Profile set" : "Not set";
+    profileStateEl.className = "pill" + (client && client.profile_is_set ? " match" : "");
+  }
+  if (profileNoteEl) profileNoteEl.textContent = "";
+}
+
+function severityClass(severity) {
+  if (severity === "review") return "mismatch";
+  if (severity === "check") return "unknown";
+  return "mute";
+}
+
+function severityLabel(severity) {
+  if (severity === "review") return "Review";
+  if (severity === "check") return "Check";
+  return "Note";
+}
+
+function observedText(observed) {
+  if (!observed) return "";
+  const parts = [];
+  if (observed.count !== undefined) parts.push(`${observed.count} line(s)`);
+  if (observed.total !== undefined) parts.push(`total ${money(observed.total)}`);
+  if (observed.largest !== undefined) parts.push(`largest ${money(observed.largest)}`);
+  if (observed.turnover !== undefined) parts.push(`turnover ${money(observed.turnover)}`);
+  if (observed.sales_lines !== undefined && observed.count === undefined) {
+    parts.push(`${observed.sales_lines} sales line(s)`);
+  }
+  return parts.join(" · ");
+}
+
+function thresholdText(threshold) {
+  if (!threshold) return "";
+  const parts = [];
+  if (threshold.amount !== undefined) parts.push(`${money(threshold.amount)}`);
+  if (threshold.enhanced) parts.push(`enhanced ${money(threshold.enhanced)}`);
+  if (threshold.basis) parts.push(threshold.basis);
+  if (threshold.rate) parts.push(threshold.rate);
+  if (threshold.as_of) parts.push(threshold.as_of);
+  return parts.join(" · ");
+}
+
+function renderTreatment(pack) {
+  if (!treatmentBlock) return;
+  const treatment = pack && pack.treatment;
+  if (!treatment) {
+    treatmentBlock.classList.add("hidden");
+    return;
+  }
+  treatmentBlock.classList.remove("hidden");
+  const profile = treatment.profile || {};
+  treatmentMetaEl.textContent = profile.summary
+    ? `${profile.summary}${profile.gst_rate ? " · GST " + profile.gst_rate : ""}`
+    : "Treatment notes for this period";
+  const counts = treatment.counts || {};
+  const total = counts.total || 0;
+  treatmentCountEl.textContent = total
+    ? `${counts.review || 0} to review · ${counts.check || 0} to check · ${counts.info || 0} notes`
+    : "No flags";
+  treatmentCountEl.className =
+    "pill" + (counts.review ? " mismatch" : counts.check ? " unknown" : " match");
+
+  treatmentListEl.innerHTML = "";
+  for (const flag of treatment.flags || []) {
+    const row = document.createElement("div");
+    row.className = "treatment-row";
+    const head = document.createElement("div");
+    head.className = "treatment-row-head";
+    const chip = document.createElement("span");
+    chip.className = "pill " + severityClass(flag.severity);
+    chip.textContent = severityLabel(flag.severity);
+    const title = document.createElement("span");
+    title.className = "treatment-title";
+    title.textContent = flag.title || flag.code;
+    head.append(chip, title);
+    const detail = document.createElement("p");
+    detail.className = "treatment-detail";
+    detail.textContent = flag.detail || "";
+    row.append(head, detail);
+
+    const meta = [];
+    if (flag.area) meta.push(flag.area);
+    const observed = observedText(flag.observed);
+    if (observed) meta.push(observed);
+    const threshold = thresholdText(flag.threshold);
+    if (threshold) meta.push(`limit ${threshold}`);
+    if (flag.law_ref) meta.push(flag.law_ref);
+    if (meta.length) {
+      const metaEl = document.createElement("p");
+      metaEl.className = "treatment-meta";
+      metaEl.textContent = meta.join(" · ");
+      row.append(metaEl);
+    }
+    if (flag.action) {
+      const actionEl = document.createElement("p");
+      actionEl.className = "treatment-action";
+      actionEl.textContent = flag.action;
+      row.append(actionEl);
+    }
+    treatmentListEl.append(row);
+  }
+  if (!(treatment.flags || []).length) {
+    const empty = document.createElement("p");
+    empty.className = "treatment-empty";
+    empty.textContent = "Nothing in this period triggered a treatment check for this profile.";
+    treatmentListEl.append(empty);
+  }
+  treatmentNoteEl.textContent = profile.watch
+    ? `For this profession: ${profile.watch}`
+    : treatment.disclaimer || "";
+}
+
+function renderFileReview(pack) {
+  if (!fileReviewBlock) return;
+  const review = pack && pack.file_review;
+  if (!review) {
+    fileReviewBlock.classList.add("hidden");
+    return;
+  }
+  fileReviewBlock.classList.remove("hidden");
+  const profile = review.profile || {};
+  fileReviewMetaEl.textContent = profile.summary || "File review for this period";
+  const counts = review.counts || {};
+  const missing = (counts.essential_missing || 0) + (counts.recommended_missing || 0);
+  const parts = [];
+  if (missing) parts.push(`${missing} document(s) missing`);
+  if (counts.attached_not_read) parts.push(`${counts.attached_not_read} attached, not read`);
+  if (counts.review) parts.push(`${counts.review} to review`);
+  if (counts.check) parts.push(`${counts.check} to check`);
+  if (!parts.length) parts.push("File looks complete");
+  fileReviewCountEl.textContent = parts.join(" · ");
+  fileReviewCountEl.className =
+    "pill" +
+    (review.readiness === "gaps" ? " mismatch" : review.readiness === "check" ? " unknown" : " match");
+
+  fileReviewListEl.innerHTML = "";
+  const statusChip = { missing: "mismatch", attached: "unknown", verified: "match" };
+  const statusLabel = { missing: "Missing", attached: "Attached", verified: "Read" };
+  for (const item of review.checklist || []) {
+    const row = document.createElement("div");
+    row.className = "treatment-row";
+    const head = document.createElement("div");
+    head.className = "treatment-row-head";
+    const chip = document.createElement("span");
+    chip.className = "pill " + (statusChip[item.status] || "mute");
+    chip.textContent = statusLabel[item.status] || item.status;
+    const title = document.createElement("span");
+    title.className = "treatment-title";
+    title.textContent = item.label || item.key;
+    head.append(chip, title);
+    const detail = document.createElement("p");
+    detail.className = "treatment-detail";
+    detail.textContent = item.evidence || "";
+    row.append(head, detail);
+    const meta = [];
+    meta.push(item.grade === "essential" ? "Essential" : "Nice to have");
+    if (item.escalated) meta.push("became essential this period");
+    if (item.why) meta.push(item.why);
+    if (meta.length) {
+      const metaEl = document.createElement("p");
+      metaEl.className = "treatment-meta";
+      metaEl.textContent = meta.join(" · ");
+      row.append(metaEl);
+    }
+    if (item.action) {
+      const actionEl = document.createElement("p");
+      actionEl.className = "treatment-action";
+      actionEl.textContent = item.action;
+      row.append(actionEl);
+    }
+    fileReviewListEl.append(row);
+  }
+
+  for (const flag of review.checks || []) {
+    const row = document.createElement("div");
+    row.className = "treatment-row";
+    const head = document.createElement("div");
+    head.className = "treatment-row-head";
+    const chip = document.createElement("span");
+    chip.className = "pill " + severityClass(flag.severity);
+    chip.textContent = severityLabel(flag.severity);
+    const title = document.createElement("span");
+    title.className = "treatment-title";
+    title.textContent = flag.title || flag.code;
+    head.append(chip, title);
+    const detail = document.createElement("p");
+    detail.className = "treatment-detail";
+    detail.textContent = flag.detail || "";
+    row.append(head, detail);
+    const meta = [];
+    if (flag.area) meta.push(flag.area);
+    const observed = observedText(flag.observed);
+    if (observed) meta.push(observed);
+    if (flag.law_ref) meta.push(flag.law_ref);
+    if (!flag.law_ref && flag.basis) meta.push(flag.basis);
+    if (meta.length) {
+      const metaEl = document.createElement("p");
+      metaEl.className = "treatment-meta";
+      metaEl.textContent = meta.join(" · ");
+      row.append(metaEl);
+    }
+    if (flag.action) {
+      const actionEl = document.createElement("p");
+      actionEl.className = "treatment-action";
+      actionEl.textContent = flag.action;
+      row.append(actionEl);
+    }
+    fileReviewListEl.append(row);
+  }
+
+  fileReviewNoteEl.textContent = review.disclaimer || "";
+}
+
+function renderFileReviewHint(client, pack) {
+  if (!fileReviewBlock) return;
+  if (!pack || !pack.exists) return;
+  if (pack.file_review) return;
+  if (!client || !client.profile_is_set) return;
+  fileReviewBlock.classList.remove("hidden");
+  fileReviewMetaEl.textContent = client.profile_summary || "Profile set";
+  fileReviewCountEl.textContent = "Not generated";
+  fileReviewCountEl.className = "pill mute";
+  fileReviewListEl.innerHTML = "";
+  const note = document.createElement("p");
+  note.className = "treatment-empty";
+  note.textContent =
+    "This pack was built before the profile was set or last changed. Re-parse the period to generate its file review.";
+  fileReviewListEl.append(note);
+  fileReviewNoteEl.textContent = "";
+}
+
+function renderTreatmentHint(client, pack) {
+  if (!treatmentBlock) return;
+  if (!pack || !pack.exists) return;
+  if (pack.treatment) return;
+  if (!client || !client.profile_is_set) return;
+  treatmentBlock.classList.remove("hidden");
+  treatmentMetaEl.textContent = client.profile_summary || "Profile set";
+  treatmentCountEl.textContent = "Not generated";
+  treatmentCountEl.className = "pill mute";
+  treatmentListEl.innerHTML = "";
+  const note = document.createElement("p");
+  note.className = "treatment-empty";
+  note.textContent =
+    "This pack was built before the profile was set or last changed. Re-parse the period to generate its treatment notes.";
+  treatmentListEl.append(note);
+  treatmentNoteEl.textContent = "";
+}
+
 function renderClients(clients) {
   clientListEl.innerHTML = "";
   clientCountEl.textContent = String(clients.length);
@@ -376,6 +781,12 @@ function renderClients(clients) {
     const gstin = document.createElement("span");
     gstin.className = "gstin";
     gstin.textContent = client.gstin || "—";
+    const profile = document.createElement("span");
+    profile.className = "client-profile" + (client.profile_is_set ? "" : " muted");
+    profile.textContent = client.profile_is_set
+      ? client.profile_summary || "Profile set"
+      : "No profile";
+    profile.title = profile.textContent;
     const del = document.createElement("button");
     del.type = "button";
     del.className = "row-delete";
@@ -384,7 +795,7 @@ function renderClients(clients) {
       event.stopPropagation();
       deleteClientRow(client);
     });
-    row.append(name, gstin, del);
+    row.append(name, profile, gstin, del);
     row.addEventListener("click", () => openClient(client.id));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openClient(client.id);
@@ -495,10 +906,12 @@ function appendFileRow(container, file, className) {
   row.className = className;
   const details = document.createElement("div");
   details.className = "file-details";
-  const name = document.createElement("span");
-  name.className = "name";
+  const name = document.createElement("button");
+  name.type = "button";
+  name.className = "name file-preview-open";
   name.textContent = file.original_name;
-  name.title = file.parse_reason_message || file.classify_reason || "";
+  name.title = "Preview this file";
+  name.addEventListener("click", () => openFilePreview(file, 1));
   const outcome = document.createElement("span");
   const outcomeName = window.CAStatusSummary.outcomeLabel(file.parse_outcome);
   outcome.className = `pill outcome-${file.parse_outcome || "unclassified"}`;
@@ -713,6 +1126,11 @@ function showDesk(state) {
   applyDevMode(state.license);
   renderLicense(state.license);
   renderQuotaBanner(state.auth || authState);
+  if (state.profile_options) {
+    renderProfileOptions(state.profile_options);
+  } else {
+    ensureProfileOptions();
+  }
   renderClients(state.clients || []);
   showPane("clients");
   recordNav({ pane: "clients" });
@@ -741,8 +1159,10 @@ async function openClient(clientId) {
     showError(deskErrorEl, result.error);
     return;
   }
+  await ensureProfileOptions();
   currentClient = result.client;
   periodClientNameEl.textContent = result.client.name;
+  fillProfileForm(currentClient);
   periodLabelEl.value = result.suggested_period || "";
   renderPeriods(result.periods);
   lastPeriodCount = (result.periods || []).length;
@@ -764,6 +1184,8 @@ async function openPeriod(periodId) {
   dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
   renderFiles(result.files || []);
   renderPack(result.pack);
+  renderFileReviewHint(result.client, result.pack);
+  renderTreatmentHint(result.client, result.pack);
   renderPreview(result.preview);
   setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
   showPane("dump");
@@ -801,6 +1223,8 @@ function moneyCell(value) {
 }
 
 function renderPack(pack) {
+  renderFileReview(pack);
+  renderTreatment(pack);
   packHasBank = false;
   packOpenKey = "";
   packVisible = Boolean(pack && pack.exists);
@@ -990,14 +1414,20 @@ function amountCell(file, row, field, value) {
   btn.textContent = cropCaptionValue(field, value);
   btn.title = "View source";
   btn.addEventListener("click", () => openSourceCrop(file, row, field, value));
-  btn.addEventListener("keydown", (event) => {
-    if (event.key === "Enter") {
-      event.preventDefault();
-      openSourceCrop(file, row, field, value);
-    }
-  });
   td.append(btn);
   return td;
+}
+
+/* A compact clickable source reference, in the NotebookLM sense: small,
+   labelled, always opens the crop of the exact spot the value came from. */
+function citationChip(file, row, field, value, label, title) {
+  const chip = document.createElement("button");
+  chip.type = "button";
+  chip.className = "cite-chip";
+  chip.textContent = label || "SRC";
+  chip.title = title || "View source";
+  chip.addEventListener("click", () => openSourceCrop(file, row, field, value));
+  return chip;
 }
 
 function renderPreview(preview) {
@@ -1094,7 +1524,20 @@ function renderPreview(preview) {
             const page = row.source_page == null ? "" : String(row.source_page);
             const pageTd = document.createElement("td");
             pageTd.className = "num";
-            pageTd.textContent = page;
+            if (page) {
+              pageTd.append(
+                citationChip(
+                  file,
+                  row,
+                  "page",
+                  null,
+                  `p${page}`,
+                  `${file.filename || "Statement"} · page ${page}`
+                )
+              );
+            } else {
+              pageTd.textContent = "—";
+            }
             tr.append(
               dateTd,
               detailTd,
@@ -1163,6 +1606,7 @@ function renderPreview(preview) {
 function closeCropModal() {
   if (!cropModal) return;
   cropModal.classList.add("hidden");
+  cropSource = null;
   if (cropImageEl) {
     cropImageEl.removeAttribute("src");
     cropImageEl.alt = "Page crop";
@@ -1191,10 +1635,388 @@ async function openSourceCrop(file, row, field, value) {
     showError(dumpErrorEl, "Could not load the page crop.");
     return;
   }
+  const fieldName =
+    field && field !== "page" ? String(field).replace(/_/g, " ") : "";
+  cropTitleEl.textContent = file.filename || "Source file";
+  cropCaptionEl.textContent = `Page ${page}${fieldName ? ` · ${fieldName}` : ""}`;
+  const hasValue = Boolean(fieldName) && value !== null && value !== undefined;
+  cropReadoutEl.hidden = !hasValue;
+  cropValueEl.textContent = hasValue ? cropCaptionValue(field, value) : "";
   cropImageEl.src = src;
   cropImageEl.alt = `${file.filename || "Statement"} page ${page}`;
-  cropCaptionEl.textContent = `${file.filename} · page ${page} · ${field} ${cropCaptionValue(field, value)}`;
+  cropSource = { file, page, bbox };
   cropModal.classList.remove("hidden");
+}
+
+async function copyCitationText(text, button) {
+  let copied = false;
+  try {
+    await navigator.clipboard.writeText(text);
+    copied = true;
+  } catch {
+    try {
+      const scratch = document.createElement("textarea");
+      scratch.value = text;
+      scratch.setAttribute("readonly", "");
+      scratch.style.position = "fixed";
+      scratch.style.opacity = "0";
+      document.body.append(scratch);
+      scratch.select();
+      copied = document.execCommand("copy");
+      scratch.remove();
+    } catch {
+      copied = false;
+    }
+  }
+  const original = button.textContent;
+  button.textContent = copied ? "Copied" : "Copy failed";
+  setTimeout(() => {
+    button.textContent = original;
+  }, 1400);
+}
+
+/* ---------------------------------------------------------------- preview */
+
+function previewElement(tag, className, text) {
+  const node = document.createElement(tag);
+  if (className) node.className = className;
+  if (text != null) node.textContent = text;
+  return node;
+}
+
+function previewButton(label, onClick, className) {
+  const button = previewElement("button", className || "ghost", label);
+  button.type = "button";
+  button.addEventListener("click", onClick);
+  return button;
+}
+
+function formatFileSize(size) {
+  const value = Number(size);
+  if (!Number.isFinite(value) || value <= 0) return "";
+  if (value < 1024) return `${value} B`;
+  if (value < 1024 * 1024) {
+    return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
+  }
+  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
+}
+
+function previewMetaText(result) {
+  const parts = [];
+  if (result.kind_label) parts.push(result.kind_label);
+  if (result.preview_type === "pdf" && result.page_count) {
+    parts.push(`${result.page_count} ${result.page_count === 1 ? "page" : "pages"}`);
+  }
+  const size = formatFileSize(result.size);
+  if (size) parts.push(size);
+  return parts.join(" · ");
+}
+
+function openFilePreview(file, page = 1) {
+  if (!file || !previewPaneEl) return;
+  previewTrigger = document.activeElement;
+  previewFile = file;
+  previewPage = Math.max(1, Number(page) || 1);
+  previewPassword = "";
+  previewFormatted = true;
+  previewSheet = "";
+  previewFit = true;
+  previewTitleEl.textContent = file.original_name || file.filename || "File";
+  previewMetaEl.textContent = "";
+  previewPaneEl.classList.remove("hidden");
+  loadFilePreview();
+}
+
+function closeFilePreview() {
+  if (!previewPaneEl || previewPaneEl.classList.contains("hidden")) return;
+  previewPaneEl.classList.add("hidden");
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewFile = null;
+  previewPassword = "";
+  previewSeq += 1;
+  const target = previewTrigger;
+  previewTrigger = null;
+  if (target && typeof target.focus === "function" && document.contains(target)) {
+    target.focus();
+  }
+}
+
+function renderPreviewLoading() {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewBodyEl.append(previewElement("p", "preview-message", "Opening file…"));
+}
+
+async function loadFilePreview() {
+  if (!previewFile) return;
+  const api = desktopApi();
+  if (!api || !api.get_file_preview) {
+    renderPreviewError("Update the app to preview files here.");
+    return;
+  }
+  const fileId = previewFile.id || previewFile.file_id;
+  const seq = ++previewSeq;
+  renderPreviewLoading();
+  let result;
+  try {
+    result = await api.get_file_preview(
+      fileId,
+      previewPage,
+      previewPassword,
+      previewSheet,
+      previewFormatted
+    );
+  } catch {
+    result = { ok: false, error: "Could not open this file." };
+  }
+  if (seq !== previewSeq) return;
+  if (!result || !result.ok) {
+    if (result && result.reason === "password_required") {
+      renderPreviewPassword(result.error);
+      return;
+    }
+    renderPreviewError((result && result.error) || "Could not open this file.");
+    return;
+  }
+  if (result.name) previewTitleEl.textContent = result.name;
+  previewMetaEl.textContent = previewMetaText(result);
+  renderPreviewResult(result);
+}
+
+function renderPreviewError(message) {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewPageCount = 0;
+  const note = previewElement("p", "preview-message error");
+  note.append(previewElement("strong", null, "This file cannot be shown."));
+  note.append(document.createTextNode(message));
+  previewBodyEl.append(note);
+}
+
+function renderPreviewPassword(message) {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = "preview-body";
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewPageCount = 0;
+
+  const form = previewElement("form", "preview-password");
+  form.autocomplete = "off";
+  const heading = previewElement("p", "preview-message", message || "This PDF needs a password.");
+  form.append(heading);
+
+  const label = previewElement("label", null, "PDF password");
+  label.setAttribute("for", "preview-password");
+  const input = document.createElement("input");
+  input.id = "preview-password";
+  input.type = "password";
+  input.autocomplete = "off";
+  form.append(label, input);
+
+  const submit = previewElement("button", null, "Preview page");
+  submit.type = "submit";
+  form.append(submit, previewElement("p", "fine", "Used once for this preview. Not saved."));
+
+  form.addEventListener("submit", (event) => {
+    event.preventDefault();
+    previewPassword = input.value;
+    input.value = "";
+    loadFilePreview();
+  });
+  previewBodyEl.append(form);
+  input.focus();
+}
+
+function renderPreviewResult(result) {
+  previewBodyEl.innerHTML = "";
+  previewBodyEl.className = `preview-body preview-${result.preview_type || "unsupported"}`;
+  previewFootEl.innerHTML = "";
+  previewFootEl.hidden = true;
+  previewPageCount = 0;
+
+  if (result.preview_type === "pdf" || result.preview_type === "image") {
+    renderPreviewImage(result);
+  } else if (result.preview_type === "text") {
+    renderPreviewText(result);
+  } else if (result.preview_type === "table") {
+    renderPreviewTable(result);
+  } else if (result.preview_type === "archive") {
+    renderPreviewArchive(result);
+  } else {
+    renderPreviewUnsupported(result);
+  }
+}
+
+function applyPreviewFit() {
+  const canvas = previewBodyEl.querySelector(".preview-canvas");
+  if (!canvas) return;
+  canvas.classList.toggle("actual", !previewFit);
+}
+
+function renderPreviewImage(result) {
+  const image = result.image || {};
+  const canvas = previewElement("div", "preview-canvas");
+  const img = document.createElement("img");
+  img.src = image.data_url;
+  img.alt = `${result.name} page ${result.page || 1}`;
+  img.draggable = false;
+  canvas.append(img);
+  previewBodyEl.append(canvas);
+  applyPreviewFit();
+
+  if (result.preview_type === "pdf") {
+    previewPageCount = Number(result.page_count) || 0;
+    const pager = previewElement("div", "preview-pager");
+    const prev = previewButton("Previous", () => {
+      if (previewPage <= 1) return;
+      previewPage -= 1;
+      loadFilePreview();
+    });
+    prev.disabled = result.page <= 1;
+    const next = previewButton("Next", () => {
+      if (previewPage >= result.page_count) return;
+      previewPage += 1;
+      loadFilePreview();
+    });
+    next.disabled = result.page >= result.page_count;
+
+    const zoom = previewButton(previewFit ? "Actual size" : "Fit width", () => {
+      previewFit = !previewFit;
+      applyPreviewFit();
+      zoom.textContent = previewFit ? "Actual size" : "Fit width";
+    });
+
+    pager.append(
+      prev,
+      previewElement("span", "page-label", `Page ${result.page} of ${result.page_count}`),
+      next,
+      previewElement("span", "spacer"),
+      zoom
+    );
+    previewFootEl.append(pager);
+    previewFootEl.hidden = false;
+  }
+}
+
+function renderPreviewText(result) {
+  const pre = previewElement("pre", "preview-text", result.text || "");
+  previewBodyEl.append(pre);
+
+  if (result.is_json) {
+    previewFootEl.append(
+      previewButton(result.formatted ? "Show raw file" : "Show formatted", () => {
+        previewFormatted = !previewFormatted;
+        loadFilePreview();
+      })
+    );
+  }
+  previewFootEl.append(
+    previewButton(pre && pre.classList.contains("no-wrap") ? "Wrap lines" : "No wrap", (event) => {
+      const wrap = pre.classList.toggle("no-wrap");
+      event.currentTarget.textContent = wrap ? "Wrap lines" : "No wrap";
+    })
+  );
+
+  if (result.note) previewFootEl.append(previewElement("p", "preview-note", result.note));
+  previewFootEl.hidden = false;
+}
+
+function renderPreviewTable(result) {
+  const table = result.table || {};
+  const rows = table.rows || [];
+  if (!rows.length) {
+    previewBodyEl.append(previewElement("p", "preview-message", "This file has no rows to show."));
+    return;
+  }
+
+  const wrap = previewElement("div", "preview-grid-wrap");
+  const node = previewElement("table", "preview-grid");
+  const width = rows.reduce((max, row) => Math.max(max, row.length), 0);
+  const head = document.createElement("thead");
+  const headerRow = document.createElement("tr");
+  for (let index = 0; index < width; index += 1) {
+    headerRow.append(previewElement("th", null, rows[0][index] == null ? "" : rows[0][index]));
+  }
+  head.append(headerRow);
+  const body = document.createElement("tbody");
+  for (const row of rows.slice(1)) {
+    const tr = document.createElement("tr");
+    for (let index = 0; index < width; index += 1) {
+      tr.append(previewElement("td", null, row[index] == null ? "" : row[index]));
+    }
+    body.append(tr);
+  }
+  node.append(head, body);
+  wrap.append(node);
+  previewBodyEl.append(wrap);
+
+  const sheets = table.sheets || [];
+  if (sheets.length > 1) {
+    const tabs = previewElement("div", "preview-pager");
+    for (const name of sheets) {
+      const tab = previewButton(name, () => {
+        previewSheet = name;
+        loadFilePreview();
+      }, "ghost");
+      if (name === table.sheet) tab.setAttribute("aria-pressed", "true");
+      tabs.append(tab);
+    }
+    previewFootEl.append(tabs);
+  }
+
+  const note = result.note || "";
+  if (note) previewFootEl.append(previewElement("p", "preview-note", note));
+  previewFootEl.hidden = !previewFootEl.childElementCount;
+}
+
+function renderPreviewArchive(result) {
+  const archive = result.archive || {};
+  const entries = archive.entries || [];
+  if (!entries.length) {
+    previewBodyEl.append(previewElement("p", "preview-message", "This archive is empty."));
+    return;
+  }
+  const list = previewElement("ul", "preview-archive");
+  for (const entry of entries) {
+    const item = document.createElement("li");
+    item.append(previewElement("span", "entry-name", entry.name));
+    item.append(previewElement("span", "entry-size", formatFileSize(entry.size) || "0 B"));
+    list.append(item);
+  }
+  previewBodyEl.append(list);
+  if (result.note) {
+    previewFootEl.append(previewElement("p", "preview-note", result.note));
+    previewFootEl.hidden = false;
+  }
+}
+
+function renderPreviewUnsupported(result) {
+  const note = previewElement("p", "preview-message");
+  note.append(previewElement("strong", null, "No preview for this file type."));
+  note.append(document.createTextNode(result.note || "Open it in its own program to read it."));
+  previewBodyEl.append(note);
+}
+
+async function openSourceFile(file) {
+  const api = desktopApi();
+  if (!api || !api.open_source_file || !file) return;
+  const fileId = file.id || file.file_id;
+  let result;
+  try {
+    result = await api.open_source_file(fileId);
+  } catch {
+    result = { ok: false, error: "Could not open that file." };
+  }
+  if (!result || !result.ok) {
+    showError(dumpErrorEl, (result && result.error) || "Could not open that file.");
+  }
 }
 
 function closeUnlockModal() {
@@ -1463,8 +2285,8 @@ function currentGuideCard() {
     return {
       kicker: "Step 2 of 5",
       title: "Add the first client",
-      copy: "Type the legal name as you file it, then click Add client. GSTIN is optional.",
-      items: ["Type the client name.", "Click Add client."],
+      copy: "Type the legal name as you file it, pick the profession if you know it, then click Add client. GSTIN and profile are optional.",
+      items: ["Type the client name.", "Pick a profession, or leave it not set.", "Click Add client."],
       highlight: "#add-form",
     };
   }
@@ -1605,8 +2427,8 @@ async function deleteClientRow(client) {
   syncGuide();
 }
 
-async function boot() {
-  const state = await window.pywebview.api.get_state();
+async function boot(prefetched) {
+  const state = prefetched || (await window.pywebview.api.get_state());
   lastAppState = state;
   guideDismissed = Boolean(state.guide_dismissed);
   authState = state.auth || null;
@@ -1648,6 +2470,8 @@ saveFirmBtn.addEventListener("click", async () => {
     output_path: savedOut.output_path,
     path_warnings: savedOut.path_warnings || [],
     license: result.license,
+    auth: lastAppState ? lastAppState.auth : null,
+    profile_options: lastAppState ? lastAppState.profile_options : null,
   });
 });
 
@@ -1664,9 +2488,17 @@ firmNameEl.addEventListener("keydown", (event) => {
 addForm.addEventListener("submit", async (event) => {
   event.preventDefault();
   showError(deskErrorEl, "");
+  const profile = readProfile(
+    clientProfessionEl,
+    clientEntityEl,
+    null,
+    clientProfessionCustomEl
+  );
+  if (clientGstinEl.value.trim()) profile.gst_registered = true;
   const result = await window.pywebview.api.create_client(
     clientNameEl.value,
-    clientGstinEl.value
+    clientGstinEl.value,
+    profile
   );
   if (!result.ok) {
     showError(deskErrorEl, result.error);
@@ -1674,8 +2506,36 @@ addForm.addEventListener("submit", async (event) => {
   }
   renderClients(result.clients);
   addForm.reset();
+  syncProfileCustomFields();
   clientNameEl.focus();
   syncGuide();
+});
+
+clientProfessionEl.addEventListener("change", syncProfileCustomFields);
+profileProfessionEl.addEventListener("change", syncProfileCustomFields);
+
+profileForm.addEventListener("submit", async (event) => {
+  event.preventDefault();
+  if (!currentClient) return;
+  showError(profileErrorEl, "");
+  const profile = readProfile(
+    profileProfessionEl,
+    profileEntityEl,
+    profileGstEl,
+    profileProfessionCustomEl
+  );
+  const result = await window.pywebview.api.update_client_profile(currentClient.id, profile);
+  if (!result.ok) {
+    showError(profileErrorEl, result.error);
+    return;
+  }
+  currentClient = result.client;
+  fillProfileForm(currentClient);
+  renderClients(result.clients || []);
+  if (profileNoteEl) {
+    profileNoteEl.textContent =
+      "Saved. Open a period and re-parse it to refresh that period's treatment notes.";
+  }
 });
 
 periodForm.addEventListener("submit", async (event) => {
@@ -1934,6 +2794,14 @@ if (profileButtonEl && profilePanelEl) {
 }
 
 const authLogoutBtn = document.getElementById("auth-logout");
+const authAccountBtn = document.getElementById("auth-account");
+if (authAccountBtn) {
+  authAccountBtn.addEventListener("click", async () => {
+    const api = desktopApi();
+    if (!api || !api.open_account) return;
+    await api.open_account();
+  });
+}
 if (authLogoutBtn) {
   authLogoutBtn.addEventListener("click", async () => {
     const api = desktopApi();
@@ -1975,12 +2843,52 @@ document.getElementById("wipe-cancel").addEventListener("click", () => {
   wipeModal.classList.add("hidden");
 });
 
+function resetWorkspaceState() {
+  if (pollTimer) {
+    clearInterval(pollTimer);
+    pollTimer = null;
+  }
+  activeJobId = null;
+  currentClient = null;
+  currentPeriod = null;
+  kindOptions = [];
+  lastFiles = [];
+  lastPreviewFiles = [];
+  lastPack = null;
+  packVisible = false;
+  packHasBank = false;
+  packOpenKey = "";
+  reconFilter = "all";
+  unlockFile = null;
+  cropSource = null;
+  lastPeriodCount = 0;
+  lastGuideHighlight = null;
+  previewFile = null;
+  previewPage = 1;
+  previewPassword = "";
+  previewSheet = "";
+  navHistory = [];
+  navIndex = -1;
+  closeCropModal();
+  closeFilePreview();
+  closeUnlockModal();
+  closeProfilePanel();
+  addForm.reset();
+  syncProfileCustomFields();
+  periodForm.reset();
+  profileForm.reset();
+}
+
 document.getElementById("wipe-confirm").addEventListener("click", async () => {
   showError(wipeErrorEl, "");
-  const result = await window.pywebview.api.wipe_and_restart();
+  const result = await window.pywebview.api.wipe_and_reset();
   if (!result.ok) {
     showError(wipeErrorEl, result.error);
+    return;
   }
+  wipeModal.classList.add("hidden");
+  resetWorkspaceState();
+  await boot(result);
 });
 
 if (cropModal) {
@@ -1990,6 +2898,34 @@ if (cropModal) {
 }
 const cropCloseBtn = document.getElementById("crop-close");
 if (cropCloseBtn) cropCloseBtn.addEventListener("click", closeCropModal);
+
+const cropCopyBtn = document.getElementById("crop-copy");
+if (cropCopyBtn) {
+  cropCopyBtn.addEventListener("click", async () => {
+    if (!cropSource) return;
+    const { file, page, bbox } = cropSource;
+    const citation = `${file.filename || "source"}#p${page}${bbox ? `@${bbox}` : ""}`;
+    await copyCitationText(citation, cropCopyBtn);
+  });
+}
+
+const cropOpenPageBtn = document.getElementById("crop-open-page");
+if (cropOpenPageBtn) {
+  cropOpenPageBtn.addEventListener("click", () => {
+    if (!cropSource) return;
+    const { file, page } = cropSource;
+    closeCropModal();
+    openFilePreview(file, page);
+  });
+}
+
+const previewCloseBtn = document.getElementById("preview-close");
+if (previewCloseBtn) previewCloseBtn.addEventListener("click", closeFilePreview);
+
+const previewExternalBtn = document.getElementById("preview-external");
+if (previewExternalBtn) {
+  previewExternalBtn.addEventListener("click", () => openSourceFile(previewFile));
+}
 
 if (unlockModal) {
   unlockModal.addEventListener("click", (event) => {
@@ -2009,10 +2945,31 @@ document.addEventListener("keydown", (event) => {
     }
     if (unlockModal && !unlockModal.classList.contains("hidden")) {
       closeUnlockModal();
+      return;
+    }
+    if (previewPaneEl && !previewPaneEl.classList.contains("hidden")) {
+      closeFilePreview();
     }
     return;
   }
   if (isTypingTarget(event.target)) return;
+  if (
+    previewPaneEl &&
+    !previewPaneEl.classList.contains("hidden") &&
+    !event.altKey &&
+    previewPageCount > 1 &&
+    (event.key === "ArrowLeft" || event.key === "ArrowRight")
+  ) {
+    event.preventDefault();
+    if (event.key === "ArrowLeft" && previewPage > 1) {
+      previewPage -= 1;
+      loadFilePreview();
+    } else if (event.key === "ArrowRight" && previewPage < previewPageCount) {
+      previewPage += 1;
+      loadFilePreview();
+    }
+    return;
+  }
   if (!deskIsVisible()) return;
   if (event.altKey && event.key === "ArrowLeft") {
     event.preventDefault();

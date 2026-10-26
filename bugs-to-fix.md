@@ -3,10 +3,11 @@
 Owner: Benny
 
 1. ~~Fix the bank statement-to-Excel parsing.~~ Done — wrapped/page-break rows and running-balance repair are locked in (`c517216`).
-2. Make Restart clear only the data, without restarting the app.
-3. Persist the firm name, folder name, and client name after they are entered, so reopening the app does not require entering them again.
+2. ~~Make Restart clear only the data, without restarting the app.~~ Done — **Delete everything** now wipes the library and rebuilds it empty in the same window (`wipe_and_reset`); the app returns to the first-run setup instead of spawning a new process. Jobs still running during the wipe are stopped from recreating data.
+3. ~~Persist the firm name, folder name, and client name after they are entered, so reopening the app does not require entering them again.~~ Done — firm and clients already live in the database across relaunches; the real repeat-setup culprit was `get_output_root()` returning nothing whenever the recorded Excel folder was missing on disk (moved/renamed). It now recreates the recorded folder, so a relaunch lands on the desk.
 4. Improve processing for scanned PDFs and PDFs with different layouts and formats.
 5. Modernize the UI: it currently feels dated and overwhelming, especially because all post-processing results are dumped on the user at once. Present results progressively in a clearer workflow.
-6. Ask for and save a separate profile for each client of the firm; the app is currently not collecting this information.
-7. Make citations more polished and easier to review, similar to NotebookLM.
-8. Add an in-app file preview pane, similar to the Codex app, so users can inspect files without leaving the app.
+6. ~~Ask for and save a separate profile for each client of the firm; the app is currently not collecting this information.~~ Done — profession catalog plus per-client rule packs; see `docs/CLIENT-PROFILES.md`. Treatment checks are prompts only, not postings.
+7. ~~Make citations more polished and easier to review, similar to NotebookLM.~~ Done — every citation opens a proper **Source citation card**: file name, page + field, a "What we read" readout beside the crop so the CA can eyeball-verify the extracted value, **Copy citation** (`file.pdf#p12@x,y,w,h`, the same format as the Excel Source column) and Open full page. Bank statement page numbers are now clickable citation chips too.
+8. ~~Add an in-app file preview pane, similar to the Codex app, so users can inspect files without leaving the app.~~ Done — click a file name in the period list, or **Open full page** from a crop. PDF pages, images, JSON, CSV/XLSX tables, TXT/XML and ZIP listings render in a right-hand pane; other types offer **Open in app**. See `docs/PREVIEW.md`.
+9. ~~Remember the sign-in: after logging in once, the app should stop asking again and again.~~ Done — the saved session is only refreshed when the access token is actually near expiry; a network drop or server error during refresh keeps the login (only an explicit server rejection signs out); quota calls retry once after a 401; and **Delete everything** wipes client data but keeps you signed in.

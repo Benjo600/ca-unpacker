@@ -1,0 +1,11 @@
+{
+  "include": [
+    "apps",
+    "scratch"
+  ],
+  "extraPaths": [
+    "."
+  ],
+  "venvPath": ".",
+  "venv": ".venv"
+}

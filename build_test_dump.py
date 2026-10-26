@@ -205,7 +205,7 @@ def _tally_xml() -> str:
 """
 
 
-def build() -> None:
+def build(*, include_landing_zip: bool = True) -> None:
     if DUMP.exists():
         shutil.rmtree(DUMP)
     for folder in (BANKS, BANKS_MESSY, INVOICES, GST, BOOKS, JUNK, MIXED):
@@ -569,9 +569,11 @@ Rebuild this tree and the landing-page zip:
 """,
         encoding="utf-8",
     )
-    _write_landing_zip()
+    if include_landing_zip:
+        _write_landing_zip()
     print(f"Wrote sample dump kit at {DUMP}")
-    print(f"Wrote {LANDING_ZIP}")
+    if include_landing_zip:
+        print(f"Wrote {LANDING_ZIP}")
 
 
 def _write_landing_zip() -> None:
