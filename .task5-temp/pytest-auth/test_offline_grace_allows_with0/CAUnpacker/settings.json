@@ -1,0 +1,8 @@
+{
+  "auth_quota_cache": {
+    "files_used": 10,
+    "file_limit": 100,
+    "plan": "starter",
+    "synced_at": "2026-09-01T10:00:00"
+  }
+}

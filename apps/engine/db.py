@@ -32,6 +32,8 @@ class Client(Base):
     firm_id: Mapped[int] = mapped_column(ForeignKey("firms.id"))
     name: Mapped[str] = mapped_column(String(200))
     gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    bank_profile_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    compliance_profile_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
