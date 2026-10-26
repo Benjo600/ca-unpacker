@@ -5,8 +5,19 @@ from datetime import date, datetime
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
+
+from apps.engine.pack.style import (
+    GREEN_FILL,
+    RED_FILL,
+    fill_row,
+    print_setup,
+    set_widths,
+    style_body,
+    style_header,
+    style_note,
+    style_title,
+)
 
 HEADERS = [
     "Date",
@@ -34,11 +45,7 @@ COVER_HEADERS = [
     "Flags",
 ]
 
-MONEY_FORMAT = "#,##0.00"
 MONEY_INFERRED_FORMAT = '#,##0.00" (inferred)"'
-DATE_FORMAT = "DD-MM-YYYY"
-RED_FILL = PatternFill("solid", fgColor="FFCDD2")
-GREEN_FILL = PatternFill("solid", fgColor="C8E6C9")
 
 
 def write_bank_pack(path: Path, rows: list[dict], check: dict, meta: dict) -> Path:
@@ -83,8 +90,8 @@ def write_bank_workbook(path: Path, files: list[dict]) -> Path:
 
 def _write_rows(sheet, rows: list[dict]) -> None:
     sheet.append(HEADERS)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
+    style_header(sheet, len(HEADERS))
+    flagged: list[int] = []
     for row in rows:
         flags = _flag_text(row.get("flags") if row.get("flags") is not None else row.get("validation_flags"))
         sheet.append(
@@ -99,20 +106,18 @@ def _write_rows(sheet, rows: list[dict]) -> None:
                 flags,
             ]
         )
-        excel_row = sheet.max_row
-        sheet.cell(excel_row, 1).number_format = DATE_FORMAT
-        for col in (4, 5, 6):
-            sheet.cell(excel_row, col).number_format = MONEY_FORMAT
-        if "balance_mismatch" in _flag_tokens(flags) or "running_balance_break" in _flag_tokens(flags):
-            for col in range(1, len(HEADERS) + 1):
-                sheet.cell(excel_row, col).fill = RED_FILL
+        tokens = _flag_tokens(flags)
+        if "balance_mismatch" in tokens or "running_balance_break" in tokens:
+            flagged.append(sheet.max_row)
+    style_body(sheet, 2, max(sheet.max_row, 1), len(HEADERS), money_cols=(4, 5, 6), date_cols=(1,))
+    for excel_row in flagged:
+        fill_row(sheet, excel_row, len(HEADERS), RED_FILL)
     last_col = get_column_letter(len(HEADERS))
     last_row = max(sheet.max_row, 1)
     sheet.auto_filter.ref = f"A1:{last_col}{last_row}"
     sheet.freeze_panes = "A2"
-    widths = [14, 48, 16, 14, 14, 14, 36, 28]
-    for index, width in enumerate(widths, start=1):
-        sheet.column_dimensions[get_column_letter(index)].width = width
+    set_widths(sheet, [14, 48, 16, 14, 14, 14, 36, 28])
+    print_setup(sheet, len(HEADERS), header_row=1)
 
 
 def _sheet_name(filename: str, used: set[str]) -> str:
@@ -128,12 +133,14 @@ def _sheet_name(filename: str, used: set[str]) -> str:
 
 def _cover_multi(sheet, files: list[dict], names: list[str]) -> None:
     sheet["A1"] = "Bank statement pack"
-    sheet["A1"].font = Font(bold=True, size=14)
+    style_title(sheet, "A1")
     sheet["A2"] = "Each source file is checked on its own. Do not mix two statements when you test."
+    style_note(sheet, "A2")
     sheet.append([])
     sheet.append(COVER_HEADERS)
-    for cell in sheet[4]:
-        cell.font = Font(bold=True)
+    style_header(sheet, len(COVER_HEADERS), row=4)
+    inferred_rows: list[int] = []
+    status_rows: list[tuple[int, object]] = []
     for item, title in zip(files, names):
         check = item["check"]
         meta = item["meta"]
@@ -165,17 +172,19 @@ def _cover_multi(sheet, files: list[dict], names: list[str]) -> None:
             ]
         )
         excel_row = sheet.max_row
+        if inferred:
+            inferred_rows.append(excel_row)
         if fill is not None:
-            for col in range(1, len(COVER_HEADERS) + 1):
-                sheet.cell(excel_row, col).fill = fill
-        sheet.cell(excel_row, 7).number_format = MONEY_INFERRED_FORMAT if inferred else MONEY_FORMAT
-        sheet.cell(excel_row, 8).number_format = MONEY_FORMAT
-        sheet.cell(excel_row, 9).number_format = MONEY_FORMAT
+            status_rows.append((excel_row, fill))
     if any(item["check"].get("opening_inferred") for item in files):
         sheet.cell(4, 7).value = "Opening (inferred)"
-    widths = [36, 22, 18, 18, 14, 10, 18, 16, 16, 12, 12, 28]
-    for index, width in enumerate(widths, start=1):
-        sheet.column_dimensions[get_column_letter(index)].width = width
+    style_body(sheet, 5, max(sheet.max_row, 1), len(COVER_HEADERS), money_cols=(7, 8, 9))
+    for excel_row in inferred_rows:
+        sheet.cell(excel_row, 7).number_format = MONEY_INFERRED_FORMAT
+    for excel_row, fill in status_rows:
+        fill_row(sheet, excel_row, len(COVER_HEADERS), fill)
+    set_widths(sheet, [36, 22, 18, 18, 14, 10, 18, 16, 16, 12, 12, 28])
+    print_setup(sheet, len(COVER_HEADERS), header_row=4)
 
 
 def _as_date(value):

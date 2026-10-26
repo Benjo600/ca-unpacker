@@ -20,16 +20,16 @@ from apps.engine.parsers.bank.patterns import (
     looks_like_txn,
 )
 from apps.engine.parsers.bank.plumber import rows_from_pdfplumber
-from apps.engine.parsers.bank.profiles import BankProfile, detect_profile
+from apps.engine.parsers.bank.profiles import detect_profile_with_client
 from apps.engine.parsers.bank.tables import rows_from_cell_tables, rows_from_markdown
 from apps.engine.pdf_extract import ExtractedPdf, LineBox, WordBox, extract_pdf
 
 
-def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
+def parse_bank_pdf(path: Path, filename: str | None = None, client_id: int | None = None) -> dict:
     path = Path(path)
     extracted = extract_pdf(path)
     header = "\n".join(page.text for page in extracted.pages[:2])
-    profile = detect_profile(header, filename or path.name)
+    profile = detect_profile_with_client(header, filename or path.name, client_id)
     opening = _balance_near(extracted, OPENING_RE)
     closing = _balance_near(extracted, CLOSING_RE)
     account = _search(header, ACCOUNT_RE)

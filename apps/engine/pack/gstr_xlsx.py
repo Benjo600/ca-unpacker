@@ -3,11 +3,18 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-MONEY_FORMAT = "#,##0.00"
-RED_FILL = PatternFill("solid", fgColor="FFCDD2")
+from apps.engine.pack.style import (
+    RED_FILL,
+    fill_row,
+    print_setup,
+    style_body,
+    style_count_pairs,
+    style_header,
+    style_note,
+    style_title,
+)
 
 B2B_HEADERS = [
     "GSTIN",
@@ -113,33 +120,40 @@ def _save(book: Workbook, path: Path) -> Path:
 
 def _write_cover(sheet, title: str, rows: list[dict], meta: dict | None, counts: list[tuple[str, int]], note: str | None) -> None:
     sheet["A1"] = title
-    sheet["A1"].font = Font(bold=True, size=14)
+    style_title(sheet, "A1")
     sheet.append([])
+    first_pair = 3
     sheet.append(["GSTIN", _cover_gstin(rows, meta)])
     sheet.append(["Period", _cover_period(rows, meta)])
     sheet.append(["Source", _cover_source(rows)])
     for label, value in counts:
         sheet.append([label, value])
+    last_pair = sheet.max_row
     if note:
         sheet.append([])
         sheet.append([note])
+        style_note(sheet, f"A{sheet.max_row}")
+    style_count_pairs(sheet, first_pair, last_pair)
     sheet.column_dimensions["A"].width = 44
     sheet.column_dimensions["B"].width = 28
     sheet.freeze_panes = "A2"
+    print_setup(sheet, 2, landscape=False)
 
 
 def _write_b2b_sheet(sheet, rows: list[dict], default_type: str) -> None:
     _write_header(sheet, B2B_HEADERS)
+    flagged: list[int] = []
     for row in rows:
         values = _b2b_values(row, _row_type(row, default_type))
         sheet.append(values)
-        excel_row = sheet.max_row
-        for col in B2B_MONEY_COLS:
-            sheet.cell(excel_row, col).number_format = MONEY_FORMAT
         if _is_flagged(row):
-            _paint_row(sheet, excel_row, len(B2B_HEADERS))
+            flagged.append(sheet.max_row)
     if not rows:
         sheet.append(["No rows extracted"])
+        style_note(sheet, f"A{sheet.max_row}")
+    style_body(sheet, 2, max(sheet.max_row, 1), len(B2B_HEADERS), money_cols=B2B_MONEY_COLS)
+    for excel_row in flagged:
+        fill_row(sheet, excel_row, len(B2B_HEADERS), RED_FILL)
     _finish_table(sheet, len(B2B_HEADERS), [14, 28, 20, 14, 14, 14, 12, 12, 12, 12, 12, 10, 22, 28, 14, 16])
 
 
@@ -158,9 +172,7 @@ def _write_hsn_sheet(sheet, rows: list[dict]) -> None:
                 row.get("source"),
             ]
         )
-        excel_row = sheet.max_row
-        for col in HSN_MONEY_COLS:
-            sheet.cell(excel_row, col).number_format = MONEY_FORMAT
+    style_body(sheet, 2, max(sheet.max_row, 1), len(HSN_HEADERS), money_cols=HSN_MONEY_COLS)
     _finish_table(sheet, len(HSN_HEADERS), [14, 14, 12, 12, 12, 12, 22, 28])
 
 
@@ -178,11 +190,10 @@ def _write_summary_sheet(sheet, rows: list[dict]) -> None:
                 row.get("source"),
             ]
         )
-        excel_row = sheet.max_row
-        for col in SUMMARY_MONEY_COLS:
-            sheet.cell(excel_row, col).number_format = MONEY_FORMAT
     if not rows:
         sheet.append(["No rows extracted"])
+        style_note(sheet, f"A{sheet.max_row}")
+    style_body(sheet, 2, max(sheet.max_row, 1), len(SUMMARY_HEADERS), money_cols=SUMMARY_MONEY_COLS)
     _finish_table(sheet, len(SUMMARY_HEADERS), [44, 14, 12, 12, 12, 12, 28])
 
 
@@ -190,13 +201,14 @@ def _write_flags_sheet(sheet, rows: list[dict]) -> None:
     _write_header(sheet, B2B_HEADERS)
     if not rows:
         sheet.append(["none"])
-    else:
-        for row in rows:
-            sheet.append(_b2b_values(row, _row_type(row, "B2B")))
-            excel_row = sheet.max_row
-            for col in B2B_MONEY_COLS:
-                sheet.cell(excel_row, col).number_format = MONEY_FORMAT
-            _paint_row(sheet, excel_row, len(B2B_HEADERS))
+        style_note(sheet, "A2")
+        _finish_table(sheet, len(B2B_HEADERS), [14, 28, 20, 14, 14, 14, 12, 12, 12, 12, 12, 10, 22, 28, 14, 16])
+        return
+    for row in rows:
+        sheet.append(_b2b_values(row, _row_type(row, "B2B")))
+    style_body(sheet, 2, max(sheet.max_row, 1), len(B2B_HEADERS), money_cols=B2B_MONEY_COLS)
+    for excel_row in range(2, sheet.max_row + 1):
+        fill_row(sheet, excel_row, len(B2B_HEADERS), RED_FILL)
     _finish_table(sheet, len(B2B_HEADERS), [14, 28, 20, 14, 14, 14, 12, 12, 12, 12, 12, 10, 22, 28, 14, 16])
 
 
@@ -209,8 +221,7 @@ def _match_note(rows: list[dict]) -> str:
 
 def _write_header(sheet, headers: list[str]) -> None:
     sheet.append(headers)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
+    style_header(sheet, len(headers))
 
 
 def _finish_table(sheet, ncols: int, widths: list[int]) -> None:
@@ -220,11 +231,7 @@ def _finish_table(sheet, ncols: int, widths: list[int]) -> None:
     sheet.freeze_panes = "A2"
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
-
-
-def _paint_row(sheet, excel_row: int, ncols: int) -> None:
-    for col in range(1, ncols + 1):
-        sheet.cell(excel_row, col).fill = RED_FILL
+    print_setup(sheet, ncols, header_row=1)
 
 
 def _b2b_values(row: dict, doc_type: str) -> list:

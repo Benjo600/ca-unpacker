@@ -3,11 +3,19 @@ from __future__ import annotations
 from pathlib import Path
 
 from openpyxl import Workbook
-from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-MONEY_FORMAT = "#,##0.00"
-RED_FILL = PatternFill("solid", fgColor="FFCDD2")
+from apps.engine.pack.style import (
+    RED_FILL,
+    fill_row,
+    print_setup,
+    style_body,
+    style_count_pairs,
+    style_header,
+    style_note,
+    style_title,
+)
+
 BANK_NOTE = "Bank hints are an assist only; they are not matches."
 COUNT_ORDER = (
     ("matched", "matched"),
@@ -70,37 +78,42 @@ def write_master_grid(path: Path, result: dict) -> Path:
 
 def _write_cover(sheet, counts: dict, row_count: int) -> None:
     sheet["A1"] = "Master reconciliation"
-    sheet["A1"].font = Font(bold=True, size=14)
+    style_title(sheet, "A1")
     sheet.append([])
+    first_pair = 3
     for key, label in COUNT_ORDER:
         sheet.append([label, int(counts.get(key) or 0)])
     sheet.append(["Total rows", row_count])
+    last_pair = sheet.max_row
     sheet.append([])
     sheet.append([BANK_NOTE])
+    style_note(sheet, f"A{sheet.max_row}")
+    style_count_pairs(sheet, first_pair, last_pair)
     sheet.column_dimensions["A"].width = 44
     sheet.column_dimensions["B"].width = 16
     sheet.freeze_panes = "A2"
+    print_setup(sheet, 2, landscape=False)
 
 
 def _write_table(sheet, rows: list[dict]) -> None:
     sheet.append(GRID_HEADERS)
-    for cell in sheet[1]:
-        cell.font = Font(bold=True)
+    style_header(sheet, len(GRID_HEADERS))
+    flagged: list[int] = []
     for row in rows:
         values = [row.get(key) for key in GRID_KEYS]
         sheet.append(values)
-        excel_row = sheet.max_row
-        for col in MONEY_COLS:
-            sheet.cell(excel_row, col).number_format = MONEY_FORMAT
-        status = str(row.get("status") or "")
-        if status in FLAG_STATUSES:
-            for col in range(1, len(GRID_HEADERS) + 1):
-                sheet.cell(excel_row, col).fill = RED_FILL
+        if str(row.get("status") or "") in FLAG_STATUSES:
+            flagged.append(sheet.max_row)
     if not rows:
         sheet.append(["No rows"])
+        style_note(sheet, f"A{sheet.max_row}")
+    style_body(sheet, 2, max(sheet.max_row, 1), len(GRID_HEADERS), money_cols=MONEY_COLS)
+    for excel_row in flagged:
+        fill_row(sheet, excel_row, len(GRID_HEADERS), RED_FILL)
     last_col = get_column_letter(len(GRID_HEADERS))
     last_row = max(sheet.max_row, 1)
     sheet.auto_filter.ref = f"A1:{last_col}{last_row}"
     sheet.freeze_panes = "A2"
     for index, width in enumerate(WIDTHS, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width
+    print_setup(sheet, len(GRID_HEADERS), header_row=1)

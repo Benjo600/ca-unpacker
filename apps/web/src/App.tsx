@@ -3,6 +3,7 @@ import AdminGuard from "./components/AdminGuard";
 import AdminLayout from "./components/AdminLayout";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
+import DemoOne from "./components/ui/demo";
 import Overview from "./pages/admin/Overview";
 import UserDetail from "./pages/admin/UserDetail";
 import Users from "./pages/admin/Users";
@@ -13,6 +14,7 @@ export default function App() {
       <Route path="/" element={<Navigate to="/signup" replace />} />
       <Route path="/signup" element={<Signup />} />
       <Route path="/login" element={<Login />} />
+      <Route path="/demo" element={<DemoOne />} />
       <Route
         path="/admin"
         element={

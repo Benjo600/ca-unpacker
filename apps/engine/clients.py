@@ -30,7 +30,7 @@ def get_client(client_id: int) -> dict | None:
         row = session.get(Client, client_id)
         if row is None:
             return None
-        return {"id": row.id, "name": row.name, "gstin": row.gstin}
+        return {"id": row.id, "name": row.name, "gstin": row.gstin, "bank_profile_key": row.bank_profile_key, "compliance_profile_key": row.compliance_profile_key}
     finally:
         session.close()
 
@@ -51,7 +51,7 @@ def list_clients() -> list[dict]:
         session.close()
 
 
-def create_client(name: str, gstin: str | None = None) -> dict:
+def create_client(name: str, gstin: str | None = None, bank_profile_key: str | None = None, compliance_profile_key: str | None = None) -> dict:
     firm = get_firm()
     if firm is None:
         firm = save_firm("My firm")
@@ -74,11 +74,11 @@ def create_client(name: str, gstin: str | None = None) -> dict:
         if existing is not None:
             raise ValueError("A client with that name already exists.")
 
-        row = Client(firm_id=firm["id"], name=cleaned, gstin=gstin_value)
+        row = Client(firm_id=firm["id"], name=cleaned, gstin=gstin_value, bank_profile_key=bank_profile_key, compliance_profile_key=compliance_profile_key)
         session.add(row)
         session.commit()
         session.refresh(row)
-        return {"id": row.id, "name": row.name, "gstin": row.gstin}
+        return {"id": row.id, "name": row.name, "gstin": row.gstin, "bank_profile_key": row.bank_profile_key, "compliance_profile_key": row.compliance_profile_key}
     finally:
         session.close()
 
