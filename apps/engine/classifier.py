@@ -300,7 +300,7 @@ def _classify_pdf(path: Path, name: str) -> Classification:
     extracted = extract_pdf(path)
     if extracted.pdf_type == "encrypted":
         return Classification("unknown", 0.5, "password-protected PDF")
-    if extracted.pdf_type in {"scanned", "image_based"}:
-        return classify_from_text(name, extracted.page_count, name)
-    text = "\n".join(page.text for page in extracted.pages[:4])
-    return classify_from_text(name, extracted.page_count, text)
+    text = "\n".join(page.text for page in extracted.pages[:4]).strip()
+    if not text:
+        text = "\n".join(line.text for line in extracted.lines[:30]).strip()
+    return classify_from_text(name, extracted.page_count, text or name)
