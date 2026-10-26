@@ -12,7 +12,12 @@ from typing import Any
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 
-from apps.engine.auth_config import SUPABASE_ANON_KEY, SUPABASE_URL
+from apps.engine.auth_config import (
+    APP_VERSION,
+    CA_UNPACKER_AUTH_URL,
+    SUPABASE_ANON_KEY,
+    SUPABASE_URL,
+)
 from apps.engine.license import STARTER_LIMIT, _QUOTA_MESSAGE
 from apps.engine.settings import load_settings, save_settings
 
@@ -290,6 +295,17 @@ def _post_password_auth(path: str, body: dict[str, Any], signup: bool = False) -
         raise ValueError(_NO_CONNECTION_MESSAGE) from None
 
 
+def login_with_password(email: str, password: str) -> dict:
+    """Compatibility API used by the current desktop UI."""
+    state = sign_in_with_password(email, password)
+    try:
+        fetch_quota()
+        send_heartbeat()
+    except Exception:
+        pass
+    return state | get_auth_state()
+
+
 def logout() -> None:
     session = get_session()
     if session and _network_available():
@@ -389,6 +405,18 @@ def fetch_quota() -> dict:
         result = _call_function("check-quota", {"file_count": 0}, session)
     except httpx.HTTPError:
         return load_quota_cache()
+    except ValueError as exc:
+        if "suspend" in str(exc).lower():
+            cached = load_quota_cache()
+            return save_quota_cache(
+                {
+                    "files_used": cached.get("files_used", 0),
+                    "file_limit": 0,
+                    "plan": "suspended",
+                    "synced_at": datetime.now().isoformat(timespec="seconds"),
+                }
+            )
+        return load_quota_cache()
     cache = save_quota_cache(
         {
             "files_used": result.get("files_used", 0),
@@ -398,6 +426,24 @@ def fetch_quota() -> dict:
         }
     )
     return cache
+
+
+def send_heartbeat() -> dict | None:
+    session = get_session()
+    if session is None or not _network_available():
+        return None
+    try:
+        return _call_function(
+            "heartbeat",
+            {
+                "app_version": APP_VERSION,
+                "device_label": platform.node() or "Windows PC",
+                "fingerprint_sha256": device_fingerprint(),
+            },
+            session,
+        )
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 def check_can_ingest_offline(file_count: int, today: date | None = None) -> None:
@@ -487,14 +533,18 @@ def get_auth_state() -> dict:
         file_limit = int(file_limit)
     elif plan == "starter" and not cache:
         file_limit = STARTER_LIMIT
+    remaining = None if file_limit is None else max(0, int(file_limit) - files_used)
     return {
         "signed_in": session is not None,
         "email": session.get("email") if session else None,
         "plan": plan,
         "files_used": files_used,
         "file_limit": file_limit,
+        "files_remaining": remaining,
         "offline": offline,
         "last_sync_at": cache.get("synced_at"),
+        "auth_url": CA_UNPACKER_AUTH_URL,
+        "dashboard_url": f"{CA_UNPACKER_AUTH_URL}/app",
     }
 
 

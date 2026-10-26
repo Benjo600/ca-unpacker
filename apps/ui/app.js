@@ -2794,6 +2794,14 @@ if (profileButtonEl && profilePanelEl) {
 }
 
 const authLogoutBtn = document.getElementById("auth-logout");
+const authAccountBtn = document.getElementById("auth-account");
+if (authAccountBtn) {
+  authAccountBtn.addEventListener("click", async () => {
+    const api = desktopApi();
+    if (!api || !api.open_account) return;
+    await api.open_account();
+  });
+}
 if (authLogoutBtn) {
   authLogoutBtn.addEventListener("click", async () => {
     const api = desktopApi();

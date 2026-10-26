@@ -59,3 +59,4 @@ SUPABASE_ANON_KEY = resolve_setting(
 CA_UNPACKER_AUTH_URL = resolve_setting(
     "CA_UNPACKER_AUTH_URL", "auth_url", _DEFAULT_AUTH_URL
 )
+APP_VERSION = os.environ.get("CA_UNPACKER_VERSION") or "0.1.0"

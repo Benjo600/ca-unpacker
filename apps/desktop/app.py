@@ -6,6 +6,7 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
@@ -167,6 +168,10 @@ class DesktopApi:
             return {"ok": False, "error": "Could not send the reset email. Try again."}
         return {"ok": True}
 
+    def open_account(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/app")
+        return {"ok": True}
+
     def logout(self) -> dict:
         auth.logout()
         return {"ok": True, **auth.get_auth_state()}
@@ -188,6 +193,7 @@ class DesktopApi:
                     pass
             try:
                 auth.fetch_quota()
+                auth.send_heartbeat()
             except Exception:
                 pass
             state = auth.get_auth_state()
@@ -612,6 +618,7 @@ def _startup_auth_sync() -> None:
     try:
         auth.refresh_session()
         auth.fetch_quota()
+        auth.send_heartbeat()
     except Exception:
         pass
 
