@@ -7,7 +7,7 @@ from pathlib import Path
 
 from apps.engine.parsers.bank.docling_tables import rows_from_docling
 from apps.engine.parsers.bank.layout import _debit_credit, rows_from_words
-from apps.engine.parsers.bank.money import DATE_RE, amounts_in, is_plausible_iso_date, normalize_date
+from apps.engine.parsers.bank.money import DATE_RE, amounts_in, is_plausible_iso_date, normalize_date, parse_amount
 from apps.engine.parsers.bank.patterns import (
     ACCOUNT_RE,
     CLOSING_RE,
@@ -21,11 +21,12 @@ from apps.engine.parsers.bank.patterns import (
 )
 from apps.engine.parsers.bank.plumber import rows_from_pdfplumber
 from apps.engine.parsers.bank.profiles import BankProfile, detect_profile
-from apps.engine.parsers.bank.tables import rows_from_markdown
-from apps.engine.pdf_extract import ExtractedPdf, LineBox, extract_pdf
+from apps.engine.parsers.bank.tables import rows_from_cell_tables, rows_from_markdown
+from apps.engine.pdf_extract import ExtractedPdf, LineBox, WordBox, extract_pdf
 
 
 def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
+    path = Path(path)
     extracted = extract_pdf(path)
     header = "\n".join(page.text for page in extracted.pages[:2])
     profile = detect_profile(header, filename or path.name)
@@ -33,11 +34,17 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
     closing = _balance_near(extracted, CLOSING_RE)
     account = _search(header, ACCOUNT_RE)
     ifsc = _search(header.upper(), IFSC_RE)
+    period_ym = _detect_period_ym(header)
     name = filename or path.name
 
-    line_rows, line_candidates = _rows_from_lines(extracted.lines, profile, name)
+    line_rows, line_candidates = _rows_from_lines(
+        extracted.lines, profile, name, period_ym, getattr(extracted, "words", [])
+    )
     word_rows, word_candidates = _rows_from_extracted_words(extracted, profile, name)
-    plumber_rows = rows_from_pdfplumber(path, profile, name)
+    table_rows = _rows_from_extracted_tables(getattr(extracted, "tables", []), profile, name)
+    plumber_rows = table_rows
+    if not plumber_rows and extracted.pdf_type not in {"scanned", "image_based"}:
+        plumber_rows = rows_from_pdfplumber(path, profile, name)
     markdown_rows = rows_from_markdown(
         "\n".join(page.text or "" for page in extracted.pages),
         profile,
@@ -45,7 +52,8 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
     )
     docling_rows: list[dict] = []
     if extracted.pdf_type in {"scanned", "image_based", "mixed"}:
-        docling_rows = rows_from_docling(path, profile, name)
+        if len(extracted.lines) < 5 and len(extracted.words or []) < 10:
+            docling_rows = rows_from_docling(path, profile, name)
 
     finished_lines = _finish_rows(line_rows, opening, account, ifsc, profile)
     finished_words = _finish_rows(word_rows, opening, account, ifsc, profile)
@@ -79,6 +87,19 @@ def parse_bank_pdf(path: Path, filename: str | None = None) -> dict:
     }
 
 
+def _rows_from_extracted_tables(
+    tables: list, profile: BankProfile, filename: str
+) -> list[dict]:
+    rows: list[dict] = []
+    for table in tables:
+        grid = getattr(table, "grid", None)
+        if grid and len(grid) >= 2:
+            page_no = getattr(table, "page", 1)
+            bbox = getattr(table, "bbox", None)
+            rows.extend(rows_from_cell_tables([grid], profile, filename, page_no, bbox))
+    return rows
+
+
 def _rows_from_extracted_words(
     extracted: ExtractedPdf, profile: BankProfile, filename: str
 ) -> tuple[list[dict], int]:
@@ -87,32 +108,161 @@ def _rows_from_extracted_words(
     return rows, len(rows)
 
 
+MONTHS_PAT = r"(?:Jan|Feb|Mar|Apr|May|Jun|Jul|Aug|Sep|Oct|Nov|Dec)"
+DAY_MON_RE = re.compile(rf"\b(\d{{1,2}})\s*({MONTHS_PAT})\b", re.I)
+SERIAL_DAY_RE = re.compile(r"^\s*(?:\d{1,3}|[a-zA-Z]{1,2})\s+(\d{1,2})\b")
+
+
+def _detect_period_ym(header: str) -> str | None:
+    match = re.search(
+        r"(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})\s*(?:-|to)\s*(\d{1,2}\s+[A-Za-z]{3,9}\.?\s+\d{4})",
+        header,
+        re.I,
+    )
+    if match:
+        norm = normalize_date(match.group(1))
+        if norm:
+            return norm[:7]
+    match_slash = re.search(
+        r"(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{4})\s*(?:-|to)\s*(\d{1,2}[/\-.]\d{1,2}[/\-.]\d{4})",
+        header,
+    )
+    if match_slash:
+        norm = normalize_date(match_slash.group(1))
+        if norm:
+            return norm[:7]
+    return None
+
+
+def _is_txn_start(text: str) -> bool:
+    if is_boilerplate(text):
+        return False
+    if DATE_RE.search(text):
+        return True
+    if DAY_MON_RE.search(text):
+        return True
+    if SERIAL_DAY_RE.search(text) and amounts_in(text):
+        return True
+    return False
+
+
+def _extract_line_date(
+    text: str, default_ym: str | None, last_date: str | None
+) -> tuple[str | None, str]:
+    m = DATE_RE.search(text)
+    if m:
+        d = normalize_date(m.group(1))
+        if d and is_plausible_iso_date(d):
+            return d, DATE_RE.sub("", text, count=1)
+    m = DAY_MON_RE.search(text)
+    if m:
+        day = int(m.group(1))
+        mon = m.group(2).capitalize()
+        year = default_ym.split("-")[0] if default_ym else "2026"
+        d = normalize_date(f"{day:02d} {mon} {year}")
+        if d and is_plausible_iso_date(d):
+            return d, DAY_MON_RE.sub("", text, count=1)
+    m = SERIAL_DAY_RE.search(text)
+    if m and default_ym:
+        day = int(m.group(1))
+        if 1 <= day <= 31:
+            d = f"{default_ym}-{day:02d}"
+            return d, SERIAL_DAY_RE.sub("", text, count=1)
+    if last_date and amounts_in(text):
+        return last_date, text
+    return None, text
+
+
 def _rows_from_lines(
-    lines: list[LineBox], profile: BankProfile, filename: str
+    lines: list[LineBox],
+    profile: BankProfile,
+    filename: str,
+    default_ym: str | None = None,
+    words: list[WordBox] | None = None,
 ) -> tuple[list[dict], int]:
     rows: list[dict] = []
     candidate_count = 0
+    last_date = f"{default_ym}-01" if default_ym else None
+    words_by_page: dict[int, list[WordBox]] = {}
+    if words:
+        for w in words:
+            words_by_page.setdefault(w.page, []).append(w)
+
     index = 0
     while index < len(lines):
         line = lines[index]
         text = clean_text(line.text)
-        if not DATE_RE.search(text) or is_boilerplate(text):
-            if rows and not DATE_RE.search(text) and is_continuation(text):
+        if not _is_txn_start(text):
+            if rows and is_continuation(text) and not amounts_in(text) and not SERIAL_DAY_RE.search(text):
                 extra = text.strip()
                 if extra:
                     rows[-1]["description"] = f"{rows[-1]['description']} {extra}".strip()
                     rows[-1]["raw_text"] = f"{rows[-1]['raw_text']} | {extra}"
             index += 1
             continue
+
         block, index = _expand_txn_lines(lines, index)
         merged = _merge_line_boxes(block)
         merged_text = clean_text(merged.text)
-        if looks_like_txn(merged_text) or DATE_RE.search(merged_text):
-            candidate_count += 1
-        row = _line_to_row(merged, profile, filename)
-        if row is None:
+        date, desc = _extract_line_date(merged_text, default_ym, last_date)
+        amts = amounts_in(merged_text)
+        if not date or not amts:
             continue
-        rows.append(row)
+
+        candidate_count += 1
+        last_date = date
+
+        # Map amounts with word boxes if available
+        p_words = [
+            w for w in words_by_page.get(line.page, [])
+            if abs(w.y - line.y) < 8
+        ]
+        debit, credit, balance = None, None, None
+        if p_words:
+            for w in sorted(p_words, key=lambda item: item.x):
+                w_text = w.text.replace(",", ".") if re.fullmatch(r"\d{1,4},\d{2}", w.text) else w.text
+                v = parse_amount(w_text)
+                if v is not None:
+                    if 340 <= w.x < 415 and debit is None and balance is None:
+                        debit = v
+                    elif 415 <= w.x < 488 and credit is None and balance is None:
+                        credit = v
+                    elif w.x >= 488 and balance is None:
+                        balance = v
+
+        if debit is None and credit is None and balance is None:
+            balance = amts[-1] if len(amts) >= 2 else None
+            d_amt, c_amt = _debit_credit(amts, merged_text, profile)
+            debit = d_amt
+            credit = c_amt
+
+        for amount in amts[-3:]:
+            desc = desc.replace(f"{amount:,}", "").replace(str(amount), "")
+        desc = re.sub(r"\s{2,}", " ", desc).strip(" -|")
+
+        cheque = None
+        chq = re.search(r"\b(?:chq|cheque|ref)[^\d]{0,6}(\d{4,})\b", merged_text, re.I)
+        if chq:
+            cheque = chq.group(1)
+
+        bbox = None
+        if merged.width or merged.height:
+            bbox = f"{merged.x:.1f},{merged.y:.1f},{merged.width:.1f},{merged.height:.1f}"
+
+        rows.append({
+            "date": date,
+            "description": desc or merged_text,
+            "cheque_ref": cheque,
+            "debit": _dec(debit),
+            "credit": _dec(credit),
+            "balance": _dec(balance),
+            "source_page": merged.page,
+            "source_bbox": bbox,
+            "source": f"{filename}#p{merged.page}" + (f"@{bbox}" if bbox else ""),
+            "raw_text": merged_text,
+            "flags": [],
+        })
+
     return rows, candidate_count
 
 
@@ -124,18 +274,9 @@ def _expand_txn_lines(lines: list[LineBox], start: int) -> tuple[list[LineBox], 
         if not nxt:
             cursor += 1
             continue
-        if DATE_RE.search(nxt) or is_boilerplate(nxt):
+        if _is_txn_start(nxt) or is_boilerplate(nxt):
             break
-        combined = clean_text(" ".join(item.text for item in block))
-        if looks_like_txn(combined) and is_amount_line(nxt):
-            break
-        if looks_like_txn(combined) and not amounts_in(nxt) and not is_continuation(nxt):
-            break
-        if looks_like_txn(combined) and is_continuation(nxt):
-            block.append(lines[cursor])
-            cursor += 1
-            continue
-        if not looks_like_txn(combined):
+        if is_continuation(nxt) and not amounts_in(nxt) and not SERIAL_DAY_RE.search(nxt):
             block.append(lines[cursor])
             cursor += 1
             continue

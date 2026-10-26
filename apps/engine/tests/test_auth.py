@@ -104,6 +104,20 @@ def _fake_access_token(email: str = "owner@example.com") -> str:
     return "header." + payload.decode("ascii").rstrip("=") + ".sig"
 
 
+def _expiring_access_token(offset_seconds: int, email: str = "owner@example.com") -> str:
+    """A JWT-shaped token whose exp claim is now + offset_seconds."""
+    import base64
+    import json
+    import time
+
+    payload = base64.urlsafe_b64encode(
+        json.dumps(
+            {"email": email, "exp": int(time.time()) + offset_seconds}
+        ).encode("utf-8")
+    )
+    return "header." + payload.decode("ascii").rstrip("=") + ".sig"
+
+
 def _http_status_error(status_code: int, payload: dict):
     import httpx
 
@@ -335,3 +349,148 @@ def test_logout_clears_session_when_network_errors(tmp_path, monkeypatch):
 
     auth.logout()
     assert auth.get_auth_state()["signed_in"] is False
+
+
+def test_refresh_session_skipped_while_access_token_valid(tmp_path, monkeypatch):
+    """Remember-me: a valid token must not churn (and rotate) at every launch."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens(_expiring_access_token(3600), "refresh-token")
+
+    calls: list[tuple] = []
+
+    def fake_post(path, body, session=None):
+        calls.append((path, body))
+        return {}
+
+    monkeypatch.setattr(auth, "_post_auth", fake_post)
+    monkeypatch.setattr(auth, "_network_available", lambda: True)
+
+    assert auth.refresh_session() is not None
+    assert calls == []
+    assert auth.get_auth_state()["signed_in"] is True
+
+
+def test_refresh_session_survives_network_drop(tmp_path, monkeypatch):
+    """A network error mid-refresh must never sign the user out."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    import httpx
+
+    from apps.engine import auth
+
+    auth.login_via_tokens(_expiring_access_token(-3600), "refresh-token")
+
+    def boom(path, body, session=None):
+        raise httpx.ConnectError("connection reset")
+
+    monkeypatch.setattr(auth, "_post_auth", boom)
+    monkeypatch.setattr(auth, "_network_available", lambda: True)
+
+    session = auth.refresh_session()
+    assert session is not None
+    assert auth.get_auth_state()["signed_in"] is True
+
+
+def test_refresh_session_offline_keeps_login(tmp_path, monkeypatch):
+    """Expired token + no internet = stay signed in under the offline grace."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens(_expiring_access_token(-3600), "refresh-token")
+    monkeypatch.setattr(auth, "_network_available", lambda: False)
+
+    assert auth.refresh_session() is not None
+    assert auth.get_auth_state()["signed_in"] is True
+
+
+def test_refresh_session_kept_on_server_error(tmp_path, monkeypatch):
+    """429 / 5xx are server trouble, not proof the account is invalid."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens(_expiring_access_token(-3600), "refresh-token")
+
+    monkeypatch.setattr(auth, "_network_available", lambda: True)
+    monkeypatch.setattr(
+        auth, "_post_auth", lambda *a, **k: (_ for _ in ()).throw(
+            _http_status_error(500, {"message": "database overloaded"})
+        )
+    )
+
+    assert auth.refresh_session() is not None
+    assert auth.get_auth_state()["signed_in"] is True
+
+
+def test_refresh_session_cleared_only_when_server_rejects_token(tmp_path, monkeypatch):
+    """invalid_grant is the one refresh failure that means logged out."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens(_expiring_access_token(-3600), "revoked-refresh")
+
+    monkeypatch.setattr(auth, "_network_available", lambda: True)
+    monkeypatch.setattr(
+        auth, "_post_auth", lambda *a, **k: (_ for _ in ()).throw(
+            _http_status_error(400, {"error": "invalid_grant", "error_description": "Invalid Refresh Token"})
+        )
+    )
+
+    assert auth.refresh_session() is None
+    assert auth.get_auth_state()["signed_in"] is False
+
+
+def test_call_function_refreshes_once_after_401(tmp_path, monkeypatch):
+    """A token that expires mid-session refreshes itself and retries once."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens(_expiring_access_token(-3600), "refresh-token")
+    monkeypatch.setattr(auth, "_network_available", lambda: True)
+    monkeypatch.setattr(
+        auth,
+        "_post_auth",
+        lambda path, body, session=None: {
+            "access_token": _expiring_access_token(3600),
+            "refresh_token": "rotated-refresh",
+        },
+    )
+
+    calls: list[str] = []
+
+    def fake_post_function(name, body, session):
+        calls.append(session["access_token"])
+        if len(calls) == 1:
+            raise _http_status_error(401, {"msg": "JWT expired"})
+        return {"allowed": True, "files_used": 3, "file_limit": 100, "plan": "starter"}
+
+    monkeypatch.setattr(auth, "_post_function", fake_post_function)
+
+    result = auth._call_function("check-quota", {"file_count": 1}, auth.get_session())
+
+    assert result["allowed"] is True
+    assert len(calls) == 2
+    assert calls[0] != calls[1]  # the retry used the refreshed token
+
+
+def test_snapshot_and_restore_of_auth_settings(tmp_path, monkeypatch):
+    """The wipe flow must be able to carry the login across a library delete."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+    from apps.engine.settings import load_settings
+
+    auth.login_via_tokens(_expiring_access_token(3600), "refresh-token")
+    auth.save_quota_cache(
+        {"files_used": 4, "file_limit": 100, "plan": "starter", "synced_at": "2026-10-21T10:00:00"}
+    )
+
+    snapshot = auth.snapshot_auth_settings()
+    auth._clear_session()
+    assert auth.get_auth_state()["signed_in"] is False
+
+    auth.restore_auth_settings(snapshot)
+    session = auth.get_session()
+    assert session is not None
+    assert session["refresh_token"] == "refresh-token"
+    assert auth.load_quota_cache()["files_used"] == 4
+    assert load_settings().get("auth_quota_cache", {}).get("files_used") == 4

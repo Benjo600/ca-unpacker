@@ -32,6 +32,13 @@ class Client(Base):
     firm_id: Mapped[int] = mapped_column(ForeignKey("firms.id"))
     name: Mapped[str] = mapped_column(String(200))
     gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
+    profession_key: Mapped[str | None] = mapped_column(String(60), nullable=True)
+    profession_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    entity_type: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    gst_registered: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    profile_json: Mapped[str] = mapped_column(
+        String, default="{}", server_default=text("'{}'")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

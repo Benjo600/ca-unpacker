@@ -41,6 +41,8 @@ def parse_invoice_file(path: Path, filename: str | None = None) -> dict:
     text = _joined_text(extracted)
     source = filename or path.name
     items = _line_items(extracted.lines, source)
+    if not items and getattr(extracted, "tables", None):
+        items = _line_items_from_tables(extracted.tables, source)
     row = _build_row(text, extracted.lines, source, items)
     if row is None or not items:
         return {
@@ -169,6 +171,114 @@ def _line_items(lines: list[LineBox], source: str) -> list[dict]:
         parsed = _parse_item_line(text, source, line)
         if parsed:
             items.append(parsed)
+    return items
+
+
+def _line_items_from_tables(tables: list, source: str) -> list[dict]:
+    items: list[dict] = []
+    if not tables:
+        return items
+    for table in tables:
+        grid = getattr(table, "grid", None)
+        if not grid or len(grid) < 2:
+            continue
+        header_idx = -1
+        col_desc = -1
+        col_hsn = -1
+        col_qty = -1
+        col_rate = -1
+        col_taxable = -1
+        col_amount = -1
+
+        for r_idx, row in enumerate(grid[:5]):
+            row_strs = [(str(c).lower().strip() if c is not None else "") for c in row]
+            has_hsn = any(_ITEM_HEADER_RE.search(c) for c in row_strs)
+            has_col = any(_ITEM_COL_RE.search(c) for c in row_strs)
+            if has_hsn or has_col:
+                header_idx = r_idx
+                for c_idx, cell in enumerate(row_strs):
+                    if not cell:
+                        continue
+                    if re.search(r"\b(item|desc|particular|service|product|goods)\b", cell):
+                        col_desc = c_idx
+                    elif _ITEM_HEADER_RE.search(cell):
+                        col_hsn = c_idx
+                    elif re.search(r"\b(qty|quantity|nos|units)\b", cell):
+                        col_qty = c_idx
+                    elif re.search(r"\b(rate|price|unit\s*rate)\b", cell):
+                        col_rate = c_idx
+                    elif re.search(r"\b(taxable|basic)\b", cell):
+                        col_taxable = c_idx
+                    elif re.search(r"\b(amount|total|value)\b", cell):
+                        col_amount = c_idx
+                break
+
+        if header_idx == -1:
+            continue
+
+        for row in grid[header_idx + 1:]:
+            if not row or not any(row):
+                continue
+            first_text = " ".join(str(c).strip() for c in row[:2] if c)
+            if _ITEM_FOOTER_RE.search(first_text) or re.match(r"^(total|subtotal|cgst|sgst|igst|tax)\b", first_text, re.I):
+                break
+
+            hsn = None
+            if col_hsn != -1 and col_hsn < len(row) and row[col_hsn]:
+                match = re.search(r"\b\d{4,8}\b", str(row[col_hsn]))
+                if match:
+                    hsn = match.group(0)
+            if not hsn:
+                for cell in row:
+                    if cell:
+                        match = re.search(r"\b\d{4,8}\b", str(cell))
+                        if match:
+                            hsn = match.group(0)
+                            break
+
+            desc = None
+            if col_desc != -1 and col_desc < len(row) and row[col_desc]:
+                desc = str(row[col_desc]).strip() or None
+
+            qty = None
+            if col_qty != -1 and col_qty < len(row) and row[col_qty]:
+                try:
+                    qty = float(re.sub(r"[^\d.]", "", str(row[col_qty])))
+                except (ValueError, TypeError):
+                    qty = None
+
+            rate = parse_amount(str(row[col_rate])) if (col_rate != -1 and col_rate < len(row) and row[col_rate]) else None
+            taxable = parse_amount(str(row[col_taxable])) if (col_taxable != -1 and col_taxable < len(row) and row[col_taxable]) else None
+            amount = parse_amount(str(row[col_amount])) if (col_amount != -1 and col_amount < len(row) and row[col_amount]) else None
+
+            if amount is None and taxable is not None:
+                amount = taxable
+            elif amount is None:
+                amounts_found = []
+                for cell in row:
+                    if cell:
+                        val = parse_amount(str(cell))
+                        if val is not None:
+                            amounts_found.append(val)
+                if amounts_found:
+                    amount = amounts_found[-1]
+                    if len(amounts_found) >= 2 and taxable is None:
+                        taxable = amounts_found[-2]
+
+            if amount is not None or hsn is not None:
+                items.append({
+                    "invoice_number": None,
+                    "description": desc,
+                    "hsn": hsn,
+                    "qty": qty,
+                    "rate": _f(rate),
+                    "taxable": _f(taxable),
+                    "tax": None,
+                    "amount": _f(amount),
+                    "source": source,
+                    "source_page": int(getattr(table, "page", 1)),
+                    "source_bbox": getattr(table, "bbox", None),
+                })
     return items
 
 

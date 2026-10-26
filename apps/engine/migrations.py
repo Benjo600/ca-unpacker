@@ -11,7 +11,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.sql.schema import MetaData
 
 BASELINE_SCHEMA_VERSION = 1
-LATEST_SCHEMA_VERSION = 2
+LATEST_SCHEMA_VERSION = 3
 
 APP_TABLES = frozenset(
     {"firms", "clients", "periods", "jobs", "files", "extracted_rows", "data_packs"}
@@ -38,7 +38,22 @@ def _migrate_v1_to_v2(connection: Connection) -> None:
         connection.exec_driver_sql(statement)
 
 
-MIGRATION_STEPS: Mapping[int, Migration] = {2: _migrate_v1_to_v2}
+def _migrate_v2_to_v3(connection: Connection) -> None:
+    statements = (
+        "ALTER TABLE clients ADD COLUMN profession_key VARCHAR(60)",
+        "ALTER TABLE clients ADD COLUMN profession_label VARCHAR(120)",
+        "ALTER TABLE clients ADD COLUMN entity_type VARCHAR(40)",
+        "ALTER TABLE clients ADD COLUMN gst_registered INTEGER",
+        "ALTER TABLE clients ADD COLUMN profile_json VARCHAR NOT NULL DEFAULT '{}'",
+    )
+    for statement in statements:
+        connection.exec_driver_sql(statement)
+
+
+MIGRATION_STEPS: Mapping[int, Migration] = {
+    2: _migrate_v1_to_v2,
+    3: _migrate_v2_to_v3,
+}
 
 
 def _database_path(engine: Engine) -> Path:

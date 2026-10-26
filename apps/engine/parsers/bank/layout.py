@@ -118,6 +118,10 @@ def _detect_columns(words: list[WordBox]) -> dict[str, float]:
         if hits > best_hits and hits >= 3:
             best_hits = hits
             best = found
+    if "balance" not in best and "debit" in best and "credit" in best:
+        diff = best["credit"] - best["debit"]
+        if diff > 20:
+            best["balance"] = best["credit"] + diff
     return best
 
 
@@ -219,10 +223,13 @@ def _words_to_row(
 
 def _first_amount(words: list[WordBox]) -> Decimal | None:
     for word in sorted(words, key=lambda item: item.x):
-        found = amounts_in(word.text)
+        w_text = word.text or ""
+        if re.fullmatch(r"\d{1,4},\d{2}", w_text):
+            w_text = w_text.replace(",", ".")
+        found = amounts_in(w_text)
         if found:
             return found[0]
-        parsed = parse_amount(word.text)
+        parsed = parse_amount(w_text)
         if parsed is not None:
             return parsed
     return None
@@ -240,10 +247,9 @@ def _debit_credit(
             return None, second
         if first == 0:
             return None, second or None
-        if second == 0:
-            return first or None, None
-        return first, second
-    amount = amounts[-2]
+    if not amounts:
+        return None, None
+    amount = amounts[-2] if len(amounts) >= 2 else amounts[-1]
     if any(word in lowered for word in profile.credit_words) and not any(
         word in lowered for word in profile.debit_words
     ):

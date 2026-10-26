@@ -187,6 +187,16 @@ class MigrationTests(unittest.TestCase):
 
         file_columns = {column["name"] for column in inspect(engine).get_columns("files")}
         job_columns = {column["name"] for column in inspect(engine).get_columns("jobs")}
+        client_columns = {column["name"] for column in inspect(engine).get_columns("clients")}
+        self.assertTrue(
+            {
+                "profession_key",
+                "profession_label",
+                "entity_type",
+                "gst_registered",
+                "profile_json",
+            }.issubset(client_columns)
+        )
         self.assertTrue(
             {
                 "parse_outcome",
@@ -215,9 +225,14 @@ class MigrationTests(unittest.TestCase):
             pack_row = connection.execute(
                 "SELECT bank_xlsx_key, row_count FROM data_packs WHERE id = 1"
             ).fetchone()
+            client_row = connection.execute(
+                "SELECT name, profession_key, entity_type, gst_registered, profile_json "
+                "FROM clients WHERE id = 1"
+            ).fetchone()
         self.assertEqual(file_row, ("statement.pdf", "1/statement.pdf", "unclassified", 0))
         self.assertEqual(job_row, ("done", 0, 0))
         self.assertEqual(pack_row, ("packs/bank.xlsx", 12))
+        self.assertEqual(client_row, ("Acme", None, None, None, "{}"))
         self.assertEqual(pack_path.read_bytes(), b"existing output pack")
         self.assertEqual(version, LATEST_SCHEMA_VERSION)
 
@@ -225,13 +240,13 @@ class MigrationTests(unittest.TestCase):
         from apps.engine.db import get_engine, reset_engine
 
         create_legacy_database(self.db_path)
-        occupied = self.db_path.with_name("app.db.v1-to-v2.backup")
+        occupied = self.db_path.with_name("app.db.v1-to-v3.backup")
         occupied.write_bytes(b"older backup")
 
         get_engine()
         reset_engine()
 
-        backups = sorted(self.db_path.parent.glob("app.db.v1-to-v2*.backup"))
+        backups = sorted(self.db_path.parent.glob("app.db.v1-to-v3*.backup"))
         self.assertEqual(len(backups), 2)
         self.assertEqual(occupied.read_bytes(), b"older backup")
         new_backup = next(path for path in backups if path != occupied)
@@ -263,7 +278,7 @@ class MigrationTests(unittest.TestCase):
         self.assertEqual(list(self.db_path.parent.glob("*.backup")), backups_after_upgrade)
         with closing(sqlite3.connect(self.db_path)) as connection:
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
-            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 2)
+            self.assertEqual(connection.execute("SELECT version FROM schema_version").fetchone()[0], 3)
 
     def test_failed_migration_rolls_back_schema_and_does_not_record_a_version(self) -> None:
         from sqlalchemy import create_engine
@@ -279,7 +294,11 @@ class MigrationTests(unittest.TestCase):
             raise RuntimeError("simulated failure")
 
         with self.assertRaisesRegex(RuntimeError, "simulated failure"):
-            ensure_schema(engine, Base.metadata, migration_steps={2: failing_migration})
+            ensure_schema(
+                engine,
+                Base.metadata,
+                migration_steps={2: failing_migration, 3: lambda connection: None},
+            )
 
         engine.dispose()
         with closing(sqlite3.connect(self.db_path)) as connection:
@@ -290,13 +309,15 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
 
     def test_concurrent_fresh_initializers_converge_on_latest_schema(self) -> None:
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
+
         errors = initialize_concurrently(self.db_path)
 
         self.assertEqual(errors, [None] * 8)
         with closing(sqlite3.connect(self.db_path)) as connection:
             self.assertEqual(
                 connection.execute("SELECT version FROM schema_version").fetchone()[0],
-                2,
+                LATEST_SCHEMA_VERSION,
             )
             file_columns = [
                 row[1] for row in connection.execute("PRAGMA table_info(files)")
@@ -304,18 +325,22 @@ class MigrationTests(unittest.TestCase):
             self.assertEqual(file_columns.count("parse_outcome"), 1)
         self.assertEqual(list(self.db_path.parent.glob("*.backup")), [])
 
-    def test_concurrent_v1_initializers_create_one_backup_and_converge_on_v2(self) -> None:
+    def test_concurrent_v1_initializers_create_one_backup_and_converge_on_latest(self) -> None:
+        from apps.engine.migrations import LATEST_SCHEMA_VERSION
+
         create_legacy_database(self.db_path)
 
         errors = initialize_concurrently(self.db_path)
 
         self.assertEqual(errors, [None] * 8)
-        backups = list(self.db_path.parent.glob("app.db.v1-to-v2*.backup"))
+        backups = list(
+            self.db_path.parent.glob(f"app.db.v1-to-v{LATEST_SCHEMA_VERSION}*.backup")
+        )
         self.assertEqual(len(backups), 1)
         with closing(sqlite3.connect(self.db_path)) as connection:
             self.assertEqual(
                 connection.execute("SELECT version FROM schema_version").fetchone()[0],
-                2,
+                LATEST_SCHEMA_VERSION,
             )
             self.assertEqual(connection.execute("SELECT COUNT(*) FROM files").fetchone()[0], 1)
         with closing(sqlite3.connect(backups[0])) as connection:

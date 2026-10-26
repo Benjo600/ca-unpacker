@@ -35,6 +35,20 @@ class OutputFolderTests(unittest.TestCase):
         self.assertTrue(dest.exists())
         self.assertEqual(dest.name, "Jul 2026")
 
+    def test_output_root_recreated_when_folder_disappears(self) -> None:
+        """A recorded folder that vanished must come back, not re-ask setup."""
+        import shutil
+
+        from apps.engine.settings import get_output_root, set_output_root
+
+        chosen = Path(self._tmp.name) / "Bills Output"
+        set_output_root(str(chosen))
+        self.assertTrue(chosen.exists())
+
+        shutil.rmtree(chosen)
+        self.assertEqual(get_output_root(), chosen)
+        self.assertTrue(chosen.exists())
+
     def test_guide_dismissed_persists(self) -> None:
         from apps.engine.settings import is_guide_dismissed, set_guide_dismissed
 

@@ -28,11 +28,31 @@ export async function requireUser(req: Request) {
 
 export async function requireAdmin(req: Request) {
   const { user } = await requireUser(req);
-  const allowed = (Deno.env.get("ADMIN_ALLOWED_EMAILS") ?? "")
+  const email = (user.email ?? "").trim().toLowerCase();
+  if (!email) {
+    throw errorResponse("Forbidden", 403);
+  }
+
+  const fromEnv = (Deno.env.get("ADMIN_ALLOWED_EMAILS") ?? "")
     .split(",")
     .map((e) => e.trim().toLowerCase())
     .filter(Boolean);
-  if (!allowed.includes((user.email ?? "").toLowerCase())) {
+  if (fromEnv.includes(email)) {
+    return user;
+  }
+
+  const admin = serviceClient();
+  const { data, error } = await admin
+    .from("admin_users")
+    .select("email")
+    .ilike("email", email)
+    .maybeSingle();
+
+  if (error) {
+    console.error(error);
+    throw errorResponse("Forbidden", 403);
+  }
+  if (!data) {
     throw errorResponse("Forbidden", 403);
   }
   return user;
