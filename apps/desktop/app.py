@@ -34,6 +34,7 @@ from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
+from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import (
