@@ -186,6 +186,53 @@ SAC_RATES: dict[str, tuple[int, str]] = {
 
 RATES: dict[str, tuple[int, str]] = {**GOODS_RATES, **SAC_RATES}
 
+# Headings whose rate legitimately depends on something we cannot see on the
+# row — apparel and footwear by MRP band, hotels and restaurants by tariff.
+# Both bands are correct, so both are accepted; picking one would accuse a
+# perfectly good invoice on every row from the other band.
+DUAL_RATES: dict[str, tuple[int, ...]] = {
+    "6109": (5, 18),
+    "6110": (5, 18),
+    "6203": (5, 18),
+    "6204": (5, 18),
+    "6205": (5, 18),
+    "6206": (5, 18),
+    "6403": (5, 18),
+    "6404": (5, 18),
+    "996311": (5, 18),
+    "996331": (5, 18),
+    "996335": (5, 18),
+}
+
+
+def _accepted_for(key: str) -> tuple[int, ...] | None:
+    dual = DUAL_RATES.get(key)
+    if dual is not None:
+        return dual
+    entry = RATES.get(key)
+    if entry is not None:
+        return (entry[0],)
+    return None
+
+
+def accepted_rates(hsn: Any) -> tuple[int, ...]:
+    """Every rate that is legitimate for *hsn*, or () when the code is unknown."""
+    try:
+        digits = _digits(hsn)
+    except Exception:
+        return ()
+    if len(digits) < 4:
+        return ()
+    if len(digits) >= 6:
+        exact = _accepted_for(digits[:6])
+        if exact is not None:
+            return exact
+    heading = _accepted_for(digits[:4])
+    if heading is not None:
+        return heading
+    prefix = _prefix_rate(digits[:4])
+    return (prefix,) if prefix is not None else ()
+
 
 def expected_rate(hsn: Any) -> int | None:
     """Return the standard GST rate for *hsn*, or None when the code is unknown.
@@ -213,18 +260,21 @@ def expected_rate(hsn: Any) -> int | None:
 def rate_flags(hsn: Any, charged_rate: Any) -> list[str]:
     """Flag a charged rate that does not match the rate expected for *hsn*.
 
-    Returns ``["hsn_rate_suspect"]`` when the two differ by more than
-    ``TOLERANCE`` percentage points. Unknown codes, unreadable rates and a
-    missing rate all return an empty list. Never raises.
+    Returns ``["hsn_rate_suspect"]`` when the charged rate is more than
+    ``TOLERANCE`` percentage points away from EVERY rate that is legitimate for
+    the code. Codes whose rate depends on value or description accept both
+    bands (see ``DUAL_RATES``), so a correct invoice is never accused. Unknown
+    codes, unreadable rates and a missing rate all return an empty list. Never
+    raises.
     """
     try:
         rate = _number(charged_rate)
-        expected = expected_rate(hsn)
+        accepted = accepted_rates(hsn)
     except Exception:
         return []
-    if rate is None or expected is None:
+    if rate is None or not accepted:
         return []
-    if abs(rate - expected) > TOLERANCE:
+    if all(abs(rate - value) > TOLERANCE for value in accepted):
         return [FLAG]
     return []
 
