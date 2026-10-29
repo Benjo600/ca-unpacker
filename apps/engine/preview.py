@@ -427,7 +427,12 @@ def list_folder_preview_files(folder_path: str | Path, max_files: int = 400) -> 
     _skip = {".git", ".svn", "__pycache__", ".venv", "node_modules"}
 
     for item in sorted(root.rglob("*"), key=lambda p: p.name.lower()):
-        if any(part in _skip or part.startswith(".") for part in item.parts):
+        # Judge hidden/junk parts inside the chosen folder only: the absolute
+        # path may legitimately sit under a dotted folder (e.g. .local).
+        if any(
+            part in _skip or part.startswith(".")
+            for part in item.relative_to(root).parts
+        ):
             continue
         if not item.is_file():
             continue
