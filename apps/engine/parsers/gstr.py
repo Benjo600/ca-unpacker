@@ -5,6 +5,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.engine.validators.gstin import gstin_flags
+from apps.engine.validators.hsn_rates import hsn_rate_flags
 
 _SUP_3B = {
     "osup_det": "Outward taxable (other than zero rated)",
@@ -238,6 +239,9 @@ def _base_row(
     source: str,
     flags: list[str],
 ) -> dict:
+    flags = list(flags)
+    # Advisory only: a rate that does not match the code's usual rate.
+    flags.extend(hsn_rate_flags(hsn, taxable=taxable, tax=_add(_add(igst, cgst), sgst)))
     return {
         "gstin": gstin,
         "trade_name": trade_name,
