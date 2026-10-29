@@ -8,6 +8,7 @@ from apps.engine.ocr import extract_image
 from apps.engine.parsers.bank.money import AMOUNT_RE, DATE_RE, normalize_date, parse_amount
 from apps.engine.pdf_extract import ExtractedPdf, LineBox, extract_pdf
 from apps.engine.validators.gstin import find_gstins, gstin_flags, hsn_flags
+from apps.engine.validators.hsn_rates import hsn_rate_flags
 
 INV_RE = re.compile(
     r"(?:invoice\s*(?:no|number|#)|inv\.?\s*no)\s*[:.\-]?\s*([A-Z0-9][A-Z0-9/\-]{2,})",
@@ -105,6 +106,8 @@ def _build_row(
 
     flags = list(gstin_flags(gstin))
     flags.extend(hsn_flags(hsn))
+    # Advisory only: never blocks the row, just annotates the Flags column.
+    flags.extend(hsn_rate_flags(hsn, taxable=taxable, tax=tax))
     if taxable is not None and tax is not None and total is not None:
         if abs((taxable + tax) - total) > Decimal("1.00"):
             flags.append("invoice_math")

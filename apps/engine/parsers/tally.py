@@ -5,6 +5,7 @@ from pathlib import Path
 from xml.etree import ElementTree as ET
 
 from apps.engine.validators.gstin import gstin_flags
+from apps.engine.validators.hsn_rates import hsn_rate_flags
 
 _PURCHASE = frozenset({"purchase", "purch", "debit note", "debitnote", "dn"})
 _SALES = frozenset({"sales", "sale", "credit note", "creditnote", "cn"})
@@ -83,6 +84,9 @@ def _parse_xml(raw: bytes, source: str) -> list[dict]:
             or _child(voucher, "VCHTAXAMOUNT")
             or _deep(voucher, "TAXAMOUNT")
         )
+        flags = gstin_flags(gstin) if gstin else []
+        # Advisory only: a rate that does not match the code's usual rate.
+        flags.extend(hsn_rate_flags(hsn, taxable=taxable, tax=tax))
         rows.append(
             {
                 "register": _register(vtype),
@@ -96,7 +100,7 @@ def _parse_xml(raw: bytes, source: str) -> list[dict]:
                 "tax": tax,
                 "invoice_value": amount,
                 "hsn": hsn,
-                "flags": gstin_flags(gstin) if gstin else [],
+                "flags": flags,
                 "source": source,
                 "voucher_type": vtype,
                 "voucher_number": voucher_number,
