@@ -6,6 +6,7 @@ from typing import Any
 
 from apps.engine.validators.gstin import gstin_flags
 from apps.engine.validators.hsn_rates import hsn_rate_flags
+from apps.engine.validators.states import is_intra_utgst
 
 _SUP_3B = {
     "osup_det": "Outward taxable (other than zero rated)",
@@ -50,6 +51,7 @@ def _parse_2b(payload: dict, filename: str) -> list[dict]:
                     inv,
                     document_type="B2B",
                     source=f"{filename}#2b.b2b[{pi}].inv[{ii}]",
+                    supplier_gstin=party.get("ctin"),
                 )
             )
     for pi, party in enumerate(_list(docdata.get("cdnr"))):
@@ -60,6 +62,7 @@ def _parse_2b(payload: dict, filename: str) -> list[dict]:
                     note,
                     document_type=_cdn_type(note),
                     source=f"{filename}#2b.cdnr[{pi}].nt[{ii}]",
+                    supplier_gstin=party.get("ctin"),
                 )
             )
     return rows
@@ -67,6 +70,7 @@ def _parse_2b(payload: dict, filename: str) -> list[dict]:
 
 def _parse_1(payload: dict, filename: str) -> list[dict]:
     root = _gstr1_root(payload)
+    filer_gstin = payload.get("gstin") or root.get("gstin")
     rows: list[dict] = []
     for section, dtype in (("b2b", "B2B"), ("b2ba", "B2BA")):
         for pi, party in enumerate(_list(root.get(section))):
@@ -77,6 +81,7 @@ def _parse_1(payload: dict, filename: str) -> list[dict]:
                         inv,
                         document_type=dtype,
                         source=f"{filename}#1.{section}[{pi}].inv[{ii}]",
+                        supplier_gstin=filer_gstin,
                     )
                 )
     for section in ("cdnr", "cdnra"):
@@ -88,6 +93,7 @@ def _parse_1(payload: dict, filename: str) -> list[dict]:
                         note,
                         document_type=_cdn_type(note),
                         source=f"{filename}#1.{section}[{pi}].nt[{ii}]",
+                        supplier_gstin=filer_gstin,
                     )
                 )
     hsn_block = root.get("hsn") if isinstance(root.get("hsn"), dict) else {}
@@ -199,9 +205,20 @@ def _gstr1_root(payload: dict) -> dict:
     return data if isinstance(data, dict) else payload
 
 
-def _invoice_row(party: dict, doc: dict, *, document_type: str, source: str) -> dict:
+def _invoice_row(
+    party: dict,
+    doc: dict,
+    *,
+    document_type: str,
+    source: str,
+    supplier_gstin: Any = None,
+) -> dict:
     gstin = party.get("ctin") or doc.get("ctin")
     taxes = _doc_taxes(doc)
+    intra_ut = is_intra_utgst(supplier_gstin or gstin, doc.get("pos"))
+    flags = gstin_flags(gstin)
+    if intra_ut:
+        flags = flags + ["utgst"]
     return _base_row(
         gstin=gstin,
         trade_name=party.get("trdnm") or party.get("cname") or doc.get("trdnm"),
@@ -217,7 +234,8 @@ def _invoice_row(party: dict, doc: dict, *, document_type: str, source: str) -> 
         document_type=document_type,
         hsn=doc.get("hsn") or doc.get("hsn_sc"),
         source=source,
-        flags=gstin_flags(gstin),
+        flags=flags,
+        intra_ut=intra_ut,
     )
 
 
@@ -238,6 +256,7 @@ def _base_row(
     hsn: Any,
     source: str,
     flags: list[str],
+    intra_ut: bool = False,
 ) -> dict:
     flags = list(flags)
     # Advisory only: a rate that does not match the code's usual rate.
@@ -256,6 +275,10 @@ def _base_row(
         "itc_availability": itc_availability,
         "document_type": document_type,
         "hsn": hsn,
+        # The portal's JSON folds UTGST into the SGST bucket, so the money stays
+        # in "sgst" and only the label changes. Nothing else is renamed.
+        "intra_ut": intra_ut,
+        "second_tax_label": "UTGST" if intra_ut else "SGST",
         "source": source,
         "flags": flags,
         "match_status": "",
