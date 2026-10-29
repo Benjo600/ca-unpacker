@@ -43,6 +43,34 @@ def is_guide_dismissed() -> bool:
     return bool(load_settings().get("guide_dismissed"))
 
 
+def get_snapshot_retention_days() -> int:
+    """How long previous versions of a pack are kept before they are cleared out."""
+    from apps.engine.safety import DEFAULT_RETENTION_DAYS
+
+    raw = load_settings().get("snapshot_retention_days", DEFAULT_RETENTION_DAYS)
+    try:
+        days = int(raw)
+    except (TypeError, ValueError):
+        return DEFAULT_RETENTION_DAYS
+    return max(1, days)
+
+
+def set_snapshot_retention_days(days: int) -> int:
+    from apps.engine.safety import DEFAULT_RETENTION_DAYS
+
+    try:
+        value = int(days)
+    except (TypeError, ValueError) as exc:
+        raise ValueError("Choose how many days to keep previous versions.") from exc
+    if value < 1 or value > 3650:
+        raise ValueError(
+            "Keep previous versions for 1 to 3650 days "
+            f"(the default is {DEFAULT_RETENTION_DAYS})."
+        )
+    save_settings({"snapshot_retention_days": value})
+    return value
+
+
 def set_guide_dismissed(dismissed: bool = True) -> None:
     save_settings({"guide_dismissed": bool(dismissed)})
 

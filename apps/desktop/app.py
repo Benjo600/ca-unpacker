@@ -32,10 +32,12 @@ from apps.engine.license import activate_key, assert_can_ingest, get_license_sta
 from apps.engine.library import get_library_path, init_library, resolve_storage_key
 from apps.engine.settings import (
     get_output_root,
+    get_snapshot_retention_days,
     is_guide_dismissed,
     path_sync_warnings,
     set_guide_dismissed,
     set_output_root,
+    set_snapshot_retention_days,
 )
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
 from apps.engine.pdf_passwords import get_file_password, set_file_password as store_file_password
@@ -43,8 +45,10 @@ from apps.engine.pipeline import (
     get_period_pack,
     get_period_preview,
     get_source_crop as crop_source,
+    list_pack_versions as pack_versions,
     open_pack_folder,
     open_pack_path,
+    restore_pack_version as restore_version,
 )
 from apps.engine.wipe import wipe_all
 
@@ -198,6 +202,7 @@ class DesktopApi:
             "clients": list_clients(),
             "library_path": str(library),
             "output_path": str(output) if output else "",
+            "snapshot_retention_days": get_snapshot_retention_days(),
             "guide_dismissed": is_guide_dismissed(),
             "license": get_license_status(),
             "auth": auth.get_auth_state(),
@@ -271,6 +276,10 @@ class DesktopApi:
             return {"ok": False, "error": "Period was not found."}
         self._current_period_id = period["id"]
         client = get_client(period["client_id"])
+        try:
+            versions = pack_versions(period["id"])
+        except Exception:
+            versions = []
         return {
             "ok": True,
             "client": client,
@@ -278,6 +287,7 @@ class DesktopApi:
             "files": list_period_files(period["id"]),
             "kinds": [{"id": key, "label": KIND_LABELS[key]} for key in KINDS],
             "pack": get_period_pack(period["id"]),
+            "pack_versions": versions,
             "preview": get_period_preview(period["id"], 10),
         }
 
@@ -408,6 +418,26 @@ class DesktopApi:
             return {"ok": False, "error": str(exc)}
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def list_pack_versions(self, period_id: int) -> dict:
+        try:
+            return {"ok": True, "versions": pack_versions(int(period_id))}
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def restore_pack_version(self, period_id: int, snapshot_id: str) -> dict:
+        try:
+            result = restore_version(int(period_id), str(snapshot_id))
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, **result, "pack": get_period_pack(int(period_id))}
+
+    def set_snapshot_retention(self, days: int) -> dict:
+        try:
+            value = set_snapshot_retention_days(days)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "snapshot_retention_days": value}
 
     def set_file_password(self, file_id: int, password: str) -> dict:
         if not str(password or "").strip():

@@ -198,6 +198,15 @@
           <span class="field-helper">Original client files stay untouched in internal database. Extracted workbooks write here.</span>
         </div>
 
+        <div class="terminal-field">
+          <div class="field-label-row">
+            <label for="retention-days">KEEP PREVIOUS VERSIONS FOR</label>
+            <span class="field-tag">DAYS</span>
+          </div>
+          <input id="retention-days" class="terminal-input font-mono" type="number" min="1" max="3650" step="1" value="30" />
+          <span class="field-helper">Every re-run keeps the earlier pack, so a bad run can be undone. Older copies are cleared out after this many days.</span>
+        </div>
+
         <p id="path-warnings" class="path-warn" hidden></p>
         <p id="setup-error" class="error" hidden></p>
 
@@ -486,6 +495,11 @@
                 </div>
               </div>
               <div id="pack-files" class="pack-files-list"></div>
+              <div id="pack-history" class="hidden">
+                <p class="terminal-kicker">PREVIOUS VERSIONS</p>
+                <div id="pack-history-list" class="pack-files-list"></div>
+                <p class="meta-desc">Kept in the app library, outside this client folder. Restoring saves the current pack first.</p>
+              </div>
             </section>
 
             <!-- RECONCILIATION SECTION -->

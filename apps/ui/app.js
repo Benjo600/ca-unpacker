@@ -39,6 +39,8 @@ const reviewPackNoteEl = document.getElementById("review-pack-note");
 const packBlock = document.getElementById("pack-block");
 const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
+const packHistoryEl = document.getElementById("pack-history");
+const packHistoryListEl = document.getElementById("pack-history-list");
 const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
@@ -146,6 +148,7 @@ let lastPreviewFiles = [];
 let packVisible = false;
 let packHasBank = false;
 let packOpenKey = "";
+let packVersions = [];
 let lastPack = null;
 let reconFilter = "all";
 let unlockFile = null;
@@ -1503,6 +1506,10 @@ function showSetup(state) {
   renderLicense(state.license);
   renderQuotaBanner(state.auth || authState);
   if (state.firm && state.firm.name) firmNameEl.value = state.firm.name;
+  const retentionEl = document.getElementById("retention-days");
+  if (retentionEl && state.snapshot_retention_days) {
+    retentionEl.value = String(state.snapshot_retention_days);
+  }
   firmNameEl.focus();
   syncGuide();
 }
@@ -1536,6 +1543,7 @@ async function openPeriod(periodId) {
   dumpTitleEl.textContent = result.period.label;
   dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
   renderFiles(result.files || []);
+  packVersions = result.pack_versions || [];
   renderPack(result.pack);
   renderPreview(result.preview);
   setDumpStatus(window.CAStatusSummary.summarizeFiles(result.files || []));
@@ -1580,6 +1588,7 @@ function renderPack(pack) {
   packBlock.classList.remove("match", "mismatch");
   if (!pack || !pack.exists) {
     packBlock.classList.add("hidden");
+    renderPackHistory();
     updateReviewNote();
     return;
   }
@@ -1641,7 +1650,70 @@ function renderPack(pack) {
     packFilesEl.append(line);
   }
   updateReviewNote();
+  renderPackHistory();
   renderRecon(pack);
+}
+
+function packVersionLabel(version) {
+  const when = version && version.created_at ? new Date(version.created_at) : null;
+  const stamp =
+    when && !Number.isNaN(when.getTime())
+      ? when.toLocaleString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "Earlier version";
+  const reason = String((version && version.reason) || "");
+  const why = reason.startsWith("before-restore") ? "before a restore" : "before a re-run";
+  return `${stamp} · ${why}`;
+}
+
+function renderPackHistory() {
+  if (!packHistoryEl || !packHistoryListEl) return;
+  packHistoryListEl.innerHTML = "";
+  if (!packVersions.length) {
+    packHistoryEl.classList.add("hidden");
+    return;
+  }
+  packHistoryEl.classList.remove("hidden");
+  for (const version of packVersions) {
+    const line = document.createElement("div");
+    line.className = "file-flag";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "text-btn";
+    btn.textContent = packVersionLabel(version);
+    let armed = false;
+    let disarmTimer = null;
+    btn.addEventListener("click", async () => {
+      if (!armed) {
+        armed = true;
+        btn.textContent = "Click again to put this version back";
+        disarmTimer = setTimeout(() => {
+          armed = false;
+          btn.textContent = packVersionLabel(version);
+        }, 6000);
+        return;
+      }
+      armed = false;
+      if (disarmTimer) clearTimeout(disarmTimer);
+      btn.disabled = true;
+      btn.textContent = "Putting the earlier pack back…";
+      const result = await window.pywebview.api.restore_pack_version(currentPeriod.id, version.id);
+      if (!result.ok) {
+        btn.disabled = false;
+        btn.textContent = packVersionLabel(version);
+        showError(dumpErrorEl, result.error);
+        return;
+      }
+      await openPeriod(currentPeriod.id);
+    });
+    line.append(btn);
+    packHistoryListEl.append(line);
+  }
 }
 
 function reconStatusPill(status) {
@@ -2611,6 +2683,14 @@ saveFirmBtn.addEventListener("click", async () => {
     showError(setupErrorEl, savedOut.error);
     return;
   }
+  const retentionEl = document.getElementById("retention-days");
+  if (retentionEl && retentionEl.value && window.pywebview.api.set_snapshot_retention) {
+    const savedRetention = await window.pywebview.api.set_snapshot_retention(retentionEl.value);
+    if (savedRetention && savedRetention.ok === false) {
+      showError(setupErrorEl, savedRetention.error);
+      return;
+    }
+  }
   const result = await window.pywebview.api.save_firm(firmNameEl.value);
   if (!result.ok) {
     showError(setupErrorEl, result.error);
@@ -3321,12 +3401,15 @@ if (!window.pywebview) {
       },
       get_period_desk: async (pid) => {
         const p = mockPeriods.find(x => x.id === pid) || mockPeriods[0];
-        return { ok: true, period: p, files: mockFiles, pack: null };
+        return { ok: true, period: p, files: mockFiles, pack: null, pack_versions: [] };
       },
       start_dump: async (pid, paths) => ({ ok: true, job_id: "demo-job-1" }),
       get_job: async (jid) => ({ ok: true, job: { id: jid, status: "completed", progress: 100 } }),
       open_bank_pack: async (pid, key) => ({ ok: true }),
       open_pack_folder: async (pid) => ({ ok: true }),
+      list_pack_versions: async (pid) => ({ ok: true, versions: [] }),
+      restore_pack_version: async (pid, sid) => ({ ok: true }),
+      set_snapshot_retention: async (days) => ({ ok: true, snapshot_retention_days: days }),
       activate_license: async (key) => ({ ok: true, license: { plan: "Pro", tier: "pro", active: true } }),
       wipe_and_restart: async () => { location.reload(); return { ok: true }; },
       set_guide_dismissed: async (val) => { mockState.guide_dismissed = val; return { ok: true }; },
