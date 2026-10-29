@@ -32,6 +32,8 @@ MONEY_KEYS = {
     "aging_91_120",
     "aging_over_120",
 }
+# Defect markers only. Informational flags such as "utgst" (an intra-UT supply
+# whose SGST column really holds UTGST) must never paint a row red.
 FLAG_MARKERS = (
     "gstin_checksum",
     "hsn_length",
