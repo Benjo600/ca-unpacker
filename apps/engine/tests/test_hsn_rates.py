@@ -103,6 +103,20 @@ class HsnRateFlagTests(unittest.TestCase):
         self.assertEqual(rate_flags("998314", 12), [FLAG])
         self.assertEqual(rate_flags("1006", "18%"), [FLAG])
 
+    def test_dual_band_codes_accept_either_rate(self) -> None:
+        """Apparel, footwear, hotels and restaurants price by MRP / tariff band.
+
+        Both bands are legitimate, so neither may be flagged — a pack that
+        accuses a correct 18% shirt is worse than no check at all.
+        """
+        from apps.engine.validators.hsn_rates import accepted_rates, rate_flags
+
+        for code in ("6109", "6403", "6205", "996331"):
+            self.assertEqual(sorted(accepted_rates(code)), [5, 18], code)
+            self.assertEqual(rate_flags(code, 5), [], code)
+            self.assertEqual(rate_flags(code, 18), [], code)
+            self.assertEqual(rate_flags(code, 12), ["hsn_rate_suspect"], code)
+
     def test_unknown_code_or_missing_rate_is_not_flagged(self) -> None:
         from apps.engine.validators.hsn_rates import rate_flags
 
