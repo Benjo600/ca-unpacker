@@ -45,6 +45,13 @@ SUMMARY_MONEY_COLS = (2, 3, 4, 5, 6)
 CDN_TYPES = {"CDN", "CDNR", "CDNA", "CDNRA"}
 MATCH_NOTE = "Match columns are empty until reconciliation."
 MATCH_FILLED_NOTE = "Match columns filled from the master reconciliation grid."
+# "utgst" is a classification, not a defect, so it never paints a row red.
+INFORMATIONAL_FLAGS = {"utgst"}
+UTGST_NOTE = (
+    "SGST column holds UTGST for intra-UT rows (supplier and place of supply in the "
+    "same Union Territory without a legislature): {count} row(s). The portal's JSON "
+    "folds UTGST into the SGST bucket, so the amount is unchanged."
+)
 
 
 def write_gstr_2b(path: Path, rows: list[dict], meta: dict | None = None) -> Path:
@@ -129,10 +136,11 @@ def _write_cover(sheet, title: str, rows: list[dict], meta: dict | None, counts:
     for label, value in counts:
         sheet.append([label, value])
     last_pair = sheet.max_row
-    if note:
-        sheet.append([])
-        sheet.append([note])
-        style_note(sheet, f"A{sheet.max_row}")
+    for text in (note, _utgst_note(rows)):
+        if text:
+            sheet.append([])
+            sheet.append([text])
+            style_note(sheet, f"A{sheet.max_row}")
     style_count_pairs(sheet, first_pair, last_pair)
     sheet.column_dimensions["A"].width = 44
     sheet.column_dimensions["B"].width = 28
@@ -168,7 +176,7 @@ def _write_hsn_sheet(sheet, rows: list[dict]) -> None:
                 _money(row.get("cgst")),
                 _money(row.get("sgst")),
                 _money(row.get("cess")),
-                _flag_text(row.get("flags")),
+                _flag_text(_flag_items(row)),
                 row.get("source"),
             ]
         )
@@ -248,7 +256,7 @@ def _b2b_values(row: dict, doc_type: str) -> list:
         _money(row.get("cess")),
         row.get("itc_availability") if row.get("itc_availability") is not None else row.get("itc"),
         doc_type,
-        _flag_text(row.get("flags")),
+        _flag_text(_flag_items(row)),
         row.get("source"),
         row.get("match_status") or None,
         row.get("books_ref") or None,
@@ -313,12 +321,25 @@ def _is_cdn(row: dict) -> bool:
 
 
 def _is_flagged(row: dict) -> bool:
+    return any(item.lower() not in INFORMATIONAL_FLAGS for item in _flag_items(row))
+
+
+def _flag_items(row: dict) -> list[str]:
     flags = row.get("flags")
     if flags is None or flags == "":
-        return False
-    if isinstance(flags, str):
-        return bool(flags.strip())
-    return any(str(item).strip() for item in flags)
+        items: list[str] = []
+    elif isinstance(flags, str):
+        items = [part.strip() for part in flags.split(",") if part.strip()]
+    else:
+        items = [str(item).strip() for item in flags if str(item).strip()]
+    if row.get("intra_ut") and not any(item.lower() == "utgst" for item in items):
+        items = items + ["utgst"]
+    return items
+
+
+def _utgst_note(rows: list[dict]) -> str | None:
+    count = sum(1 for row in rows if row.get("intra_ut"))
+    return UTGST_NOTE.format(count=count) if count else None
 
 
 def _flag_text(value) -> str:

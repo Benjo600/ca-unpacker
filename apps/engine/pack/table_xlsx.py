@@ -15,6 +15,8 @@ from apps.engine.pack.style import (
 )
 
 MONEY_KEYS = {"taxable", "tax", "invoice_value", "taxable_value", "amount", "rate"}
+# Defect markers only. Informational flags such as "utgst" (an intra-UT supply
+# whose SGST column really holds UTGST) must never paint a row red.
 FLAG_MARKERS = ("gstin_checksum", "hsn_length", "invoice_math")
 
 
