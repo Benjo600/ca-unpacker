@@ -8,6 +8,7 @@ import traceback
 from pathlib import Path
 
 from apps.engine import decisions
+from apps.engine import safety
 from apps.engine.currency import apply_override, currency_label
 from apps.engine.db import (
     Client,
@@ -523,230 +524,245 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         if dest_dir is None:  # pragma: no cover - the gate blocks this case
             raise OSError(destination_error or "The output folder is not available.")
 
-        outputs: list[dict] = []
-        recon_result = None
-        if gstr_2b and purchase_rows:
-            bank_txns = _recon_bank_rows(bank_files)
-            tolerance_days, tolerance_amount = effective_tolerances(period_id)
-            recon_result = reconcile(
-                purchase_rows,
-                gstr_2b,
-                bank_txns,
-                date_tolerance_days=tolerance_days,
-                amount_tolerance=tolerance_amount,
-            )
-            _apply_gstr_2b_matches(gstr_2b, recon_result)
-            # Decisions are remembered per row so a re-run of the month keeps
-            # them. Only remember new keys; never delete the saved rows below.
-            fresh = decisions.remember(
-                session, period_id, decisions.row_keys(recon_result["rows"])
-            )
-            session.flush()
-            saved = decisions.load(session, period_id)
-            recon_result["decisions"] = decisions.apply(
-                recon_result["rows"], saved, fresh
-            )
-
-        if bank_files:
-            dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
-            write_bank_workbook(dest, bank_files)
-            all_match = all(item["check"].get("status") == "match" for item in bank_files)
-            if any(item["check"].get("status") == "mismatch" for item in bank_files):
-                bank_pack_status = "mismatch"
-            elif any(item["check"].get("status") == "unverified" for item in bank_files):
-                bank_pack_status = "unverified"
-            else:
-                bank_pack_status = "match" if all_match else "mismatch"
-            outputs.append(
-                {
-                    "key": "bank",
-                    "label": "Bank_Statement_Cleaned.xlsx",
-                    "path": str(dest),
-                    "rows": sum(item["check"]["row_count"] for item in bank_files),
-                    "status": bank_pack_status,
-                    "files": [
-                        {
-                            "filename": item["meta"]["filename"],
-                            "row_count": item["check"]["row_count"],
-                            "status": item["check"]["status"],
-                            "opening_balance": item["check"].get("opening_balance"),
-                            "stated_closing": item["check"].get("stated_closing"),
-                            "computed_closing": item["check"].get("computed_closing"),
-                            "input_type": item["meta"].get("input_type"),
-                            "parse_strategy": item["meta"].get("parse_strategy"),
-                            "duplicate_count": item["meta"].get("duplicate_count") or 0,
-                            "inferred_count": item["meta"].get("inferred_count") or 0,
-                            **_currency_summary(item.get("currency")),
-                        }
-                        for item in bank_files
-                    ],
-                }
-            )
-
-        if purchase_rows and line_item_rows:
-            dest = dest_dir / "Purchase_Register_Extracted.xlsx"
-            write_purchase_workbook(dest, purchase_rows, line_item_rows, PURCHASE_COLS, LINE_COLS)
-            outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
-        elif purchase_rows:
-            dest = dest_dir / "Purchase_Register_Extracted.xlsx"
-            write_table(dest, "Purchase register", purchase_rows, PURCHASE_COLS)
-            outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
-
-        review_rows = _review_rows(files)
-        if review_rows:
-            dest = dest_dir / "Needs_Review.xlsx"
-            write_table(dest, "Needs review", review_rows, REVIEW_COLS)
-            outputs.append(_simple_out("needs_review", dest.name, dest, len(review_rows)))
-
-        if sales_rows:
-            dest = dest_dir / "Sales_Register_Extracted.xlsx"
-            write_table(dest, "Sales register", sales_rows, SALES_COLS)
-            outputs.append(_simple_out("sales", dest.name, dest, len(sales_rows)))
-
-        gstr_meta = {
-            "gstin": client.gstin if client else None,
-            "period": period.label if period else None,
-        }
-        if gstr_2b:
-            dest = dest_dir / "GSTR_2B_Formatted.xlsx"
-            write_gstr_2b(dest, gstr_2b, gstr_meta)
-            outputs.append(_simple_out("gstr_2b", dest.name, dest, len(gstr_2b)))
-
-        if gstr_1:
-            dest = dest_dir / "GSTR_1_Formatted.xlsx"
-            write_gstr_1(dest, gstr_1, gstr_meta)
-            outputs.append(_simple_out("gstr_1", dest.name, dest, len(gstr_1)))
-
-        if gstr_3b:
-            dest = dest_dir / "GSTR_3B_Formatted.xlsx"
-            write_gstr_3b(dest, gstr_3b, gstr_meta)
-            outputs.append(_simple_out("gstr_3b", dest.name, dest, len(gstr_3b)))
+        # A re-run overwrites this folder in place, so keep the version the CA
+        # already had before a single Excel is touched.
+        try:
+            previous = safety.snapshot(dest_dir, reason="before-rewrite")
+        except OSError as exc:
+            raise RuntimeError(
+                "Packing stopped before it started: this PC could not keep a copy of the "
+                "current pack, so nothing in the folder was touched."
+            ) from exc
 
         try:
-            gstr_json_summary = _write_gstr_upload_files(dest_dir, outputs, sales_rows, gstr_meta)
-        except Exception:
-            # The Excels are the primary product; never lose the pack over the upload files.
-            gstr_json_summary = {
-                "status": "skipped",
-                "reason": "The GSTR upload files could not be prepared for this pack.",
+            outputs: list[dict] = []
+            recon_result = None
+            if gstr_2b and purchase_rows:
+                bank_txns = _recon_bank_rows(bank_files)
+                tolerance_days, tolerance_amount = effective_tolerances(period_id)
+                recon_result = reconcile(
+                    purchase_rows,
+                    gstr_2b,
+                    bank_txns,
+                    date_tolerance_days=tolerance_days,
+                    amount_tolerance=tolerance_amount,
+                )
+                _apply_gstr_2b_matches(gstr_2b, recon_result)
+                # Decisions are remembered per row so a re-run of the month keeps
+                # them. Only remember new keys; never delete the saved rows below.
+                fresh = decisions.remember(
+                    session, period_id, decisions.row_keys(recon_result["rows"])
+                )
+                session.flush()
+                saved = decisions.load(session, period_id)
+                recon_result["decisions"] = decisions.apply(
+                    recon_result["rows"], saved, fresh
+                )
+
+            if bank_files:
+                dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
+                write_bank_workbook(dest, bank_files)
+                all_match = all(item["check"].get("status") == "match" for item in bank_files)
+                if any(item["check"].get("status") == "mismatch" for item in bank_files):
+                    bank_pack_status = "mismatch"
+                elif any(item["check"].get("status") == "unverified" for item in bank_files):
+                    bank_pack_status = "unverified"
+                else:
+                    bank_pack_status = "match" if all_match else "mismatch"
+                outputs.append(
+                    {
+                        "key": "bank",
+                        "label": "Bank_Statement_Cleaned.xlsx",
+                        "path": str(dest),
+                        "rows": sum(item["check"]["row_count"] for item in bank_files),
+                        "status": bank_pack_status,
+                        "files": [
+                            {
+                                "filename": item["meta"]["filename"],
+                                "row_count": item["check"]["row_count"],
+                                "status": item["check"]["status"],
+                                "opening_balance": item["check"].get("opening_balance"),
+                                "stated_closing": item["check"].get("stated_closing"),
+                                "computed_closing": item["check"].get("computed_closing"),
+                                "input_type": item["meta"].get("input_type"),
+                                "parse_strategy": item["meta"].get("parse_strategy"),
+                                "duplicate_count": item["meta"].get("duplicate_count") or 0,
+                                "inferred_count": item["meta"].get("inferred_count") or 0,
+                                **_currency_summary(item.get("currency")),
+                            }
+                            for item in bank_files
+                        ],
+                    }
+                )
+
+            if purchase_rows and line_item_rows:
+                dest = dest_dir / "Purchase_Register_Extracted.xlsx"
+                write_purchase_workbook(dest, purchase_rows, line_item_rows, PURCHASE_COLS, LINE_COLS)
+                outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
+            elif purchase_rows:
+                dest = dest_dir / "Purchase_Register_Extracted.xlsx"
+                write_table(dest, "Purchase register", purchase_rows, PURCHASE_COLS)
+                outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
+
+            review_rows = _review_rows(files)
+            if review_rows:
+                dest = dest_dir / "Needs_Review.xlsx"
+                write_table(dest, "Needs review", review_rows, REVIEW_COLS)
+                outputs.append(_simple_out("needs_review", dest.name, dest, len(review_rows)))
+
+            if sales_rows:
+                dest = dest_dir / "Sales_Register_Extracted.xlsx"
+                write_table(dest, "Sales register", sales_rows, SALES_COLS)
+                outputs.append(_simple_out("sales", dest.name, dest, len(sales_rows)))
+
+            gstr_meta = {
+                "gstin": client.gstin if client else None,
+                "period": period.label if period else None,
             }
+            if gstr_2b:
+                dest = dest_dir / "GSTR_2B_Formatted.xlsx"
+                write_gstr_2b(dest, gstr_2b, gstr_meta)
+                outputs.append(_simple_out("gstr_2b", dest.name, dest, len(gstr_2b)))
 
-        if books_rows:
-            dest = dest_dir / "Books_Register_Extracted.xlsx"
-            write_table(dest, "Books", books_rows, BOOKS_COLS)
-            outputs.append(_simple_out("books", dest.name, dest, len(books_rows)))
+            if gstr_1:
+                dest = dest_dir / "GSTR_1_Formatted.xlsx"
+                write_gstr_1(dest, gstr_1, gstr_meta)
+                outputs.append(_simple_out("gstr_1", dest.name, dest, len(gstr_1)))
 
-        if sap_rows:
-            dest = dest_dir / "SAP_Reports_Extracted.xlsx"
-            write_table(dest, "SAP reports", sap_rows, SAP_COLS)
-            outputs.append(_simple_out("sap", dest.name, dest, len(sap_rows)))
+            if gstr_3b:
+                dest = dest_dir / "GSTR_3B_Formatted.xlsx"
+                write_gstr_3b(dest, gstr_3b, gstr_meta)
+                outputs.append(_simple_out("gstr_3b", dest.name, dest, len(gstr_3b)))
 
-        if recon_result is not None:
-            dest = dest_dir / "Master_Reconciliation_Grid.xlsx"
-            write_master_grid(dest, recon_result)
-            outputs.append(
-                _simple_out("master", dest.name, dest, len(recon_result.get("rows") or []))
+            try:
+                gstr_json_summary = _write_gstr_upload_files(dest_dir, outputs, sales_rows, gstr_meta)
+            except Exception:
+                # The Excels are the primary product; never lose the pack over the upload files.
+                gstr_json_summary = {
+                    "status": "skipped",
+                    "reason": "The GSTR upload files could not be prepared for this pack.",
+                }
+
+            if books_rows:
+                dest = dest_dir / "Books_Register_Extracted.xlsx"
+                write_table(dest, "Books", books_rows, BOOKS_COLS)
+                outputs.append(_simple_out("books", dest.name, dest, len(books_rows)))
+
+            if sap_rows:
+                dest = dest_dir / "SAP_Reports_Extracted.xlsx"
+                write_table(dest, "SAP reports", sap_rows, SAP_COLS)
+                outputs.append(_simple_out("sap", dest.name, dest, len(sap_rows)))
+
+            if recon_result is not None:
+                dest = dest_dir / "Master_Reconciliation_Grid.xlsx"
+                write_master_grid(dest, recon_result)
+                outputs.append(
+                    _simple_out("master", dest.name, dest, len(recon_result.get("rows") or []))
+                )
+
+            dest = dest_dir / "Preflight_Report.xlsx"
+            write_preflight_report(dest, report)
+            outputs.append(_simple_out("preflight", dest.name, dest, len(report.issues)))
+
+            # The preflight report is a finding list, so its rows never inflate the
+            # data row count the pack reports.
+            total_rows = sum(item["rows"] for item in outputs if item["key"] != "preflight")
+            bank_status = next((item["status"] for item in outputs if item["key"] == "bank"), None)
+
+            treatment = None
+            file_review = None
+            if client is not None and outputs:
+                resolved = resolve_profile(client)
+                if resolved.get("is_set"):
+                    bank_rows_all: list[dict] = []
+                    for item in bank_files:
+                        bank_rows_all.extend(item.get("rows") or [])
+                    treatment = evaluate_treatment(
+                        profile=resolved,
+                        bank_rows=bank_rows_all,
+                        purchase_rows=purchase_rows,
+                        sales_rows=sales_rows,
+                        books_rows=books_rows,
+                        line_item_rows=line_item_rows,
+                        gstr_1_rows=gstr_1,
+                    )
+                    dest = dest_dir / "Treatment_Review.xlsx"
+                    write_treatment_workbook(dest, treatment)
+                    outputs.append(
+                        _simple_out("treatment", dest.name, dest, len(treatment["flags"]))
+                    )
+
+                    file_review = evaluate_file_review(
+                        profile=resolved,
+                        files=files,
+                        bank_rows=bank_rows_all,
+                        purchase_rows=purchase_rows,
+                        sales_rows=sales_rows,
+                        books_rows=books_rows,
+                        gstr_1_rows=gstr_1,
+                        gstr_2b_rows=gstr_2b,
+                        gstr_3b_rows=gstr_3b,
+                        recon_rows=(recon_result or {}).get("rows") if recon_result else None,
+                        treatment_flags=treatment["flags"],
+                    )
+                    dest = dest_dir / "File_Review.xlsx"
+                    write_file_review_workbook(dest, file_review)
+                    outputs.append(
+                        _simple_out("file_review", dest.name, dest, len(file_review["checks"]))
+                    )
+
+            summary = {
+                "outputs": outputs,
+                "total_rows": total_rows,
+                "folder": str(dest_dir),
+                "preflight": report.to_dict(),
+            }
+            summary["gstr_json"] = gstr_json_summary
+            if recon_result is not None:
+                summary["recon"] = {
+                    "counts": recon_result.get("counts") or {},
+                    "totals": recon_result.get("totals") or {},
+                    "tolerances": {
+                        "days": tolerance_days,
+                        "amount": tolerance_amount,
+                    },
+                    "rows": recon_result.get("rows") or [],
+                    "decisions": recon_result.get("decisions") or {},
+                }
+            elif gstr_2b or purchase_rows:
+                summary["recon_missing"] = "no_purchase_rows" if gstr_2b else "no_gstr_2b"
+            if treatment is not None:
+                summary["treatment"] = treatment
+            if file_review is not None:
+                summary["file_review"] = file_review
+            (dest_dir / "pack_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
+
+            session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
+            for spec in pending_extracted:
+                session.add(ExtractedRow(**spec))
+
+            session.query(DataPack).filter(DataPack.period_id == period_id).delete()
+            if not outputs:
+                session.commit()
+                return None
+
+            pack = DataPack(
+                period_id=period_id,
+                job_id=job_id,
+                bank_xlsx_key=str(dest_dir / "pack_summary.json"),
+                balance_status=bank_status,
+                row_count=total_rows,
             )
-
-        dest = dest_dir / "Preflight_Report.xlsx"
-        write_preflight_report(dest, report)
-        outputs.append(_simple_out("preflight", dest.name, dest, len(report.issues)))
-
-        # The preflight report is a finding list, so its rows never inflate the
-        # data row count the pack reports.
-        total_rows = sum(item["rows"] for item in outputs if item["key"] != "preflight")
-        bank_status = next((item["status"] for item in outputs if item["key"] == "bank"), None)
-
-        treatment = None
-        file_review = None
-        if client is not None and outputs:
-            resolved = resolve_profile(client)
-            if resolved.get("is_set"):
-                bank_rows_all: list[dict] = []
-                for item in bank_files:
-                    bank_rows_all.extend(item.get("rows") or [])
-                treatment = evaluate_treatment(
-                    profile=resolved,
-                    bank_rows=bank_rows_all,
-                    purchase_rows=purchase_rows,
-                    sales_rows=sales_rows,
-                    books_rows=books_rows,
-                    line_item_rows=line_item_rows,
-                    gstr_1_rows=gstr_1,
-                )
-                dest = dest_dir / "Treatment_Review.xlsx"
-                write_treatment_workbook(dest, treatment)
-                outputs.append(
-                    _simple_out("treatment", dest.name, dest, len(treatment["flags"]))
-                )
-
-                file_review = evaluate_file_review(
-                    profile=resolved,
-                    files=files,
-                    bank_rows=bank_rows_all,
-                    purchase_rows=purchase_rows,
-                    sales_rows=sales_rows,
-                    books_rows=books_rows,
-                    gstr_1_rows=gstr_1,
-                    gstr_2b_rows=gstr_2b,
-                    gstr_3b_rows=gstr_3b,
-                    recon_rows=(recon_result or {}).get("rows") if recon_result else None,
-                    treatment_flags=treatment["flags"],
-                )
-                dest = dest_dir / "File_Review.xlsx"
-                write_file_review_workbook(dest, file_review)
-                outputs.append(
-                    _simple_out("file_review", dest.name, dest, len(file_review["checks"]))
-                )
-
-        summary = {
-            "outputs": outputs,
-            "total_rows": total_rows,
-            "folder": str(dest_dir),
-            "preflight": report.to_dict(),
-        }
-        summary["gstr_json"] = gstr_json_summary
-        if recon_result is not None:
-            summary["recon"] = {
-                "counts": recon_result.get("counts") or {},
-                "totals": recon_result.get("totals") or {},
-                "tolerances": {
-                    "days": tolerance_days,
-                    "amount": tolerance_amount,
-                },
-                "rows": recon_result.get("rows") or [],
-                "decisions": recon_result.get("decisions") or {},
-            }
-        elif gstr_2b or purchase_rows:
-            summary["recon_missing"] = "no_purchase_rows" if gstr_2b else "no_gstr_2b"
-        if treatment is not None:
-            summary["treatment"] = treatment
-        if file_review is not None:
-            summary["file_review"] = file_review
-        (dest_dir / "pack_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
-
-        session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
-        for spec in pending_extracted:
-            session.add(ExtractedRow(**spec))
-
-        session.query(DataPack).filter(DataPack.period_id == period_id).delete()
-        if not outputs:
+            session.add(pack)
             session.commit()
-            return None
+            session.refresh(pack)
+            return _attach_preflight(
+                pack_dict(pack, dest_dir / "pack_summary.json", summary), summary, report
+            )
+        except Exception as exc:
+            session.rollback()
+            raise RuntimeError(_recover_pack_folder(previous, dest_dir)) from exc
 
-        pack = DataPack(
-            period_id=period_id,
-            job_id=job_id,
-            bank_xlsx_key=str(dest_dir / "pack_summary.json"),
-            balance_status=bank_status,
-            row_count=total_rows,
-        )
-        session.add(pack)
-        session.commit()
-        session.refresh(pack)
-        return _attach_preflight(
-            pack_dict(pack, dest_dir / "pack_summary.json", summary), summary, report
-        )
     finally:
         session.close()
 
@@ -1275,6 +1291,56 @@ def get_period_pack(period_id: int) -> dict | None:
         return _attach_preflight(payload, summary, report)
     finally:
         session.close()
+
+
+def _recover_pack_folder(previous: dict | None, dest_dir: Path) -> str:
+    """Undo a half-finished pack run and return the sentence the UI should show."""
+    if previous is not None:
+        try:
+            safety.restore_snapshot(previous["id"], dest_dir, protect_current=False)
+        except (OSError, ValueError):
+            return (
+                "Packing stopped before it finished, and the earlier pack could not be put "
+                "back automatically. It is still saved under previous versions."
+            )
+        return (
+            "Packing stopped before it finished. The earlier pack in this folder was put "
+            "back unchanged."
+        )
+    try:
+        safety.trash(dest_dir, reason="failed-run")
+    except (OSError, ValueError):
+        pass
+    return (
+        "Packing stopped before it finished. The half-written files were moved aside, so no "
+        "partial pack is left in the output folder."
+    )
+
+
+def _period_output_folder(period_id: int) -> Path:
+    session = get_session()
+    try:
+        period = session.get(Period, period_id)
+        client = session.get(Client, period.client_id) if period else None
+        return period_output_dir(
+            client.name if client else "Client",
+            period.label if period else f"period-{period_id}",
+        )
+    finally:
+        session.close()
+
+
+def list_pack_versions(period_id: int) -> list[dict]:
+    """Previous versions of this period's pack folder, newest first."""
+    return safety.list_snapshots(target=_period_output_folder(period_id))
+
+
+def restore_pack_version(period_id: int, snapshot_id: str) -> dict:
+    """Roll this period's pack folder back to a previous version, safely."""
+    dest_dir = _period_output_folder(period_id)
+    result = safety.restore_snapshot(snapshot_id, dest_dir)
+    result["versions"] = safety.list_snapshots(target=dest_dir)
+    return result
 
 
 def get_period_preview(period_id: int, limit: int = 8) -> dict:

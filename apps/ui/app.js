@@ -56,6 +56,8 @@ const reviewPackNoteEl = document.getElementById("review-pack-note");
 const packBlock = document.getElementById("pack-block");
 const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
+const packHistoryEl = document.getElementById("pack-history");
+const packHistoryListEl = document.getElementById("pack-history-list");
 const treatmentBlock = document.getElementById("treatment-block");
 const treatmentMetaEl = document.getElementById("treatment-meta");
 const treatmentCountEl = document.getElementById("treatment-count");
@@ -170,6 +172,7 @@ const authNoticeEl = document.getElementById("auth-notice");
 
 let currentClient = null;
 let currentPeriod = null;
+let packVersions = [];
 let kindOptions = [];
 let currencyOptions = [];
 let pollTimer = null;
@@ -1741,6 +1744,7 @@ async function openPeriod(periodId) {
   }
   currentPeriod = result.period;
   if (result.client) currentClient = result.client;
+  packVersions = result.pack_versions || [];
   kindOptions = result.kinds || [];
   currencyOptions = result.currencies || [];
   dumpTitleEl.textContent = result.period.label;
@@ -1902,6 +1906,7 @@ function renderPack(pack) {
     packFilesEl.append(line);
   }
   updateReviewNote();
+  renderPackHistory();
   renderRecon(pack);
 }
 
@@ -1926,6 +1931,71 @@ function reconStatusPill(status) {
   else chip.classList.add("mismatch");
   chip.textContent = window.CAReconSummary.reconStatusLabel(status);
   return chip;
+}
+
+function packVersionLabel(version) {
+  const when = version && version.created_at ? new Date(version.created_at) : null;
+  const stamp =
+    when && !Number.isNaN(when.getTime())
+      ? when.toLocaleString("en-IN", {
+          day: "2-digit",
+          month: "short",
+          year: "numeric",
+          hour: "2-digit",
+          minute: "2-digit",
+        })
+      : "Earlier version";
+  const reason = String((version && version.reason) || "");
+  const why = reason.startsWith("before-restore") ? "before a restore" : "before a re-run";
+  return `${stamp} — ${why}`;
+}
+
+function renderPackHistory() {
+  if (!packHistoryEl || !packHistoryListEl) return;
+  packHistoryListEl.innerHTML = "";
+  if (!packVersions.length) {
+    packHistoryEl.classList.add("hidden");
+    return;
+  }
+  packHistoryEl.classList.remove("hidden");
+  for (const version of packVersions) {
+    const line = document.createElement("div");
+    line.className = "file-flag";
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "text-btn";
+    btn.textContent = packVersionLabel(version);
+    let armed = false;
+    let disarmTimer = null;
+    btn.addEventListener("click", async () => {
+      if (!armed) {
+        armed = true;
+        btn.textContent = "Click again to put this version back";
+        disarmTimer = setTimeout(() => {
+          armed = false;
+          btn.textContent = packVersionLabel(version);
+        }, 6000);
+        return;
+      }
+      armed = false;
+      if (disarmTimer) clearTimeout(disarmTimer);
+      btn.disabled = true;
+      btn.textContent = "Putting the earlier pack back.";
+      const result = await window.pywebview.api.restore_pack_version(
+        currentPeriod.id,
+        version.id
+      );
+      if (!result.ok) {
+        btn.disabled = false;
+        btn.textContent = packVersionLabel(version);
+        showError(dumpErrorEl, result.error);
+        return;
+      }
+      await openPeriod(currentPeriod.id);
+    });
+    line.append(btn);
+    packHistoryListEl.append(line);
+  }
 }
 
 function renderRecon(pack) {

@@ -83,12 +83,14 @@ from apps.engine import decisions
 from apps.engine.recon_exports import write_audit_summary, write_exceptions_workbook
 from apps.engine.settings import (
     get_output_root,
+    get_snapshot_retention_days,
     get_ui_location,
     is_guide_dismissed,
     path_sync_warnings,
     save_ui_location,
     set_guide_dismissed,
     set_output_root,
+    set_snapshot_retention_days,
 )
 from apps.engine.periods import (
     create_period,
@@ -107,8 +109,10 @@ from apps.engine.pipeline import (
     get_period_pack,
     get_period_preview,
     get_source_crop as crop_source,
+    list_pack_versions as pack_versions,
     open_pack_folder,
     open_pack_path,
+    restore_pack_version as restore_version,
 )
 from apps.engine.preview import preview_file as build_preview, source_file_path
 from apps.engine.wipe import wipe_all
@@ -711,6 +715,7 @@ class DesktopApi:
             "clients": list_clients(),
             "library_path": str(library),
             "output_path": str(output) if output else "",
+            "snapshot_retention_days": get_snapshot_retention_days(),
             "guide_dismissed": is_guide_dismissed(),
             "license": get_license_status(),
             "auth": auth.get_auth_state(),
@@ -1145,6 +1150,10 @@ class DesktopApi:
             return {"ok": False, "error": "Period was not found."}
         self._current_period_id = period["id"]
         client = get_client(period["client_id"])
+        try:
+            versions = pack_versions(period["id"])
+        except Exception:
+            versions = []
         return {
             "ok": True,
             "client": client,
@@ -1153,6 +1162,7 @@ class DesktopApi:
             "kinds": [{"id": key, "label": KIND_LABELS[key]} for key in KINDS],
             "currencies": currency_options(),
             "pack": get_period_pack(period["id"]),
+            "pack_versions": versions,
             "preview": get_period_preview(period["id"], 10),
         }
 
@@ -1409,6 +1419,25 @@ class DesktopApi:
         except OSError:
             pass
         return {"ok": True, "path": str(dest)}
+    def list_pack_versions(self, period_id: int) -> dict:
+        try:
+            return {"ok": True, "versions": pack_versions(int(period_id))}
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def restore_pack_version(self, period_id: int, snapshot_id: str) -> dict:
+        try:
+            result = restore_version(int(period_id), str(snapshot_id))
+        except (OSError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, **result, "pack": get_period_pack(int(period_id))}
+
+    def set_snapshot_retention(self, days: int) -> dict:
+        try:
+            value = set_snapshot_retention_days(days)
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "snapshot_retention_days": value}
 
     def set_file_password(self, file_id: int, password: str) -> dict:
         if not str(password or "").strip():
