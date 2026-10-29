@@ -2,7 +2,15 @@ from __future__ import annotations
 
 from pathlib import Path
 
-from apps.engine.db import Client, ExtractedRow, Job, Period, StoredFile, get_session
+from apps.engine.db import (
+    Client,
+    DataPack,
+    ExtractedRow,
+    Job,
+    Period,
+    StoredFile,
+    get_session,
+)
 from apps.engine.dump import reparse_period
 from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.periods import get_period
@@ -122,6 +130,41 @@ def _purge_crop_cache(file_id: int) -> None:
             pass
 
 
+def _drop_pack_when_no_files_left(period_id: int) -> None:
+    """A period with no files left has nothing to pack, so no pack should remain.
+
+    The pre-flight gate leaves an existing pack untouched when it blocks, which is
+    right for a bad run but wrong once the client's last file is removed.
+    """
+    session = get_session()
+    try:
+        remaining = (
+            session.query(StoredFile).filter(StoredFile.period_id == period_id).count()
+        )
+        if remaining:
+            return
+        period = session.get(Period, period_id)
+        client = session.get(Client, period.client_id) if period else None
+        session.query(DataPack).filter(DataPack.period_id == period_id).delete()
+        session.commit()
+    finally:
+        session.close()
+    if period is None:
+        return
+    folder = period_output_dir(
+        client.name if client else "Client",
+        period.label if period else f"period-{period_id}",
+    )
+    if folder is None or not folder.exists():
+        return
+    for item in folder.iterdir():
+        if item.is_file():
+            try:
+                item.unlink()
+            except OSError:
+                pass
+
+
 def _prune_stale_outputs(period_id: int, outputs: list[dict]) -> list[str]:
     """Drop Excels this period no longer produces, so removed rows cannot linger."""
     session = get_session()
@@ -198,6 +241,8 @@ def remove_period_file(file_id: int) -> dict:
 
     _discard_backup(backup)
     _purge_crop_cache(int(snapshot["id"]))
+
+    _drop_pack_when_no_files_left(period_id)
 
     pack = get_period_pack(period_id)
     pruned = _prune_stale_outputs(period_id, (pack or {}).get("outputs") or [])
