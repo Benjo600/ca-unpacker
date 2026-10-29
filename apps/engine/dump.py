@@ -17,6 +17,7 @@ from apps.engine.outcomes import derive_job_status, failed_file_outcome, persist
 from apps.engine.pdf_passwords import redact_known_passwords
 from apps.engine.periods import get_period
 from apps.engine.pipeline import parse_period_banks
+from apps.engine.preflight import load_report
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
@@ -134,6 +135,7 @@ def get_job(job_id: int) -> dict | None:
         extra = []
         if (job.error_message or "") == TRUNCATION_WARNING:
             extra.append(TRUNCATION_WARNING)
+        report = load_report(job.period_id)
         return {
             "api_version": 1,
             "summary_scope": "period",
@@ -146,6 +148,8 @@ def get_job(job_id: int) -> dict | None:
             "outcome_counts": _outcome_counts(files),
             "files": file_dicts,
             "warnings": _warnings_from_files(file_dicts, extra),
+            "preflight": report.to_dict() if report else None,
+            "blocked": bool(report and report.blocked),
         }
     finally:
         session.close()
@@ -400,15 +404,11 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         job.status = "parsing"
         session.commit()
         period_id = period.id
-        parse_period_banks(period_id, job_id)
+        pack_result = parse_period_banks(period_id, job_id)
         job = session.get(Job, job_id)
         if job is not None:
             job.status = _period_job_status(session, period_id)
-            job.error_message = (
-                "No files could be processed."
-                if job.status == "failed"
-                else None
-            )
+            job.error_message = _job_error_message(pack_result, job.status)
             job.finished_at = utcnow()
             session.commit()
         record_ingested(preflight.accepted_count)
@@ -457,15 +457,11 @@ def reparse_period(period_id: int, job_id: int | None = None) -> dict:
             raise ValueError("Job was not found.")
         job.status = "parsing"
         session.commit()
-        parse_period_banks(period_id, job_id)
+        pack_result = parse_period_banks(period_id, job_id)
         job = session.get(Job, job_id)
         if job is not None:
             job.status = _period_job_status(session, period_id)
-            job.error_message = (
-                "No files could be processed."
-                if job.status == "failed"
-                else None
-            )
+            job.error_message = _job_error_message(pack_result, job.status)
             job.finished_at = utcnow()
             session.commit()
         return get_job(job_id) or {
@@ -493,6 +489,24 @@ def _period_job_status(session, period_id: int) -> str:
         for row in session.query(StoredFile).filter(StoredFile.period_id == period_id)
     ]
     return derive_job_status(outcomes)
+
+
+def _job_error_message(pack_result: dict | None, status: str) -> str | None:
+    """A blocking pre-flight finding becomes the job's own message.
+
+    The job status itself still comes from the per-file outcomes, so the
+    existing job path (and the UI that reads it) does not change shape.
+    """
+    blocking = ((pack_result or {}).get("preflight") or {}).get("blocking") or []
+    messages = [
+        str(item.get("message") or "").strip()
+        for item in blocking
+        if isinstance(item, dict)
+    ]
+    messages = [message for message in messages if message]
+    if messages:
+        return redact_known_passwords(" ".join(messages))[:500]
+    return "No files could be processed." if status == "failed" else None
 
 
 def _mark_unfinished_files_failed(session, job_id: int) -> None:

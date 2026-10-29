@@ -1300,6 +1300,25 @@ input::placeholder,
   margin-top: 10px;
 }
 
+/* Pre-flight gate: the pack either stopped before writing or carries warnings. */
+.pack-blocked {
+  border-left: 3px solid var(--term-red-core);
+}
+
+.pack-preflight-line {
+  display: flex;
+  align-items: baseline;
+  gap: 6px;
+  flex-basis: 100%;
+  margin: 0 0 4px;
+  font-size: 11.5px;
+  color: var(--term-text-secondary);
+}
+
+.pack-preflight-line .pill {
+  flex: 0 0 auto;
+}
+
 /* Reconciliation Filters */
 .terminal-filter-strip {
   display: flex;

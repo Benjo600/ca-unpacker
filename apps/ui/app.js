@@ -1576,14 +1576,23 @@ function moneyCell(value) {
 function renderPack(pack) {
   packHasBank = false;
   packOpenKey = "";
+  const preflightApi = window.CAPreflightSummary;
+  const blocked = Boolean(preflightApi && preflightApi.preflightBlocked(pack));
   packVisible = Boolean(pack && pack.exists);
   packBlock.classList.remove("match", "mismatch");
-  if (!pack || !pack.exists) {
+  packBlock.classList.toggle("blocked", blocked);
+  if (!pack || (!pack.exists && !blocked)) {
     packBlock.classList.add("hidden");
     updateReviewNote();
     return;
   }
   packBlock.classList.remove("hidden");
+  const packTitleEl = document.getElementById("pack-title");
+  if (packTitleEl) {
+    packTitleEl.textContent = blocked ? "Pack stopped before writing" : "Normalized Excel Data Pack";
+  }
+  const openPackBtn = document.getElementById("open-pack");
+  if (openPackBtn) openPackBtn.disabled = !packVisible;
   const bankOut = (pack.outputs || []).find((out) => out.key === "bank");
   const purchaseOut = (pack.outputs || []).find((out) => out.key === "purchase");
   packHasBank = Boolean(bankOut);
@@ -1591,8 +1600,26 @@ function renderPack(pack) {
   if (pack.balance_status === "match") packBlock.classList.add("match");
   if (pack.balance_status === "mismatch") packBlock.classList.add("mismatch");
   const packRows = Number(pack.row_count || 0);
-  packMetaEl.textContent = `Excel ready · ${packRows} ${packRows === 1 ? "row" : "rows"}`;
+  const preflightNote = preflightApi ? preflightApi.summaryText(pack.preflight) : "";
+  if (blocked) {
+    packMetaEl.textContent = preflightApi
+      ? preflightApi.blockedHeadline(pack.preflight)
+      : "Stopped before writing. Nothing was packed.";
+  } else {
+    packMetaEl.textContent = `Excel ready · ${packRows} ${packRows === 1 ? "row" : "rows"}${preflightNote ? " · " + preflightNote : ""}`;
+  }
   packFilesEl.innerHTML = "";
+  if (preflightApi) {
+    for (const issue of preflightApi.visibleIssues(pack)) {
+      packFilesEl.append(preflightLine(issue, preflightApi));
+    }
+    if (blocked && (pack.outputs || []).length) {
+      const note = document.createElement("p");
+      note.className = "pack-preflight-line";
+      note.textContent = "The pack below is from an earlier run and was left unchanged.";
+      packFilesEl.append(note);
+    }
+  }
   if (bankOut && !pack.balance_status) {
     const note = document.createElement("p");
     note.className = "file-flag";
@@ -1642,6 +1669,19 @@ function renderPack(pack) {
   }
   updateReviewNote();
   renderRecon(pack);
+}
+
+function preflightLine(issue, preflightApi) {
+  const line = document.createElement("p");
+  line.className = "pack-preflight-line";
+  const chip = document.createElement("span");
+  chip.className = "pill";
+  chip.classList.add(issue && issue.level === "blocking" ? "mismatch" : "unknown");
+  chip.textContent = preflightApi.levelLabel(issue && issue.level);
+  const text = document.createElement("span");
+  text.textContent = preflightApi.issueText(issue);
+  line.append(chip, text);
+  return line;
 }
 
 function reconStatusPill(status) {
@@ -2159,7 +2199,14 @@ function pollJob(jobId) {
     const dumpVisible = !paneDump.classList.contains("hidden");
     if (dumpVisible && currentPeriod && currentPeriod.id === job.period_id) {
       await openPeriod(currentPeriod.id);
-      setDumpStatus(window.CAStatusSummary.summarizeJobStatus(job));
+      if (job.blocked) {
+        setDumpStatus({
+          tone: "failure",
+          text: job.error_message || "Pre-flight stopped this pack. Nothing was written.",
+        });
+      } else {
+        setDumpStatus(window.CAStatusSummary.summarizeJobStatus(job));
+      }
     }
     if (passwordFail) {
       showError(dumpErrorEl, jobError);

@@ -16,9 +16,11 @@ from apps.engine.outcomes import (
     persist_file_outcome,
 )
 from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
+from apps.engine.preflight import PreflightReport, load_report, run_preflight, save_report
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
 from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3b
+from apps.engine.pack.preflight_xlsx import write_preflight_report
 from apps.engine.pack.recon_xlsx import write_master_grid
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.recon import reconcile
@@ -273,10 +275,41 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
         period = session.get(Period, period_id)
         client = session.get(Client, period.client_id) if period else None
-        dest_dir = period_output_dir(
-            client.name if client else "Client",
-            period.label if period else f"period-{period_id}",
+        dest_dir: Path | None = None
+        destination_error: str | None = None
+        try:
+            dest_dir = period_output_dir(
+                client.name if client else "Client",
+                period.label if period else f"period-{period_id}",
+            )
+        except OSError as exc:
+            destination_error = str(exc)
+
+        # The gate runs before a single workbook is written. A blocking finding
+        # stops the pack here: no workbook, no summary, and any pack already on
+        # disk is left exactly as it was.
+        report = run_preflight(
+            files=files,
+            bank_files=bank_files,
+            purchase_rows=purchase_rows,
+            sales_rows=sales_rows,
+            gstr_1=gstr_1,
+            gstr_2b=gstr_2b,
+            gstr_3b=gstr_3b,
+            books_rows=books_rows,
+            line_item_rows=line_item_rows,
+            dest_dir=dest_dir,
+            destination_error=destination_error,
         )
+        save_report(period_id, report)
+        if report.blocking:
+            session.commit()
+            if destination_error is not None:
+                return _blocked_payload(period_id, dest_dir, report)
+            return get_period_pack(period_id) or _blocked_payload(period_id, dest_dir, report)
+        if dest_dir is None:  # pragma: no cover - the gate blocks this case
+            raise OSError(destination_error or "The output folder is not available.")
+
         outputs: list[dict] = []
         recon_result = None
         if gstr_2b and purchase_rows:
@@ -368,9 +401,20 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 _simple_out("master", dest.name, dest, len(recon_result.get("rows") or []))
             )
 
-        total_rows = sum(item["rows"] for item in outputs)
+        dest = dest_dir / "Preflight_Report.xlsx"
+        write_preflight_report(dest, report)
+        outputs.append(_simple_out("preflight", dest.name, dest, len(report.issues)))
+
+        # The preflight report is a finding list, so its rows never inflate the
+        # data row count the pack reports.
+        total_rows = sum(item["rows"] for item in outputs if item["key"] != "preflight")
         bank_status = next((item["status"] for item in outputs if item["key"] == "bank"), None)
-        summary = {"outputs": outputs, "total_rows": total_rows, "folder": str(dest_dir)}
+        summary = {
+            "outputs": outputs,
+            "total_rows": total_rows,
+            "folder": str(dest_dir),
+            "preflight": report.to_dict(),
+        }
         if recon_result is not None:
             summary["recon"] = {
                 "counts": recon_result.get("counts") or {},
@@ -397,7 +441,9 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         session.add(pack)
         session.commit()
         session.refresh(pack)
-        return pack_dict(pack, dest_dir / "pack_summary.json", summary)
+        return _attach_preflight(
+            pack_dict(pack, dest_dir / "pack_summary.json", summary), summary, report
+        )
     finally:
         session.close()
 
@@ -786,27 +832,32 @@ def get_period_pack(period_id: int) -> dict | None:
     try:
         period = session.get(Period, period_id)
         client = session.get(Client, period.client_id) if period else None
-        dest_dir = period_output_dir(
-            client.name if client else "Client",
-            period.label if period else f"period-{period_id}",
-        )
-        summary_path = dest_dir / "pack_summary.json"
+        try:
+            dest_dir = period_output_dir(
+                client.name if client else "Client",
+                period.label if period else f"period-{period_id}",
+            )
+        except OSError:
+            dest_dir = None
+        summary_path = dest_dir / "pack_summary.json" if dest_dir is not None else None
         pack = (
             session.query(DataPack)
             .filter(DataPack.period_id == period_id)
             .order_by(DataPack.id.desc())
             .first()
         )
-        summary = _read_summary(summary_path)
+        summary = _read_summary(summary_path) if summary_path is not None else None
+        report = load_report(period_id)
         outputs = (summary or {}).get("outputs") or []
         xlsx_exists = any(Path(item.get("path") or "").exists() for item in outputs)
-        if not outputs and pack is None:
+        blocked = bool(report and report.blocked)
+        if not outputs and pack is None and not blocked:
             return None
         if pack is None:
             payload = {
                 "id": None,
                 "period_id": period_id,
-                "path": str(summary_path.parent),
+                "path": str(dest_dir) if dest_dir is not None else "",
                 "exists": xlsx_exists,
                 "outputs": outputs,
                 "row_count": (summary or {}).get("total_rows") or 0,
@@ -815,8 +866,12 @@ def get_period_pack(period_id: int) -> dict | None:
             }
             if summary and summary.get("recon") is not None:
                 payload["recon"] = summary["recon"]
-            return payload
-        return pack_dict(pack, summary_path, summary)
+            return _attach_preflight(payload, summary, report)
+        payload = pack_dict(pack, summary_path or Path("pack_summary.json"), summary)
+        if summary_path is None:
+            payload["path"] = ""
+            payload["exists"] = False
+        return _attach_preflight(payload, summary, report)
     finally:
         session.close()
 
@@ -893,6 +948,38 @@ def pack_dict(pack: DataPack, path: Path, summary: dict | None = None) -> dict:
     if summary and summary.get("recon") is not None:
         payload["recon"] = summary["recon"]
     return payload
+
+
+def _attach_preflight(
+    payload: dict, summary: dict | None, report: PreflightReport | None
+) -> dict:
+    """Put the pre-flight node on a pack payload; the report file wins."""
+    node = (summary or {}).get("preflight")
+    if isinstance(node, dict):
+        payload["preflight"] = node
+        payload["blocked"] = bool(node.get("blocked"))
+    if report is not None:
+        payload["preflight"] = report.to_dict()
+        payload["blocked"] = report.blocked
+    return payload
+
+
+def _blocked_payload(period_id: int, dest_dir: Path | None, report: PreflightReport) -> dict:
+    """Returned when a blocking finding stops the pack before anything is written."""
+    return {
+        "id": None,
+        "period_id": period_id,
+        "bank_xlsx_key": None,
+        "balance_status": None,
+        "row_count": 0,
+        "path": str(dest_dir) if dest_dir is not None else "",
+        "exists": False,
+        "files": [],
+        "outputs": [],
+        "all_match": None,
+        "blocked": True,
+        "preflight": report.to_dict(),
+    }
 
 
 def _apply_gstr_2b_matches(gstr_2b: list[dict], result: dict) -> None:
