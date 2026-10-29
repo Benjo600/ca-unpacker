@@ -427,7 +427,13 @@ def list_folder_preview_files(folder_path: str | Path, max_files: int = 400) -> 
     _skip = {".git", ".svn", "__pycache__", ".venv", "node_modules"}
 
     for item in sorted(root.rglob("*"), key=lambda p: p.name.lower()):
-        if any(part in _skip or part.startswith(".") for part in item.parts):
+        try:
+            rel_parts = item.relative_to(root).parts
+        except ValueError:
+            continue
+        # Only skip hidden/system folders *inside* the chosen folder. The folder's own
+        # path may sit under a dot-directory (C:\Users\x\.local\...), which is not ours to skip.
+        if any(part in _skip or part.startswith(".") for part in rel_parts):
             continue
         if not item.is_file():
             continue

@@ -42,6 +42,21 @@ HSN_MONEY_COLS = (2, 3, 4, 5, 6)
 SUMMARY_HEADERS = ["Section", "Taxable", "IGST", "CGST", "SGST", "Cess", "Source"]
 SUMMARY_MONEY_COLS = (2, 3, 4, 5, 6)
 
+CANNOT_INCLUDE_HEADERS = [
+    "Reason",
+    "Document",
+    "Date",
+    "Party",
+    "GSTIN",
+    "Taxable",
+    "IGST",
+    "CGST",
+    "SGST",
+    "Cess",
+    "Source",
+]
+CANNOT_INCLUDE_MONEY_COLS = (6, 7, 8, 9, 10)
+
 CDN_TYPES = {"CDN", "CDNR", "CDNA", "CDNRA"}
 MATCH_NOTE = "Match columns are empty until reconciliation."
 MATCH_FILLED_NOTE = "Match columns filled from the master reconciliation grid."
@@ -102,6 +117,47 @@ def write_gstr_3b(path: Path, rows: list[dict], meta: dict | None = None) -> Pat
         note=None,
     )
     _write_summary_sheet(book.create_sheet("Summary"), rows)
+    return _save(book, path)
+
+
+def write_cannot_include(path: Path, rows: list[dict], meta: dict | None = None) -> Path:
+    """The rows the GSTR upload JSON had to leave out, with the reason for each."""
+    book = _new_book("Cannot include")
+    sheet = book.active
+    _write_header(sheet, CANNOT_INCLUDE_HEADERS)
+    for row in rows:
+        sheet.append(
+            [
+                row.get("reason") or "",
+                row.get("invoice_number") or "",
+                row.get("date") or "",
+                row.get("party") or "",
+                row.get("gstin") or "",
+                _money(row.get("taxable")),
+                _money(row.get("igst")),
+                _money(row.get("cgst")),
+                _money(row.get("sgst")),
+                _money(row.get("cess")),
+                row.get("source") or "",
+            ]
+        )
+    if not rows:
+        sheet.append(["Every row could be included"])
+        style_note(sheet, f"A{sheet.max_row}")
+    style_body(
+        sheet,
+        2,
+        max(sheet.max_row, 1),
+        len(CANNOT_INCLUDE_HEADERS),
+        money_cols=CANNOT_INCLUDE_MONEY_COLS,
+    )
+    for excel_row in range(2, sheet.max_row + 1):
+        fill_row(sheet, excel_row, len(CANNOT_INCLUDE_HEADERS), RED_FILL)
+    _finish_table(
+        sheet,
+        len(CANNOT_INCLUDE_HEADERS),
+        [52, 20, 14, 28, 18, 14, 12, 12, 12, 12, 28],
+    )
     return _save(book, path)
 
 

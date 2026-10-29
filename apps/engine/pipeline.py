@@ -18,7 +18,13 @@ from apps.engine.outcomes import (
 from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
-from apps.engine.pack.gstr_xlsx import write_gstr_1, write_gstr_2b, write_gstr_3b
+from apps.engine.pack.gstr_json import build_gstr1_json, build_gstr3b_json, build_gstr_report
+from apps.engine.pack.gstr_xlsx import (
+    write_cannot_include,
+    write_gstr_1,
+    write_gstr_2b,
+    write_gstr_3b,
+)
 from apps.engine.pack.recon_xlsx import write_master_grid
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.recon import reconcile
@@ -356,6 +362,15 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             write_gstr_3b(dest, gstr_3b, gstr_meta)
             outputs.append(_simple_out("gstr_3b", dest.name, dest, len(gstr_3b)))
 
+        try:
+            gstr_json_summary = _write_gstr_upload_files(dest_dir, outputs, sales_rows, gstr_meta)
+        except Exception:
+            # The Excels are the primary product; never lose the pack over the upload files.
+            gstr_json_summary = {
+                "status": "skipped",
+                "reason": "The GSTR upload files could not be prepared for this pack.",
+            }
+
         if books_rows:
             dest = dest_dir / "Books_Register_Extracted.xlsx"
             write_table(dest, "Books", books_rows, BOOKS_COLS)
@@ -371,6 +386,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         total_rows = sum(item["rows"] for item in outputs)
         bank_status = next((item["status"] for item in outputs if item["key"] == "bank"), None)
         summary = {"outputs": outputs, "total_rows": total_rows, "folder": str(dest_dir)}
+        summary["gstr_json"] = gstr_json_summary
         if recon_result is not None:
             summary["recon"] = {
                 "counts": recon_result.get("counts") or {},
@@ -477,6 +493,67 @@ def _simple_out(key: str, label: str, dest: Path, rows: int) -> dict:
         "status": "ready",
         "files": [],
     }
+
+
+def _write_gstr_upload_files(
+    dest_dir: Path,
+    outputs: list[dict],
+    sales_rows: list[dict],
+    meta: dict,
+) -> dict:
+    """Write GSTR-1 / GSTR-3B upload JSON when the data supports it.
+
+    A file is only written when its root fields can be filled and at least one row
+    can be filed without guessing. Anything left out is listed, with a reason, in
+    ``GSTR_Upload_Cannot_Include.xlsx`` and in the pack summary.
+    """
+    if not sales_rows:
+        return {
+            "status": "skipped",
+            "reason": "No outward supply rows (sales register) in this pack, so no GSTR upload file was written.",
+        }
+
+    report = build_gstr_report(sales_rows, meta)
+    counts = report.get("counts") or {}
+    block: dict = {
+        "gstin": report.get("gstin"),
+        "fp": report.get("fp"),
+        "counts": counts,
+        "notes": report.get("notes") or [],
+        "files": {},
+        "derived": report.get("derived") or [],
+        "excluded": report.get("excluded") or [],
+    }
+    rows_in_file = int(counts.get("included") or 0)
+    for key, filename, builder in (
+        ("gstr_1_json", "GSTR_1_Upload.json", build_gstr1_json),
+        ("gstr_3b_json", "GSTR_3B_Upload.json", build_gstr3b_json),
+    ):
+        try:
+            payload = builder(sales_rows, meta)
+        except ValueError as exc:
+            block["files"][key] = {"status": "skipped", "reason": str(exc)}
+            continue
+        dest = Path(dest_dir) / filename
+        dest.write_text(json.dumps(payload, indent=2), encoding="utf-8")
+        outputs.append(_simple_out(key, dest.name, dest, rows_in_file))
+        block["files"][key] = {
+            "status": "written",
+            "file": dest.name,
+            "rows": rows_in_file,
+        }
+
+    excluded = report.get("excluded") or []
+    if excluded:
+        dest = Path(dest_dir) / "GSTR_Upload_Cannot_Include.xlsx"
+        write_cannot_include(dest, excluded, meta)
+        outputs.append(_simple_out("gstr_cannot_include", dest.name, dest, len(excluded)))
+        block["files"]["cannot_include"] = {
+            "status": "written",
+            "file": dest.name,
+            "rows": len(excluded),
+        }
+    return block
 
 
 def _redact_secret(text: str, file_id: int) -> str:

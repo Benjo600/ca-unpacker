@@ -6,7 +6,7 @@ from pathlib import Path
 from typing import Any
 
 from apps.engine.parsers.bank.money import normalize_date
-from apps.engine.validators.gstin import gstin_flags
+from apps.engine.validators.gstin import gstin_flags, pos_state_code
 
 # Canonical field → Zoho Books export header aliases (normalized, first match wins).
 HEADER_MAP: dict[str, tuple[str, ...]] = {
@@ -73,6 +73,41 @@ HEADER_MAP: dict[str, tuple[str, ...]] = {
         "sac",
         "hsn/sac code",
         "hsn sac",
+    ),
+    "igst": (
+        "igst",
+        "igst amount",
+        "igst amt",
+        "integrated tax",
+        "integrated tax amount",
+    ),
+    "cgst": (
+        "cgst",
+        "cgst amount",
+        "cgst amt",
+        "central tax",
+        "central tax amount",
+    ),
+    "sgst": (
+        "sgst",
+        "sgst amount",
+        "sgst amt",
+        "state tax",
+        "state tax amount",
+        "utgst",
+        "utgst amount",
+    ),
+    "cess": (
+        "cess",
+        "cess amount",
+        "cess amt",
+    ),
+    "place_of_supply": (
+        "place of supply",
+        "place of supply (pos)",
+        "gst place of supply",
+        "pos",
+        "destination of supply",
     ),
 }
 
@@ -216,7 +251,14 @@ def _canonical_row(record: dict[str, Any], register: str | None, source: str) ->
     taxable_value = _num(_pick(lookup, HEADER_MAP["taxable_value"]))
     invoice_value = _num(_pick(lookup, HEADER_MAP["invoice_value"]))
     hsn = _text(_pick(lookup, HEADER_MAP["hsn"]))
+    igst = _num(_pick(lookup, HEADER_MAP["igst"]))
+    cgst = _num(_pick(lookup, HEADER_MAP["cgst"]))
+    sgst = _num(_pick(lookup, HEADER_MAP["sgst"]))
+    cess = _num(_pick(lookup, HEADER_MAP["cess"]))
+    place_of_supply = _text(_pick(lookup, HEADER_MAP["place_of_supply"]))
     tax = _tax(lookup, taxable_value)
+    if tax is None:
+        tax = _split_total(igst, cgst, sgst, cess)
     if not any((invoice_number, invoice_date, supplier_name, gstin, taxable_value, tax, invoice_value, hsn)):
         return None
     return {
@@ -229,9 +271,24 @@ def _canonical_row(record: dict[str, Any], register: str | None, source: str) ->
         "tax": tax,
         "invoice_value": invoice_value,
         "hsn": hsn,
+        "igst": igst,
+        "cgst": cgst,
+        "sgst": sgst,
+        "cess": cess,
+        "tax_percent": _num(_pick(lookup, HEADER_MAP["tax_percent"])),
+        "place_of_supply": place_of_supply,
+        "place_of_supply_state": pos_state_code(place_of_supply),
         "flags": gstin_flags(gstin) if gstin else [],
         "source": source,
     }
+
+
+def _split_total(igst: Any, cgst: Any, sgst: Any, cess: Any) -> float | None:
+    """Total tax when the export only gives the four heads and no single tax column."""
+    parts = [value for value in (igst, cgst, sgst, cess) if value is not None]
+    if not parts:
+        return None
+    return round(sum(float(value) for value in parts), 2)
 
 
 def _tax(lookup: dict[str, Any], taxable_value: float | None) -> float | None:
