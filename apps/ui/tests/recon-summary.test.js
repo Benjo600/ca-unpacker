@@ -7,6 +7,13 @@ const {
   reconStatusLabel,
   reconInvoiceDisplay,
   filterReconRows,
+  sortReconRows,
+  reconReason,
+  formatINR,
+  reconMoneyChips,
+  reconTotalsText,
+  hasReconMissing,
+  reconMissingText,
   gstrPreviewNote,
 } = require("../recon-summary.js");
 
@@ -89,5 +96,81 @@ assert.equal(
   gstrPreviewNote(true),
   "Open the GSTR Excel for the full register. Match columns filled in GSTR Excel when a master grid exists."
 );
+
+// --- search narrows rows on party, GSTIN or invoice number ---
+const searchable = [
+  { party: "Shakti Steels", gstin: "29AAJPS1120L1ZD", invoice_2b: "SS/778", invoice_books: "", status: "books_only" },
+  { party: "Ganesh Packaging", gstin: "29AAGCG4545K1Z9", invoice_2b: "GP-2291", invoice_books: "GP2291", status: "matched" },
+];
+assert.equal(filterReconRows(searchable, "all", "shakti").length, 1);
+assert.equal(filterReconRows(searchable, "all", "GP-2291")[0].party, "Ganesh Packaging");
+assert.equal(filterReconRows(searchable, "all", "29AAJPS")[0].status, "books_only");
+assert.equal(filterReconRows(searchable, "all", "   ").length, 2);
+assert.equal(filterReconRows(searchable, "matched", "shakti").length, 0);
+
+// --- exceptions sort by money, biggest first ---
+const mixed = [
+  { status: "amount_mismatch", amount_diff: 40, amount_2b: 23140, amount_books: 23100, party: "Royal Papers" },
+  { status: "books_only", amount_diff: null, amount_2b: null, amount_books: 18240, party: "Shakti Steels" },
+  { status: "portal_only", amount_diff: null, amount_2b: 6780, amount_books: null, party: "Bharath Logistics" },
+  { status: "matched", amount_diff: 0, amount_2b: 118000, amount_books: 118000, party: "Anand Textiles" },
+];
+// --- exceptions sort by money, biggest first (matched rows stay in the list) ---
+assert.deepEqual(
+  sortReconRows(filterReconRows(mixed, "all", "")).map((row) => row.party),
+  ["Shakti Steels", "Bharath Logistics", "Royal Papers", "Anand Textiles"]
+);
+assert.deepEqual(
+  sortReconRows(filterReconRows(mixed, "unmatched", "")).map((row) => row.party),
+  ["Shakti Steels", "Bharath Logistics"]
+);
+
+// --- reasons flow through as-is ---
+assert.equal(reconReason({ reason: " amounts differ by 40.00 " }), "amounts differ by 40.00");
+assert.equal(reconReason(null), "");
+assert.equal(reconReason({}), "");
+
+// --- rupees, Indian grouping ---
+assert.equal(formatINR(0), "₹0.00");
+assert.equal(formatINR(1180), "₹1,180.00");
+assert.equal(formatINR(11800000), "₹1,18,00,000.00");
+assert.equal(formatINR(-42.5), "-₹42.50");
+assert.equal(formatINR("not-a-number"), "₹—");
+
+// --- money chips: five figures, diff + credit figures clickable ---
+const chips = reconMoneyChips({
+  portal_total: 600,
+  books_total: 300,
+  gap: 300,
+  credit_at_risk: 300,
+  unsupported_credit: 0,
+});
+assert.equal(chips.length, 5);
+assert.deepEqual(
+  chips.map((chip) => chip.filter),
+  ["all", "all", "amount_mismatch", "unmatched", "unmatched"]
+);
+assert.deepEqual(
+  chips.map((chip) => formatINR(chip.value)),
+  ["₹600.00", "₹300.00", "₹300.00", "₹300.00", "₹0.00"]
+);
+assert.equal(
+  reconTotalsText({ portal_total: 600, books_total: 300, gap: 300, credit_at_risk: 300 }),
+  "On portal ₹600.00 · In books ₹300.00 · Difference ₹300.00 · Credit at risk ₹300.00"
+);
+
+// --- missing recon explains itself ---
+assert.equal(hasReconMissing({}), false);
+assert.equal(hasReconMissing({ recon_missing: "no_gstr_2b" }), true);
+assert.match(
+  reconMissingText({ recon_missing: "no_gstr_2b" }),
+  /GSTR-2B JSON is missing/
+);
+assert.match(
+  reconMissingText({ recon_missing: "no_purchase_rows" }),
+  /purchase register/
+);
+assert.equal(reconMissingText({ recon_missing: "something-else" }), "");
+assert.equal(reconMissingText(null), "");
 
 console.log("recon-summary behavior tests passed");

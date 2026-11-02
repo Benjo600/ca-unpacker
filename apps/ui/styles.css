@@ -1330,6 +1330,76 @@ input::placeholder,
   border-color: var(--term-blue-core);
 }
 
+/* Reconciliation money strip + search */
+.money-strip {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(160px, 1fr));
+  gap: 6px;
+  margin-bottom: 10px;
+}
+
+.money-chip {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 2px;
+  padding: 8px 10px;
+  background: var(--term-bg-canvas);
+  border: 1px solid var(--term-border-subtle);
+  border-radius: var(--radius-xs);
+  text-align: left;
+  cursor: pointer;
+}
+
+.money-chip:hover {
+  border-color: var(--term-border-medium);
+}
+
+.money-chip-label {
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  color: var(--term-text-muted);
+}
+
+.money-chip-value {
+  font-family: var(--font-mono);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--term-text-primary);
+}
+
+.recon-search {
+  width: 100%;
+  height: 30px;
+  padding: 0 10px;
+  margin-bottom: 10px;
+  background: var(--term-bg-canvas);
+  border: 1px solid var(--term-border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--term-text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.recon-search:focus {
+  border-color: var(--term-blue-core);
+  outline: none;
+}
+
+.recon-reason {
+  max-width: 320px;
+  color: var(--term-text-muted);
+  font-size: 11px;
+}
+
+.recon-empty {
+  color: var(--term-text-muted);
+  text-align: center;
+  padding: 14px 0 !important;
+}
+
+
 /* Financial Tables */
 .preview-table {
   width: 100%;
