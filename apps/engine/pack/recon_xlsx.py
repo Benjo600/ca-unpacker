@@ -6,6 +6,7 @@ from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
 from apps.engine.pack.style import (
+    MONEY_FORMAT,
     RED_FILL,
     fill_row,
     print_setup,
@@ -17,6 +18,16 @@ from apps.engine.pack.style import (
 )
 
 BANK_NOTE = "Bank hints are an assist only; they are not matches."
+MONEY_NOTE = (
+    "Rupee figures use the invoice amounts in this grid; bank hints are not included in the difference."
+)
+MONEY_LABELS = (
+    ("On the portal (2B)", "portal_total"),
+    ("In the books", "books_total"),
+    ("Difference", "gap"),
+    ("Credit at risk (portal only)", "credit_at_risk"),
+    ("Credit claimed without support (books only)", "unsupported_credit"),
+)
 COUNT_ORDER = (
     ("matched", "matched"),
     ("books_only", "books_only"),
@@ -26,6 +37,7 @@ COUNT_ORDER = (
 )
 GRID_HEADERS = [
     "Status",
+    "Why",
     "GSTIN",
     "Party",
     "Invoice no (2B)",
@@ -41,6 +53,7 @@ GRID_HEADERS = [
 ]
 GRID_KEYS = [
     "status",
+    "reason",
     "gstin",
     "party",
     "invoice_2b",
@@ -54,19 +67,20 @@ GRID_KEYS = [
     "source_2b",
     "source_books",
 ]
-MONEY_COLS = (8, 9, 10)
+MONEY_COLS = (9, 10, 11)
 UNMATCHED_STATUSES = {"books_only", "portal_only", "amount_mismatch", "likely"}
 FLAG_STATUSES = {"books_only", "portal_only", "amount_mismatch", "likely"}
-WIDTHS = [16, 18, 28, 20, 20, 14, 14, 14, 16, 14, 28, 28, 28]
+WIDTHS = [16, 46, 18, 28, 20, 20, 14, 14, 14, 16, 14, 28, 28, 28]
 
 
 def write_master_grid(path: Path, result: dict) -> Path:
     rows = list((result or {}).get("rows") or [])
     counts = (result or {}).get("counts") or {}
+    totals = (result or {}).get("totals") or {}
     book = Workbook()
     cover = book.active
     cover.title = "Cover"
-    _write_cover(cover, counts, len(rows))
+    _write_cover(cover, counts, len(rows), totals)
     _write_table(book.create_sheet("Grid"), rows)
     unmatched = [row for row in rows if str(row.get("status") or "") in UNMATCHED_STATUSES]
     _write_table(book.create_sheet("Unmatched"), unmatched)
@@ -76,7 +90,7 @@ def write_master_grid(path: Path, result: dict) -> Path:
     return path
 
 
-def _write_cover(sheet, counts: dict, row_count: int) -> None:
+def _write_cover(sheet, counts: dict, row_count: int, totals: dict | None = None) -> None:
     sheet["A1"] = "Master reconciliation"
     style_title(sheet, "A1")
     sheet.append([])
@@ -86,9 +100,19 @@ def _write_cover(sheet, counts: dict, row_count: int) -> None:
     sheet.append(["Total rows", row_count])
     last_pair = sheet.max_row
     sheet.append([])
+    money_first = sheet.max_row + 1
+    for label, key in MONEY_LABELS:
+        value = (totals or {}).get(key)
+        sheet.append([label, float(value or 0) + 0.0])
+        sheet.cell(sheet.max_row, 2).number_format = MONEY_FORMAT
+    money_last = sheet.max_row
+    sheet.append([])
     sheet.append([BANK_NOTE])
     style_note(sheet, f"A{sheet.max_row}")
+    sheet.append([MONEY_NOTE])
+    style_note(sheet, f"A{sheet.max_row}")
     style_count_pairs(sheet, first_pair, last_pair)
+    style_count_pairs(sheet, money_first, money_last)
     sheet.column_dimensions["A"].width = 44
     sheet.column_dimensions["B"].width = 16
     sheet.freeze_panes = "A2"

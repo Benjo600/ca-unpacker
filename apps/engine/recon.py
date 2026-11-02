@@ -155,7 +155,43 @@ def reconcile(
         row["bank_hint"] = _bank_hint(row, book, portal, bank)
         rows.append(row)
         counts[status] = counts.get(status, 0) + 1
-    return {"rows": rows, "counts": counts}
+    return {"rows": rows, "counts": counts, "totals": _totals(rows)}
+
+
+def _money_of(row: dict, key: str) -> Decimal | None:
+    value = row.get(key)
+    if value is None:
+        return None
+    try:
+        return Decimal(str(value))
+    except InvalidOperation:
+        return None
+
+
+def _totals(rows: list[dict]) -> dict:
+    portal = Decimal("0")
+    books = Decimal("0")
+    risk = Decimal("0")
+    unsupported = Decimal("0")
+    for row in rows:
+        status = str(row.get("status") or "")
+        amt_2b = _money_of(row, "amount_2b")
+        amt_books = _money_of(row, "amount_books")
+        if amt_2b is not None:
+            portal += amt_2b
+        if amt_books is not None:
+            books += amt_books
+        if status == "portal_only" and amt_2b is not None:
+            risk += amt_2b
+        if status == "books_only" and amt_books is not None:
+            unsupported += amt_books
+    return {
+        "portal_total": float(portal),
+        "books_total": float(books),
+        "gap": float(portal - books),
+        "credit_at_risk": float(risk),
+        "unsupported_credit": float(unsupported),
+    }
 
 
 def _is_cdn(row: dict) -> bool:
@@ -301,10 +337,43 @@ def _recon_row(status: str, book: dict, portal: dict) -> dict:
         "amount_2b": _fmt_amount(amt_2b),
         "amount_books": _fmt_amount(amt_books),
         "amount_diff": _fmt_amount(diff),
+        "reason": _reason(
+            status,
+            book,
+            portal,
+            diff,
+            str(book.get("invoice_number") or "") if book else "",
+            str(portal.get("invoice_number") or "") if portal else "",
+        ),
         "bank_hint": "",
         "source_2b": str(portal.get("source") or "") if portal else "",
         "source_books": str(book.get("source") or "") if book else "",
     }
+
+
+def _reason(
+    status: str,
+    book: dict,
+    portal: dict,
+    diff: Decimal | None,
+    invoice_books: str,
+    invoice_2b: str,
+) -> str:
+    if status == "matched":
+        return "Supplier, invoice number, date and amount all agree."
+    if status == "amount_mismatch":
+        size = diff.copy_abs() if diff is not None else Decimal("0")
+        return f"Invoice number, date and supplier agree, but the amounts differ by {size:.2f}."
+    if status == "likely":
+        return (
+            "Date and amount agree, but the invoice numbers differ "
+            f"(books '{invoice_books}' vs portal '{invoice_2b}') — confirm this is the same invoice."
+        )
+    if status == "books_only":
+        return "This invoice appears only in the books; the GST portal download shows nothing like it."
+    if status == "portal_only":
+        return "This invoice appears only in the GST portal download; the books have no entry for it."
+    return ""
 
 
 def _bank_hint(row: dict, book: dict, portal: dict, bank_rows: list[dict]) -> str:
