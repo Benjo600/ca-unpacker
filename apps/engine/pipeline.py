@@ -374,8 +374,11 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         if recon_result is not None:
             summary["recon"] = {
                 "counts": recon_result.get("counts") or {},
+                "totals": recon_result.get("totals") or {},
                 "rows": recon_result.get("rows") or [],
             }
+        elif gstr_2b or purchase_rows:
+            summary["recon_missing"] = "no_purchase_rows" if gstr_2b else "no_gstr_2b"
         (dest_dir / "pack_summary.json").write_text(json.dumps(summary, indent=2), encoding="utf-8")
 
         session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
@@ -815,6 +818,8 @@ def get_period_pack(period_id: int) -> dict | None:
             }
             if summary and summary.get("recon") is not None:
                 payload["recon"] = summary["recon"]
+            if summary and summary.get("recon_missing"):
+                payload["recon_missing"] = summary["recon_missing"]
             return payload
         return pack_dict(pack, summary_path, summary)
     finally:
@@ -892,6 +897,8 @@ def pack_dict(pack: DataPack, path: Path, summary: dict | None = None) -> dict:
     }
     if summary and summary.get("recon") is not None:
         payload["recon"] = summary["recon"]
+    if summary and summary.get("recon_missing"):
+        payload["recon_missing"] = summary["recon_missing"]
     return payload
 
 
