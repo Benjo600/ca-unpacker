@@ -42,15 +42,100 @@
     return books;
   }
 
-  function filterReconRows(rows, filter) {
-    const list = rows || [];
-    if (filter === "matched") return list.filter((row) => row.status === "matched");
-    if (filter === "unmatched") {
-      return list.filter((row) => row.status === "books_only" || row.status === "portal_only");
+  function filterReconRows(rows, filter, search) {
+    let list = rows || [];
+    if (filter === "matched") list = list.filter((row) => row.status === "matched");
+    else if (filter === "unmatched") {
+      list = list.filter((row) => row.status === "books_only" || row.status === "portal_only");
+    } else if (filter === "amount_mismatch") list = list.filter((row) => row.status === "amount_mismatch");
+    else if (filter === "likely") list = list.filter((row) => row.status === "likely");
+    const needle = String(search || "").trim().toLowerCase();
+    if (!needle) return list.slice();
+    return list.filter((row) => {
+      const hay = [row.party, row.gstin, row.invoice_2b, row.invoice_books]
+        .map((value) => (value == null ? "" : String(value).toLowerCase()))
+        .join(" ");
+      return hay.includes(needle);
+    });
+  }
+
+  function rowMoneySize(row) {
+    const value = Number(row && (row.amount_diff ?? row.amount_2b ?? row.amount_books));
+    if (!Number.isFinite(value)) return -1;
+    return Math.abs(value);
+  }
+
+  function sortReconRows(rows) {
+    return (rows || []).slice().sort((left, right) => {
+      const a = rowMoneySize(left);
+      const b = rowMoneySize(right);
+      if (a !== b) return b - a;
+      return String(left.party || "").localeCompare(String(right.party || ""));
+    });
+  }
+
+  function reconReason(row) {
+    const reason = row && row.reason != null ? String(row.reason).trim() : "";
+    return reason;
+  }
+
+  function formatINR(value) {
+    const number = Number(value);
+    if (!Number.isFinite(number)) return "₹—";
+    const sign = number < 0 ? "-" : "";
+    const [intPart, decPart] = Math.abs(number).toFixed(2).split(".");
+    let grouped;
+    if (intPart.length <= 3) {
+      grouped = intPart;
+    } else {
+      const head = intPart.slice(0, -3);
+      const tail = intPart.slice(-3);
+      const rest = [];
+      let work = head;
+      while (work.length > 2) {
+        rest.unshift(work.slice(-2));
+        work = work.slice(0, -2);
+      }
+      if (work) rest.unshift(work);
+      grouped = rest.join(",") + "," + tail;
     }
-    if (filter === "amount_mismatch") return list.filter((row) => row.status === "amount_mismatch");
-    if (filter === "likely") return list.filter((row) => row.status === "likely");
-    return list.slice();
+    return sign + "₹" + grouped + "." + decPart;
+  }
+
+  function reconMoneyChips(totals) {
+    const n = totals || {};
+    return [
+      { label: "On portal (2B)", value: n.portal_total, filter: "all" },
+      { label: "In books", value: n.books_total, filter: "all" },
+      { label: "Difference", value: n.gap, filter: "amount_mismatch" },
+      { label: "Credit at risk (2B only)", value: n.credit_at_risk, filter: "unmatched" },
+      { label: "Credit without support", value: n.unsupported_credit, filter: "unmatched" },
+    ];
+  }
+
+  function reconTotalsText(totals) {
+    const n = totals || {};
+    return [
+      `On portal ${formatINR(n.portal_total)}`,
+      `In books ${formatINR(n.books_total)}`,
+      `Difference ${formatINR(n.gap)}`,
+      `Credit at risk ${formatINR(n.credit_at_risk)}`,
+    ].join(" · ");
+  }
+
+  function hasReconMissing(pack) {
+    return Boolean(pack && pack.recon_missing);
+  }
+
+  function reconMissingText(pack) {
+    const code = pack && pack.recon_missing;
+    if (code === "no_gstr_2b") {
+      return "No reconciliation ran: the GSTR-2B JSON is missing for this month. Drop the portal download in and re-run.";
+    }
+    if (code === "no_purchase_rows") {
+      return "No reconciliation ran: no purchase register (bills, Tally or Zoho) was found this month.";
+    }
+    return "";
   }
 
   function gstrPreviewNote(reconPresent) {
@@ -66,6 +151,13 @@
     reconStatusLabel,
     reconInvoiceDisplay,
     filterReconRows,
+    sortReconRows,
+    reconReason,
+    formatINR,
+    reconMoneyChips,
+    reconTotalsText,
+    hasReconMissing,
+    reconMissingText,
     gstrPreviewNote,
   };
 });

@@ -43,6 +43,8 @@ const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
 const reconFiltersEl = document.getElementById("recon-filters");
+const reconMoneyEl = document.getElementById("recon-money");
+const reconSearchEl = document.getElementById("recon-search");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
 const scanNoteEl = document.getElementById("scan-note");
@@ -148,6 +150,7 @@ let packHasBank = false;
 let packOpenKey = "";
 let lastPack = null;
 let reconFilter = "all";
+let reconSearch = "";
 let unlockFile = null;
 let tesseractChecked = false;
 let tesseractFound = true;
@@ -1654,18 +1657,71 @@ function reconStatusPill(status) {
   return chip;
 }
 
+function renderReconMoney(totals) {
+  if (!reconMoneyEl) return;
+  const api = window.CAReconSummary;
+  reconMoneyEl.innerHTML = "";
+  if (!api || !totals) {
+    reconMoneyEl.classList.add("hidden");
+    return;
+  }
+  reconMoneyEl.classList.remove("hidden");
+  for (const chip of api.reconMoneyChips(totals)) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "money-chip";
+    btn.dataset.reconFilter = chip.filter;
+    const label = document.createElement("span");
+    label.className = "money-chip-label";
+    label.textContent = chip.label;
+    const value = document.createElement("span");
+    value.className = "money-chip-value";
+    value.textContent = api.formatINR(chip.value);
+    btn.append(label, value);
+    reconMoneyEl.append(btn);
+  }
+}
+
+function hideReconWorkspace() {
+  if (reconMoneyEl) reconMoneyEl.classList.add("hidden");
+  if (reconSearchEl) reconSearchEl.classList.add("hidden");
+  if (reconFiltersEl) reconFiltersEl.classList.add("hidden");
+  if (reconTableEl) reconTableEl.innerHTML = "";
+}
+
 function renderRecon(pack) {
   lastPack = pack;
   if (!reconBlock) return;
   const api = window.CAReconSummary;
   if (!api || !api.hasRecon(pack)) {
-    reconBlock.classList.add("hidden");
-    if (reconTableEl) reconTableEl.innerHTML = "";
+    reconBlock.classList.remove("hidden");
+    hideReconWorkspace();
+    if (api && api.hasReconMissing(pack)) {
+      if (reconCountsEl) reconCountsEl.textContent = api.reconMissingText(pack);
+    } else {
+      reconBlock.classList.add("hidden");
+      if (reconCountsEl) reconCountsEl.textContent = "";
+    }
     return;
   }
   reconBlock.classList.remove("hidden");
-  if (reconCountsEl) reconCountsEl.textContent = api.reconCountsText(pack.recon.counts);
+  if (reconCountsEl) {
+    reconCountsEl.textContent = [
+      api.reconCountsText(pack.recon.counts),
+      api.reconTotalsText(pack.recon.totals),
+    ]
+      .filter(Boolean)
+      .join("  ·  ");
+  }
+  if (reconSearchEl) {
+    reconSearchEl.classList.remove("hidden");
+    if (document.activeElement !== reconSearchEl && reconSearchEl.value !== reconSearch) {
+      reconSearchEl.value = reconSearch;
+    }
+  }
+  renderReconMoney(pack.recon.totals);
   if (reconFiltersEl) {
+    reconFiltersEl.classList.remove("hidden");
     for (const btn of reconFiltersEl.querySelectorAll("[data-recon-filter]")) {
       const active = btn.getAttribute("data-recon-filter") === reconFilter;
       btn.classList.toggle("ghost", !active);
@@ -1676,18 +1732,27 @@ function renderRecon(pack) {
   const table = document.createElement("table");
   table.className = "preview-table";
   table.innerHTML =
-    "<thead><tr><th>Status</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th></tr></thead>";
+    "<thead><tr><th>Status</th><th>Why</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th></tr></thead>";
   const body = document.createElement("tbody");
-  const rows = api.filterReconRows(pack.recon.rows || [], reconFilter);
+  const rows = api.sortReconRows(
+    api.filterReconRows(pack.recon.rows || [], reconFilter, reconSearch)
+  );
+  if (!rows.length) {
+    body.innerHTML = '<tr><td colspan="8" class="recon-empty">No rows match this view.</td></tr>';
+  }
   for (const row of rows) {
     const tr = document.createElement("tr");
     const statusTd = document.createElement("td");
     statusTd.append(reconStatusPill(row.status));
+    const whyTd = document.createElement("td");
+    whyTd.className = "recon-reason";
+    whyTd.textContent = api.reconReason(row);
     const gstinTd = document.createElement("td");
     gstinTd.className = "gstin";
     gstinTd.textContent = dash(row.gstin);
     tr.append(
       statusTd,
+      whyTd,
       textCell(row.party),
       gstinTd,
       textCell(api.reconInvoiceDisplay(row)),
@@ -2763,6 +2828,22 @@ if (reconFiltersEl) {
     const btn = event.target.closest("[data-recon-filter]");
     if (!btn) return;
     reconFilter = btn.getAttribute("data-recon-filter") || "all";
+    renderRecon(lastPack);
+  });
+}
+
+if (reconMoneyEl) {
+  reconMoneyEl.addEventListener("click", (event) => {
+    const btn = event.target.closest("[data-recon-filter]");
+    if (!btn) return;
+    reconFilter = btn.getAttribute("data-recon-filter") || "all";
+    renderRecon(lastPack);
+  });
+}
+
+if (reconSearchEl) {
+  reconSearchEl.addEventListener("input", () => {
+    reconSearch = reconSearchEl.value || "";
     renderRecon(lastPack);
   });
 }
