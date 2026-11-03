@@ -13,6 +13,7 @@ datas = [
 binaries = []
 hiddenimports = [
     "apps",
+    "apps.version",
     "apps.desktop",
     "apps.desktop.app",
     "apps.engine",
@@ -81,6 +82,7 @@ a = Analysis(
 
 collected_modules = {entry[0] for entry in a.pure}
 required_modules = (
+    "apps.version",
     "apps.desktop.app",
     "apps.engine.pipeline",
     "apps.engine.dump",

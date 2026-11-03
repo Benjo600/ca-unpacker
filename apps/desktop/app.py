@@ -46,6 +46,7 @@ from apps.engine.pipeline import (
     open_pack_path,
 )
 from apps.engine.wipe import wipe_all
+from apps.version import APP_VERSION
 
 _WINDOW: webview.Window | None = None
 _PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
@@ -193,6 +194,7 @@ class DesktopApi:
         output = get_output_root()
         library = get_library_path()
         return {
+            "app_version": APP_VERSION,
             "firm": get_firm(),
             "clients": list_clients(),
             "library_path": str(library),
