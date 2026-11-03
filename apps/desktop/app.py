@@ -11,7 +11,13 @@ from urllib.parse import parse_qs, urlparse
 
 import webview
 
-from apps.engine.clients import create_client, delete_client, get_client, list_clients
+from apps.engine.clients import (
+    create_client,
+    delete_client,
+    get_client,
+    list_clients,
+    set_client_tolerances,
+)
 from apps.engine.db import StoredFile, get_engine, get_session
 from apps.engine.dump import (
     fail_job,
@@ -30,6 +36,7 @@ from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
 from apps.engine import decisions
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
+from apps.engine.recon_exports import write_audit_summary, write_exceptions_workbook
 from apps.engine.library import get_library_path, init_library, resolve_storage_key
 from apps.engine.settings import (
     get_output_root,
@@ -38,7 +45,13 @@ from apps.engine.settings import (
     set_guide_dismissed,
     set_output_root,
 )
-from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
+from apps.engine.periods import (
+    create_period,
+    get_period,
+    list_periods,
+    set_period_tolerances,
+    suggested_period_label,
+)
 from apps.engine.pdf_passwords import get_file_password, set_file_password as store_file_password
 from apps.engine.pipeline import (
     get_period_pack,
@@ -266,6 +279,24 @@ class DesktopApi:
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def set_client_tolerances(self, client_id: int, days, amount) -> dict:
+        try:
+            client = set_client_tolerances(int(client_id), days, amount)
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "client": client}
+
+    def set_period_tolerances(self, period_id: int, days=None, amount=None) -> dict:
+        try:
+            period = set_period_tolerances(int(period_id), days, amount)
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": True,
+            "period": period,
+            "periods": list_periods(period["client_id"]),
+        }
+
     def get_period_desk(self, period_id: int) -> dict:
         period = get_period(int(period_id))
         if period is None:
@@ -458,6 +489,55 @@ class DesktopApi:
 
     def clear_recon_decision(self, period_id: int, row_key: str) -> dict:
         return self.set_recon_decision(period_id, row_key, "", "", "")
+
+    def export_recon_exceptions(self, period_id: int) -> dict:
+        return self._export_recon_file(period_id, "exceptions")
+
+    def export_recon_audit_summary(self, period_id: int) -> dict:
+        return self._export_recon_file(period_id, "summary")
+
+    def _export_recon_file(self, period_id: int, kind: str) -> dict:
+        try:
+            pid = int(period_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Period was not found."}
+        pack = get_period_pack(pid)
+        if not pack or not pack.get("recon"):
+            return {
+                "ok": False,
+                "error": "Run the month first; there is no reconciliation to export.",
+            }
+        period = get_period(pid)
+        client = get_client(period["client_id"]) if period else None
+        folder = Path(pack.get("path") or "")
+        name = (
+            "Exceptions_Only.xlsx"
+            if kind == "exceptions"
+            else "Reconciliation_Summary.xlsx"
+        )
+        dest = folder / name
+        try:
+            if kind == "exceptions":
+                write_exceptions_workbook(
+                    dest,
+                    client_name=(client or {}).get("name") or "",
+                    period_label=(period or {}).get("label") or "",
+                    recon=pack.get("recon") or {},
+                )
+            else:
+                write_audit_summary(
+                    dest,
+                    client_name=(client or {}).get("name") or "",
+                    period_label=(period or {}).get("label") or "",
+                    recon=pack.get("recon") or {},
+                )
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not write the file: {exc}"}
+        try:
+            _open_path(str(dest))
+        except OSError:
+            pass
+        return {"ok": True, "path": str(dest)}
 
     def set_file_password(self, file_id: int, password: str) -> dict:
         if not str(password or "").strip():

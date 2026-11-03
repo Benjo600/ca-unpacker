@@ -247,7 +247,7 @@
             <div class="rail-subitem disabled" title="Runs inside the engine: drop bank PDFs into a month's dump tray."><span>Bank Extraction</span><span class="tag-active">v1.0</span></div>
             <div class="rail-subitem disabled" title="Runs inside the engine: drop a GSTR-2B JSON together with Tally or Zoho books."><span>GSTR-2B vs Books</span><span class="tag-active">v1.0</span></div>
             <div class="rail-subitem disabled" title="Runs inside the engine: drop a Tally daybook XML into a month's dump tray."><span>Tally Normalizer</span><span class="tag-active">v1.0</span></div>
-            <div class="rail-subitem disabled"><span>Reconciliation Desk</span><span class="tag-soon">SOON</span></div>
+            <div class="rail-subitem rail-subitem-link" id="nav-recon" role="button" tabindex="0" title="Jump to this month's GSTR-2B vs books reconciliation."><span>Reconciliation Desk</span><span class="tag-active">v1.0</span></div>
           </div>
         </div>
       </div>
@@ -496,6 +496,7 @@
                   <h2 class="box-title">GSTR-2B vs Books Match Engine</h2>
                   <p id="recon-counts" class="meta-desc"></p>
                   <p id="recon-decisions" class="recon-decisions-line"></p>
+                  <p id="recon-desk-note" class="recon-desk-note hidden">One month at a time — decisions are saved with this month.</p>
                   <div id="recon-tolerance" class="recon-tolerance hidden">
                     <span class="recon-tolerance-label">Allowance</span>
                     <label>Dates ± <input id="recon-tol-days" type="number" min="0" max="30" step="1" /></label>
@@ -504,6 +505,11 @@
                     <button type="button" id="recon-tol-save" class="filter-chip">SAVE</button>
                     <span id="recon-tol-note" class="recon-tol-note"></span>
                   </div>
+                </div>
+                <div class="recon-export-group">
+                  <button type="button" id="recon-export-exceptions" class="terminal-btn ghost recon-export-btn" disabled>Export exceptions</button>
+                  <button type="button" id="recon-export-summary" class="terminal-btn ghost recon-export-btn" disabled>One-page summary</button>
+                  <span id="recon-export-note" class="recon-tol-note" role="status" aria-live="polite"></span>
                 </div>
               </div>
               <div id="recon-money" class="money-strip hidden"></div>
