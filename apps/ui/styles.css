@@ -1399,6 +1399,190 @@ input::placeholder,
   padding: 14px 0 !important;
 }
 
+/* Reconciliation decisions */
+.recon-decisions-line {
+  margin: 2px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+  letter-spacing: 0.02em;
+  color: var(--term-text-secondary);
+}
+
+.recon-status-cell {
+  white-space: nowrap;
+}
+
+.recon-new-badge {
+  display: inline-block;
+  margin-left: 6px;
+  padding: 1px 5px;
+  border-radius: var(--radius-xs);
+  background: var(--term-blue-dim);
+  border: 1px solid rgba(59, 130, 246, 0.32);
+  color: var(--term-blue-core);
+  font-family: var(--font-mono);
+  font-size: 9px;
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+}
+
+.recon-decision-pill {
+  display: inline-block;
+  padding: 1px 6px;
+  border-radius: var(--radius-xs);
+  background: var(--term-bg-canvas);
+  border: 1px solid var(--term-border-subtle);
+  color: var(--term-text-muted);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 700;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
+.recon-decision-pill.accepted {
+  background: var(--term-green-dim);
+  color: var(--term-green-core);
+  border-color: rgba(16, 185, 129, 0.3);
+}
+
+.recon-decision-pill.rejected {
+  background: var(--term-red-dim);
+  color: var(--term-red-core);
+  border-color: rgba(239, 68, 68, 0.3);
+}
+
+.recon-decision-pill.noted {
+  background: var(--term-amber-dim);
+  color: var(--term-amber-core);
+  border-color: rgba(245, 158, 11, 0.3);
+}
+
+.recon-decide-cell {
+  white-space: nowrap;
+}
+
+.recon-decide-btn {
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  flex-wrap: nowrap;
+}
+
+.recon-decide-btn button.recon-decide-action {
+  height: 20px;
+  padding: 0 6px;
+  border-radius: var(--radius-xs);
+  background: var(--term-bg-canvas);
+  border: 1px solid var(--term-border-subtle);
+  color: var(--term-text-secondary);
+  font-family: var(--font-mono);
+  font-size: 9.5px;
+  font-weight: 600;
+  letter-spacing: 0.03em;
+}
+
+.recon-decide-btn button.recon-decide-action:hover {
+  color: var(--term-text-primary);
+  border-color: var(--term-border-medium);
+  background: var(--term-bg-hover);
+}
+
+.recon-decide-btn button.recon-decide-accept:hover {
+  color: var(--term-green-core);
+  border-color: rgba(16, 185, 129, 0.45);
+  background: var(--term-green-dim);
+}
+
+.recon-decide-btn button.recon-decide-reject:hover {
+  color: var(--term-red-core);
+  border-color: rgba(239, 68, 68, 0.45);
+  background: var(--term-red-dim);
+}
+
+.recon-decide-btn button.recon-decide-note:hover {
+  color: var(--term-amber-core);
+  border-color: rgba(245, 158, 11, 0.45);
+  background: var(--term-amber-dim);
+}
+
+.recon-decide-muted {
+  color: var(--term-text-dim);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.recon-decision-row > td {
+  padding: 0 !important;
+  background: var(--term-bg-base);
+  border-bottom: 1px solid var(--term-border-subtle);
+}
+
+.recon-decision-panel {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border-left: 3px solid var(--term-blue-core);
+  background: var(--term-bg-canvas);
+}
+
+.recon-decision-caption {
+  margin: 0;
+  color: var(--term-text-muted);
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.05em;
+  text-transform: uppercase;
+}
+
+.recon-reason-chips {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+}
+
+.recon-reason-chip {
+  height: 22px;
+}
+
+.recon-decision-note {
+  flex: 1 1 220px;
+  min-width: 160px;
+  height: 26px;
+  padding: 0 8px;
+  background: var(--term-bg-base);
+  border: 1px solid var(--term-border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--term-text-primary);
+  font-family: var(--font-mono);
+  font-size: 11px;
+}
+
+.recon-decision-note:focus {
+  border-color: var(--term-blue-core);
+  outline: none;
+}
+
+.recon-panel-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.recon-panel-save,
+.recon-panel-cancel {
+  height: 24px;
+  padding: 0 10px;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+}
+
 
 /* Financial Tables */
 .preview-table {

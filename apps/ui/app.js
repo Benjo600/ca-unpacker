@@ -41,6 +41,7 @@ const packMetaEl = document.getElementById("pack-meta");
 const packFilesEl = document.getElementById("pack-files");
 const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
+const reconDecisionsEl = document.getElementById("recon-decisions");
 const reconTableEl = document.getElementById("recon-table");
 const reconFiltersEl = document.getElementById("recon-filters");
 const reconMoneyEl = document.getElementById("recon-money");
@@ -151,6 +152,7 @@ let packOpenKey = "";
 let lastPack = null;
 let reconFilter = "all";
 let reconSearch = "";
+let reconDecisionDraft = null;
 let unlockFile = null;
 let tesseractChecked = false;
 let tesseractFound = true;
@@ -1687,6 +1689,225 @@ function hideReconWorkspace() {
   if (reconSearchEl) reconSearchEl.classList.add("hidden");
   if (reconFiltersEl) reconFiltersEl.classList.add("hidden");
   if (reconTableEl) reconTableEl.innerHTML = "";
+  renderReconDecisions(null);
+}
+
+function renderReconDecisions(decisions) {
+  if (!reconDecisionsEl) return;
+  const api = window.CAReconSummary;
+  if (!api || !decisions) {
+    reconDecisionsEl.textContent = "";
+    reconDecisionsEl.classList.add("hidden");
+    return;
+  }
+  const parts = [api.decisionCountsText(decisions), api.decisionMoneyText(decisions)].filter(Boolean);
+  reconDecisionsEl.textContent = parts.join("  ·  ");
+  reconDecisionsEl.classList.toggle("hidden", !parts.length);
+}
+
+const RECON_COLUMN_COUNT = 9;
+
+function reconRowKey(row) {
+  if (!row) return "";
+  return row.row_key == null ? "" : String(row.row_key).trim();
+}
+
+function reconNewBadge() {
+  const badge = document.createElement("span");
+  badge.className = "recon-new-badge";
+  badge.textContent = "New";
+  return badge;
+}
+
+function reconDecisionPill(row) {
+  const api = window.CAReconSummary;
+  const kind = row && row.decision != null ? String(row.decision).trim() : "";
+  const pill = document.createElement("span");
+  pill.className = "recon-decision-pill";
+  if (kind) pill.classList.add(kind);
+  pill.textContent = api ? api.decisionLabel(kind) : kind;
+  return pill;
+}
+
+function reconSetBusy(root, busy) {
+  if (!root) return;
+  for (const el of root.querySelectorAll("button, input")) el.disabled = busy;
+}
+
+function reconCurrentPeriodId() {
+  return currentPeriod && currentPeriod.id != null ? currentPeriod.id : null;
+}
+
+async function reconBridgeCall(kind, row, payload, busyRoot) {
+  const periodId = reconCurrentPeriodId();
+  if (periodId == null) {
+    showError(dumpErrorEl, "Open the period again before recording decisions.");
+    return false;
+  }
+  const rowKey = reconRowKey(row);
+  if (!rowKey) {
+    showError(dumpErrorEl, "This row has no key yet. Re-run the period and try again.");
+    return false;
+  }
+  const api = desktopApi();
+  const fnName = kind === "clear" ? "clear_recon_decision" : "set_recon_decision";
+  if (!api || typeof api[fnName] !== "function") {
+    showError(dumpErrorEl, "Update the app to record decisions.");
+    return false;
+  }
+  reconSetBusy(busyRoot, true);
+  try {
+    const result =
+      kind === "clear"
+        ? await api.clear_recon_decision(periodId, rowKey)
+        : await api.set_recon_decision(
+            periodId,
+            rowKey,
+            payload.decision,
+            payload.reasonCode || "",
+            payload.note || ""
+          );
+    if (!result || !result.ok) {
+      showError(dumpErrorEl, (result && result.error) || "Could not save that decision.");
+      reconSetBusy(busyRoot, false);
+      return false;
+    }
+    showError(dumpErrorEl, "");
+    reconDecisionDraft = null;
+    renderRecon(result.pack || lastPack);
+    return true;
+  } catch (err) {
+    showError(dumpErrorEl, "Could not save that decision.");
+    reconSetBusy(busyRoot, false);
+    return false;
+  }
+}
+
+function reconDecideGroup(row) {
+  const api = window.CAReconSummary;
+  const wrap = document.createElement("div");
+  wrap.className = "recon-decide-btn";
+  if (api && api.isDecidedRow(row)) {
+    wrap.append(reconDecisionPill(row));
+    const undo = document.createElement("button");
+    undo.type = "button";
+    undo.className = "ghost recon-decide-action recon-decide-undo";
+    undo.textContent = "Undo";
+    undo.addEventListener("click", async () => {
+      await reconBridgeCall("clear", row, null, wrap);
+    });
+    wrap.append(undo);
+    return wrap;
+  }
+  if (!row || !row.needs_decision) {
+    const muted = document.createElement("span");
+    muted.className = "recon-decide-muted";
+    muted.textContent = "—";
+    wrap.append(muted);
+    return wrap;
+  }
+  const choices = [
+    { decision: "accepted", label: "Accept", cls: "recon-decide-accept" },
+    { decision: "rejected", label: "Reject", cls: "recon-decide-reject" },
+    { decision: "noted", label: "Note", cls: "recon-decide-note" },
+  ];
+  for (const choice of choices) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = `ghost recon-decide-action ${choice.cls}`;
+    btn.textContent = choice.label;
+    btn.addEventListener("click", () => {
+      reconDecisionDraft = { rowKey: reconRowKey(row), decision: choice.decision, reasonCode: "" };
+      renderRecon(lastPack);
+    });
+    wrap.append(btn);
+  }
+  return wrap;
+}
+
+function reconDecisionPanelRow(row, draft) {
+  const api = window.CAReconSummary;
+  const tr = document.createElement("tr");
+  tr.className = "recon-decision-row";
+  const td = document.createElement("td");
+  td.colSpan = RECON_COLUMN_COUNT;
+
+  const panel = document.createElement("div");
+  panel.className = "recon-decision-panel";
+
+  const verb =
+    draft.decision === "rejected" ? "Reject" : draft.decision === "noted" ? "Note" : "Accept";
+  const caption = document.createElement("p");
+  caption.className = "recon-decision-caption";
+  caption.textContent = `${verb} this row · pick a reason (optional)`;
+
+  const chips = document.createElement("div");
+  chips.className = "recon-reason-chips";
+  let selectedReason = draft.reasonCode || "";
+
+  function syncReasonChips() {
+    for (const chip of chips.querySelectorAll("[data-reason-code]")) {
+      chip.classList.toggle("active", chip.getAttribute("data-reason-code") === selectedReason);
+    }
+  }
+
+  for (const reason of (api && api.DECISION_REASONS) || []) {
+    const chip = document.createElement("button");
+    chip.type = "button";
+    chip.className = "filter-chip recon-reason-chip";
+    chip.dataset.reasonCode = reason.code;
+    chip.textContent = reason.label;
+    chip.addEventListener("click", () => {
+      selectedReason = selectedReason === reason.code ? "" : reason.code;
+      draft.reasonCode = selectedReason;
+      syncReasonChips();
+    });
+    chips.append(chip);
+  }
+  syncReasonChips();
+
+  const noteEl = document.createElement("input");
+  noteEl.type = "text";
+  noteEl.className = "recon-decision-note";
+  noteEl.maxLength = 500;
+  noteEl.placeholder = "Anything to remember?";
+  noteEl.addEventListener("input", () => {
+    if (draft.decision !== "noted") return;
+    if (selectedReason) return;
+    if (!noteEl.value.trim()) return;
+    selectedReason = "other";
+    draft.reasonCode = selectedReason;
+    syncReasonChips();
+  });
+
+  const actions = document.createElement("div");
+  actions.className = "recon-panel-actions";
+  const save = document.createElement("button");
+  save.type = "button";
+  save.className = "terminal-btn-primary recon-panel-save";
+  save.textContent = "Save";
+  save.addEventListener("click", async () => {
+    await reconBridgeCall(
+      "set",
+      row,
+      { decision: draft.decision, reasonCode: selectedReason, note: noteEl.value.slice(0, 500) },
+      panel
+    );
+  });
+  const cancel = document.createElement("button");
+  cancel.type = "button";
+  cancel.className = "ghost recon-panel-cancel";
+  cancel.textContent = "Cancel";
+  cancel.addEventListener("click", () => {
+    reconDecisionDraft = null;
+    renderRecon(lastPack);
+  });
+  actions.append(save, cancel);
+
+  panel.append(caption, chips, noteEl, actions);
+  td.append(panel);
+  tr.append(td);
+  return tr;
 }
 
 function renderRecon(pack) {
@@ -1696,6 +1917,7 @@ function renderRecon(pack) {
   if (!api || !api.hasRecon(pack)) {
     reconBlock.classList.remove("hidden");
     hideReconWorkspace();
+    renderReconDecisions(null);
     if (api && api.hasReconMissing(pack)) {
       if (reconCountsEl) reconCountsEl.textContent = api.reconMissingText(pack);
     } else {
@@ -1713,6 +1935,7 @@ function renderRecon(pack) {
       .filter(Boolean)
       .join("  ·  ");
   }
+  renderReconDecisions(pack.recon.decisions);
   if (reconSearchEl) {
     reconSearchEl.classList.remove("hidden");
     if (document.activeElement !== reconSearchEl && reconSearchEl.value !== reconSearch) {
@@ -1732,24 +1955,35 @@ function renderRecon(pack) {
   const table = document.createElement("table");
   table.className = "preview-table";
   table.innerHTML =
-    "<thead><tr><th>Status</th><th>Why</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th></tr></thead>";
+    "<thead><tr><th>Status</th><th>Why</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th><th>Decide</th></tr></thead>";
   const body = document.createElement("tbody");
   const rows = api.sortReconRows(
     api.filterReconRows(pack.recon.rows || [], reconFilter, reconSearch)
   );
+  if (
+    reconDecisionDraft &&
+    !rows.some((row) => reconRowKey(row) === reconDecisionDraft.rowKey)
+  ) {
+    reconDecisionDraft = null;
+  }
   if (!rows.length) {
-    body.innerHTML = '<tr><td colspan="8" class="recon-empty">No rows match this view.</td></tr>';
+    body.innerHTML = '<tr><td colspan="9" class="recon-empty">No rows match this view.</td></tr>';
   }
   for (const row of rows) {
     const tr = document.createElement("tr");
     const statusTd = document.createElement("td");
+    statusTd.className = "recon-status-cell";
     statusTd.append(reconStatusPill(row.status));
+    if (row.is_new) statusTd.append(reconNewBadge());
     const whyTd = document.createElement("td");
     whyTd.className = "recon-reason";
     whyTd.textContent = api.reconReason(row);
     const gstinTd = document.createElement("td");
     gstinTd.className = "gstin";
     gstinTd.textContent = dash(row.gstin);
+    const decideTd = document.createElement("td");
+    decideTd.className = "recon-decide-cell";
+    decideTd.append(reconDecideGroup(row));
     tr.append(
       statusTd,
       whyTd,
@@ -1758,9 +1992,13 @@ function renderRecon(pack) {
       textCell(api.reconInvoiceDisplay(row)),
       moneyCell(row.amount_2b),
       moneyCell(row.amount_books),
-      textCell(row.bank_hint)
+      textCell(row.bank_hint),
+      decideTd
     );
     body.append(tr);
+    if (reconDecisionDraft && reconRowKey(row) === reconDecisionDraft.rowKey) {
+      body.append(reconDecisionPanelRow(row, reconDecisionDraft));
+    }
   }
   table.append(body);
   reconTableEl.append(table);
@@ -3408,6 +3646,16 @@ if (!window.pywebview) {
       get_job: async (jid) => ({ ok: true, job: { id: jid, status: "completed", progress: 100 } }),
       open_bank_pack: async (pid, key) => ({ ok: true }),
       open_pack_folder: async (pid) => ({ ok: true }),
+      set_recon_decision: async (pid, rowKey, decision, reasonCode, note) => ({
+        ok: true,
+        pack: null,
+        decision: { row_key: rowKey, decision, decision_reason_code: reasonCode, decision_note: note }
+      }),
+      clear_recon_decision: async (pid, rowKey) => ({
+        ok: true,
+        pack: null,
+        decision: { row_key: rowKey, decision: "" }
+      }),
       activate_license: async (key) => ({ ok: true, license: { plan: "Pro", tier: "pro", active: true } }),
       wipe_and_restart: async () => { location.reload(); return { ok: true }; },
       set_guide_dismissed: async (val) => { mockState.guide_dismissed = val; return { ok: true }; },

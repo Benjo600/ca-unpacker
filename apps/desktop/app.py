@@ -28,6 +28,7 @@ from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
+from apps.engine import decisions
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import get_library_path, init_library, resolve_storage_key
 from apps.engine.settings import (
@@ -409,6 +410,55 @@ class DesktopApi:
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def set_recon_decision(
+        self,
+        period_id: int,
+        row_key: str,
+        decision: str,
+        reason_code: str = "",
+        note: str = "",
+    ) -> dict:
+        try:
+            pid = int(period_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Period was not found."}
+        if get_period(pid) is None:
+            return {"ok": False, "error": "Period was not found."}
+        record: dict | None = None
+        saved: dict[str, dict] = {}
+        session = get_session()
+        try:
+            record = decisions.save(
+                session,
+                pid,
+                row_key,
+                decision,
+                reason_code=reason_code,
+                note=note,
+                decided_by=_firm_name(),
+            )
+            session.commit()
+            # The pack summary on disk was written at parse time, so re-attach
+            # the saved decisions here; otherwise the tray would not show the
+            # decision until the month was run again.
+            saved = decisions.load(session, pid)
+        except ValueError as exc:
+            session.rollback()
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            session.rollback()
+            return {"ok": False, "error": "Could not save that decision."}
+        finally:
+            session.close()
+        try:
+            pack = decisions.refresh_pack(get_period_pack(pid), saved)
+        except Exception:
+            pack = None
+        return {"ok": True, "pack": pack, "decision": record}
+
+    def clear_recon_decision(self, period_id: int, row_key: str) -> dict:
+        return self.set_recon_decision(period_id, row_key, "", "", "")
+
     def set_file_password(self, file_id: int, password: str) -> dict:
         if not str(password or "").strip():
             return {"ok": False, "error": "Enter the PDF password."}
@@ -502,6 +552,16 @@ class DesktopApi:
         if _WINDOW is not None:
             _WINDOW.destroy()
         return {"ok": True}
+
+
+def _firm_name() -> str:
+    """The firm name recorded on a saved decision's audit trail."""
+    try:
+        firm = get_firm()
+    except Exception:
+        return "Firm"
+    name = str((firm or {}).get("name") or "").strip()
+    return name or "Firm"
 
 
 def _open_path(path: str) -> None:

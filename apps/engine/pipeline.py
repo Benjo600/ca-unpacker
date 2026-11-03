@@ -7,6 +7,7 @@ import json
 import traceback
 from pathlib import Path
 
+from apps.engine import decisions
 from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session, utcnow
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
 from apps.engine.library import init_library, resolve_storage_key
@@ -285,6 +286,16 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 bank_txns.extend(item.get("rows") or [])
             recon_result = reconcile(purchase_rows, gstr_2b, bank_txns)
             _apply_gstr_2b_matches(gstr_2b, recon_result)
+            # Decisions are remembered per row so a re-run of the month keeps
+            # them. Only remember new keys; never delete the saved rows below.
+            fresh = decisions.remember(
+                session, period_id, decisions.row_keys(recon_result["rows"])
+            )
+            session.flush()
+            saved = decisions.load(session, period_id)
+            recon_result["decisions"] = decisions.apply(
+                recon_result["rows"], saved, fresh
+            )
 
         if bank_files:
             dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
@@ -376,6 +387,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 "counts": recon_result.get("counts") or {},
                 "totals": recon_result.get("totals") or {},
                 "rows": recon_result.get("rows") or [],
+                "decisions": recon_result.get("decisions") or {},
             }
         elif gstr_2b or purchase_rows:
             summary["recon_missing"] = "no_purchase_rows" if gstr_2b else "no_gstr_2b"
