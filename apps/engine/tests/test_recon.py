@@ -123,14 +123,18 @@ class ReconMatcherTests(unittest.TestCase):
         self.assertEqual(result["counts"]["matched"], 0)
         self.assertNotIn("matched", _statuses(result))
 
-    def test_cdn_2b_row_is_ignored(self) -> None:
+    def test_cdn_2b_row_is_kept_in_its_own_group(self) -> None:
         from apps.engine.recon import reconcile
 
         cdn = _gstr(document_type="CDNR", invoice_number="CN-9")
         result = reconcile([_books()], [cdn])
         self.assertEqual(result["counts"]["portal_only"], 0)
         self.assertEqual(result["counts"]["matched"], 0)
-        self.assertEqual(_statuses(result), ["books_only"])
+        self.assertEqual(result["counts"]["credit_note"], 1)
+        self.assertEqual(_statuses(result), ["books_only", "credit_note"])
+        self.assertGreater(result["totals"]["credit_note_total"], 0)
+        note = next(row for row in result["rows"] if row["status"] == "credit_note")
+        self.assertIn("credit is not lost", note["reason"])
 
     def test_recon_module_has_no_network_imports(self) -> None:
         self.assertTrue(RECON_PY.is_file(), "apps/engine/recon.py missing")

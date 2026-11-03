@@ -9,7 +9,23 @@
     portal_only: "Only in 2B",
     amount_mismatch: "Amount mismatch",
     likely: "Likely (confirm)",
+    tax_mismatch: "Tax differs",
+    duplicate: "Duplicate",
+    split_merged: "Split or merged",
+    credit_note: "Credit note",
   };
+
+  // Every status that is not a clean match. "unmatched" means all of these.
+  const UNMATCHED_STATUSES = [
+    "books_only",
+    "portal_only",
+    "amount_mismatch",
+    "likely",
+    "tax_mismatch",
+    "duplicate",
+    "split_merged",
+    "credit_note",
+  ];
 
   const DECISION_REASONS = [
     { code: "rate_difference", label: "Rate difference" },
@@ -77,13 +93,32 @@
 
   function reconCountsText(counts) {
     const n = counts || {};
-    return [
+    const parts = [
       `Matched ${Number(n.matched) || 0}`,
       `Only in books ${Number(n.books_only) || 0}`,
       `Only in 2B ${Number(n.portal_only) || 0}`,
       `Amount mismatch ${Number(n.amount_mismatch) || 0}`,
       `Likely ${Number(n.likely) || 0}`,
-    ].join(" · ");
+    ];
+    const extras = [
+      { key: "tax_mismatch", label: "Tax differs" },
+      { key: "duplicate", label: "Duplicate" },
+      { key: "split_merged", label: "Split or merged" },
+      { key: "credit_note", label: "Credit notes" },
+    ];
+    for (const extra of extras) {
+      const value = Number(n[extra.key]) || 0;
+      if (value > 0) parts.push(`${extra.label} ${value}`);
+    }
+    return parts.join(" · ");
+  }
+
+  function toleranceText(tolerances) {
+    const n = tolerances || {};
+    const days = Number(n.days);
+    const amount = Number(n.amount);
+    const dayWord = Number.isFinite(days) && days > 0 ? `Dates ±${days} days` : "Dates same day";
+    return `${dayWord} · Amounts ${formatINR(amount)}`;
   }
 
   function reconStatusLabel(status) {
@@ -101,10 +136,17 @@
     let list = rows || [];
     if (filter === "matched") list = list.filter((row) => row.status === "matched");
     else if (filter === "unmatched") {
-      list = list.filter((row) => row.status === "books_only" || row.status === "portal_only");
-    } else if (filter === "amount_mismatch") list = list.filter((row) => row.status === "amount_mismatch");
-    else if (filter === "likely") list = list.filter((row) => row.status === "likely");
-    else if (filter === "to_do") list = list.filter((row) => row.needs_decision === true && !isDecidedRow(row));
+      list = list.filter((row) => UNMATCHED_STATUSES.includes(row.status));
+    } else if (
+      filter === "amount_mismatch" ||
+      filter === "likely" ||
+      filter === "tax_mismatch" ||
+      filter === "duplicate" ||
+      filter === "split_merged" ||
+      filter === "credit_note"
+    ) {
+      list = list.filter((row) => row.status === filter);
+    } else if (filter === "to_do") list = list.filter((row) => row.needs_decision === true && !isDecidedRow(row));
     else if (filter === "decided") list = list.filter((row) => isDecidedRow(row));
     const needle = String(search || "").trim().toLowerCase();
     if (!needle) return list.slice();
@@ -213,6 +255,7 @@
     reconCountsText,
     reconStatusLabel,
     reconInvoiceDisplay,
+    toleranceText,
     filterReconRows,
     sortReconRows,
     reconReason,

@@ -38,7 +38,18 @@ REASONS = (
 )
 REASON_LABELS = dict(REASONS)
 
-NEEDS_DECISION = frozenset({"books_only", "portal_only", "amount_mismatch", "likely"})
+NEEDS_DECISION = frozenset(
+    {
+        "books_only",
+        "portal_only",
+        "amount_mismatch",
+        "likely",
+        "tax_mismatch",
+        "duplicate",
+        "split_merged",
+        "credit_note",
+    }
+)
 _ROW_KEY_LIMIT = 320
 _NOTE_LIMIT = 1000
 _BY_LIMIT = 200

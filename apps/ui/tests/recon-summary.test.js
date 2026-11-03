@@ -12,6 +12,7 @@ const {
   reconCountsText,
   reconStatusLabel,
   reconInvoiceDisplay,
+  toleranceText,
   filterReconRows,
   sortReconRows,
   reconReason,
@@ -59,11 +60,59 @@ assert.equal(
   "Matched 3 · Only in books 1 · Only in 2B 2 · Amount mismatch 1 · Likely 0"
 );
 
+// --- the four newer statuses only appear when they actually happened ---
+assert.equal(
+  reconCountsText({
+    matched: 3,
+    books_only: 1,
+    portal_only: 2,
+    amount_mismatch: 1,
+    likely: 0,
+    tax_mismatch: 0,
+    duplicate: 0,
+    split_merged: 0,
+    credit_note: 0,
+  }),
+  "Matched 3 · Only in books 1 · Only in 2B 2 · Amount mismatch 1 · Likely 0"
+);
+assert.equal(
+  reconCountsText({
+    matched: 3,
+    books_only: 1,
+    portal_only: 2,
+    amount_mismatch: 1,
+    likely: 2,
+    tax_mismatch: 4,
+    duplicate: 1,
+    split_merged: 2,
+    credit_note: 3,
+  }),
+  "Matched 3 · Only in books 1 · Only in 2B 2 · Amount mismatch 1 · Likely 2 · Tax differs 4 · Duplicate 1 · Split or merged 2 · Credit notes 3"
+);
+assert.equal(
+  reconCountsText({ matched: 1, credit_note: 2 }),
+  "Matched 1 · Only in books 0 · Only in 2B 0 · Amount mismatch 0 · Likely 0 · Credit notes 2"
+);
+assert.equal(
+  reconCountsText(null),
+  "Matched 0 · Only in books 0 · Only in 2B 0 · Amount mismatch 0 · Likely 0"
+);
+
+// --- allowance wording ---
+assert.equal(toleranceText({ days: 0, amount: 1 }), "Dates same day · Amounts ₹1.00");
+assert.equal(toleranceText({ days: 3, amount: 25.5 }), "Dates ±3 days · Amounts ₹25.50");
+assert.equal(toleranceText({ days: 0, amount: 0 }), "Dates same day · Amounts ₹0.00");
+assert.equal(toleranceText(null), "Dates same day · Amounts ₹—");
+
 assert.equal(reconStatusLabel("matched"), "Matched");
 assert.equal(reconStatusLabel("books_only"), "Only in books");
 assert.equal(reconStatusLabel("portal_only"), "Only in 2B");
 assert.equal(reconStatusLabel("amount_mismatch"), "Amount mismatch");
 assert.equal(reconStatusLabel("likely"), "Likely (confirm)");
+assert.equal(reconStatusLabel("tax_mismatch"), "Tax differs");
+assert.equal(reconStatusLabel("duplicate"), "Duplicate");
+assert.equal(reconStatusLabel("split_merged"), "Split or merged");
+assert.equal(reconStatusLabel("credit_note"), "Credit note");
 
 assert.equal(reconInvoiceDisplay({ invoice_2b: "2B-9", invoice_books: "BK-1" }), "2B-9");
 assert.equal(reconInvoiceDisplay({ invoice_2b: "", invoice_books: "BK-1" }), "BK-1");
@@ -75,15 +124,29 @@ const rows = [
   { status: "portal_only" },
   { status: "amount_mismatch" },
   { status: "likely" },
+  { status: "tax_mismatch" },
+  { status: "duplicate" },
+  { status: "split_merged" },
+  { status: "credit_note" },
 ];
-assert.equal(filterReconRows(rows, "all").length, 5);
+assert.equal(filterReconRows(rows, "all").length, 9);
 assert.deepEqual(
   filterReconRows(rows, "matched").map((row) => row.status),
   ["matched"]
 );
+// "unmatched" now means everything that is not a clean match.
 assert.deepEqual(
   filterReconRows(rows, "unmatched").map((row) => row.status),
-  ["books_only", "portal_only"]
+  [
+    "books_only",
+    "portal_only",
+    "amount_mismatch",
+    "likely",
+    "tax_mismatch",
+    "duplicate",
+    "split_merged",
+    "credit_note",
+  ]
 );
 assert.deepEqual(
   filterReconRows(rows, "amount_mismatch").map((row) => row.status),
@@ -93,6 +156,29 @@ assert.deepEqual(
   filterReconRows(rows, "likely").map((row) => row.status),
   ["likely"]
 );
+// Each new status has its own narrow view.
+assert.deepEqual(
+  filterReconRows(rows, "tax_mismatch").map((row) => row.status),
+  ["tax_mismatch"]
+);
+assert.deepEqual(
+  filterReconRows(rows, "duplicate").map((row) => row.status),
+  ["duplicate"]
+);
+assert.deepEqual(
+  filterReconRows(rows, "split_merged").map((row) => row.status),
+  ["split_merged"]
+);
+assert.deepEqual(
+  filterReconRows(rows, "credit_note").map((row) => row.status),
+  ["credit_note"]
+);
+// An unknown status is not swept into any narrow view.
+assert.deepEqual(
+  filterReconRows([{ status: "something_new" }, ...rows], "duplicate").map((row) => row.status),
+  ["duplicate"]
+);
+assert.equal(filterReconRows([{ status: "something_new" }], "unmatched").length, 0);
 
 assert.equal(
   gstrPreviewNote(false),
@@ -128,7 +214,7 @@ assert.deepEqual(
 );
 assert.deepEqual(
   sortReconRows(filterReconRows(mixed, "unmatched", "")).map((row) => row.party),
-  ["Shakti Steels", "Bharath Logistics"]
+  ["Shakti Steels", "Bharath Logistics", "Royal Papers"]
 );
 
 // --- reasons flow through as-is ---
@@ -263,10 +349,26 @@ assert.deepEqual(
 );
 assert.equal(filterReconRows(decisionRows, "to_do", "a-4").length, 0);
 assert.equal(filterReconRows(decisionRows, "all").length, 6);
-// A-1 is amount_mismatch, which the older "unmatched" view does not include.
+// "unmatched" now also covers amount mismatch and likely rows.
 assert.deepEqual(
   filterReconRows(decisionRows, "unmatched").map((row) => row.invoice_2b),
-  ["A-2", "A-3"]
+  ["A-1", "A-2", "A-3", "A-5"]
 );
+
+// --- credit notes keep their invoice number on screen ---
+const creditRow = {
+  status: "credit_note",
+  party: "Shakti Steels",
+  invoice_2b: "CN/2026/14",
+  invoice_books: "",
+  needs_decision: true,
+  decision: "",
+};
+assert.equal(reconInvoiceDisplay(creditRow), "CN/2026/14");
+assert.deepEqual(
+  filterReconRows([creditRow, ...decisionRows], "credit_note").map((row) => row.invoice_2b),
+  ["CN/2026/14"]
+);
+assert.equal(filterReconRows([creditRow, ...decisionRows], "unmatched").length, 5);
 
 console.log("recon-summary behavior tests passed");

@@ -27,6 +27,7 @@ MONEY_LABELS = (
     ("Difference", "gap"),
     ("Credit at risk (portal only)", "credit_at_risk"),
     ("Credit claimed without support (books only)", "unsupported_credit"),
+    ("Credit notes (kept separate)", "credit_note_total"),
 )
 DECISION_LABELS = (
     ("Rows accepted", "accepted"),
@@ -44,6 +45,10 @@ COUNT_ORDER = (
     ("portal_only", "portal_only"),
     ("amount_mismatch", "amount_mismatch"),
     ("likely", "likely"),
+    ("tax_mismatch", "Tax differs"),
+    ("duplicate", "Duplicate"),
+    ("split_merged", "Split or merged"),
+    ("credit_note", "Credit notes"),
 )
 GRID_HEADERS = [
     "Status",
@@ -62,6 +67,14 @@ GRID_HEADERS = [
     "Amount (2B)",
     "Amount (books)",
     "Amount diff",
+    "Taxable (2B)",
+    "Taxable (books)",
+    "CGST (2B)",
+    "CGST (books)",
+    "SGST (2B)",
+    "SGST (books)",
+    "IGST (2B)",
+    "IGST (books)",
     "Bank hint",
     "Source (2B)",
     "Source (books)",
@@ -83,14 +96,35 @@ GRID_KEYS = [
     "amount_2b",
     "amount_books",
     "amount_diff",
+    "tax_taxable_2b",
+    "tax_taxable_books",
+    "tax_cgst_2b",
+    "tax_cgst_books",
+    "tax_sgst_2b",
+    "tax_sgst_books",
+    "tax_igst_2b",
+    "tax_igst_books",
     "bank_hint",
     "source_2b",
     "source_books",
 ]
-MONEY_COLS = (14, 15, 16)
-UNMATCHED_STATUSES = {"books_only", "portal_only", "amount_mismatch", "likely"}
-FLAG_STATUSES = {"books_only", "portal_only", "amount_mismatch", "likely"}
-WIDTHS = [16, 46, 14, 30, 40, 16, 20, 18, 28, 20, 20, 14, 14, 14, 16, 14, 28, 28, 28]
+MONEY_COLS = (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+UNMATCHED_STATUSES = {
+    "books_only",
+    "portal_only",
+    "amount_mismatch",
+    "likely",
+    "tax_mismatch",
+    "duplicate",
+    "split_merged",
+    "credit_note",
+}
+FLAG_STATUSES = UNMATCHED_STATUSES
+WIDTHS = [
+    16, 46, 14, 30, 40, 16, 20, 18, 28, 20, 20, 14, 14, 14, 16, 14,
+    14, 14, 14, 14, 14, 14, 14, 14,
+    28, 28, 28,
+]
 
 
 def write_master_grid(path: Path, result: dict) -> Path:

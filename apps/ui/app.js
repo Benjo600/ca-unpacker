@@ -46,6 +46,12 @@ const reconTableEl = document.getElementById("recon-table");
 const reconFiltersEl = document.getElementById("recon-filters");
 const reconMoneyEl = document.getElementById("recon-money");
 const reconSearchEl = document.getElementById("recon-search");
+const reconToleranceEl = document.getElementById("recon-tolerance");
+const reconTolDaysEl = document.getElementById("recon-tol-days");
+const reconTolAmountEl = document.getElementById("recon-tol-amount");
+const reconTolMonthlyEl = document.getElementById("recon-tol-monthly");
+const reconTolSaveEl = document.getElementById("recon-tol-save");
+const reconTolNoteEl = document.getElementById("recon-tol-note");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
 const scanNoteEl = document.getElementById("scan-note");
@@ -153,6 +159,7 @@ let lastPack = null;
 let reconFilter = "all";
 let reconSearch = "";
 let reconDecisionDraft = null;
+let reconToleranceBusy = false;
 let unlockFile = null;
 let tesseractChecked = false;
 let tesseractFound = true;
@@ -1537,6 +1544,7 @@ async function openPeriod(periodId) {
     return;
   }
   currentPeriod = result.period;
+  if (result.client && result.client.id != null) currentClient = result.client;
   kindOptions = result.kinds || [];
   dumpTitleEl.textContent = result.period.label;
   dumpEyebrowEl.textContent = result.client ? result.client.name : "Dump tray";
@@ -1653,10 +1661,108 @@ function reconStatusPill(status) {
   const chip = document.createElement("span");
   chip.className = "pill";
   if (status === "matched") chip.classList.add("match");
-  else if (status === "likely") chip.classList.add("mute");
+  else if (status === "likely" || status === "credit_note") chip.classList.add("mute");
   else chip.classList.add("mismatch");
   chip.textContent = window.CAReconSummary.reconStatusLabel(status);
   return chip;
+}
+
+function reconClientId() {
+  return currentClient && currentClient.id != null ? currentClient.id : null;
+}
+
+function setReconTolNote(message) {
+  if (reconTolNoteEl) reconTolNoteEl.textContent = message || "";
+}
+
+function renderReconTolerance(tolerances) {
+  if (!reconToleranceEl) return;
+  const given = tolerances && typeof tolerances === "object" ? tolerances : null;
+  if (!given) {
+    reconToleranceEl.classList.add("hidden");
+    setReconTolNote("");
+    return;
+  }
+  reconToleranceEl.classList.remove("hidden");
+  const focused = document.activeElement;
+  const days = Number(given.days);
+  const amount = Number(given.amount);
+  if (reconTolDaysEl && focused !== reconTolDaysEl) {
+    reconTolDaysEl.value = String(Number.isFinite(days) ? days : 0);
+  }
+  if (reconTolAmountEl && focused !== reconTolAmountEl) {
+    reconTolAmountEl.value = (Number.isFinite(amount) ? amount : 0).toFixed(2);
+  }
+  if (reconTolMonthlyEl && focused !== reconTolMonthlyEl) reconTolMonthlyEl.checked = false;
+  if (reconTolSaveEl) reconTolSaveEl.disabled = reconToleranceBusy;
+}
+
+function reconTolValue(el, fallback) {
+  if (!el) return fallback;
+  const raw = String(el.value == null ? "" : el.value).trim();
+  if (!raw) return fallback;
+  const value = Number(raw);
+  return Number.isFinite(value) ? value : NaN;
+}
+
+async function reconSaveTolerances() {
+  if (reconToleranceBusy) return;
+  const api = desktopApi();
+  const monthly = Boolean(reconTolMonthlyEl && reconTolMonthlyEl.checked);
+  const days = reconTolValue(reconTolDaysEl, 0);
+  const amount = reconTolValue(reconTolAmountEl, 0);
+  if (!Number.isFinite(days) || days < 0 || !Number.isFinite(amount) || amount < 0) {
+    showError(dumpErrorEl, "Enter the allowance as zero or a positive number.");
+    return;
+  }
+  let call;
+  if (monthly) {
+    const periodId = reconCurrentPeriodId();
+    if (periodId == null) {
+      showError(dumpErrorEl, "Open the period again before changing the allowance.");
+      return;
+    }
+    if (!api || typeof api.set_period_tolerances !== "function") {
+      showError(dumpErrorEl, "Update the app to change the allowance.");
+      return;
+    }
+    call = () => api.set_period_tolerances(periodId, days, amount);
+  } else {
+    const clientId = reconClientId();
+    if (clientId == null) {
+      showError(dumpErrorEl, "Open the client again before changing the allowance.");
+      return;
+    }
+    if (!api || typeof api.set_client_tolerances !== "function") {
+      showError(dumpErrorEl, "Update the app to change the allowance.");
+      return;
+    }
+    call = () => api.set_client_tolerances(clientId, days, amount);
+  }
+  showError(dumpErrorEl, "");
+  reconToleranceBusy = true;
+  if (reconTolSaveEl) reconTolSaveEl.disabled = true;
+  try {
+    const result = await call();
+    if (!result || !result.ok) {
+      showError(dumpErrorEl, (result && result.error) || "Could not save the allowance.");
+      setReconTolNote("");
+      return;
+    }
+    if (monthly) {
+      const updated = result.period;
+      if (updated && currentPeriod && updated.id === currentPeriod.id) currentPeriod = updated;
+    } else if (result.client) {
+      currentClient = result.client;
+    }
+    setReconTolNote("Saved. Run the month again to apply.");
+  } catch (err) {
+    showError(dumpErrorEl, "Could not save the allowance.");
+    setReconTolNote("");
+  } finally {
+    reconToleranceBusy = false;
+    if (reconTolSaveEl) reconTolSaveEl.disabled = false;
+  }
 }
 
 function renderReconMoney(totals) {
@@ -1688,6 +1794,7 @@ function hideReconWorkspace() {
   if (reconMoneyEl) reconMoneyEl.classList.add("hidden");
   if (reconSearchEl) reconSearchEl.classList.add("hidden");
   if (reconFiltersEl) reconFiltersEl.classList.add("hidden");
+  if (reconToleranceEl) reconToleranceEl.classList.add("hidden");
   if (reconTableEl) reconTableEl.innerHTML = "";
   renderReconDecisions(null);
 }
@@ -1936,6 +2043,7 @@ function renderRecon(pack) {
       .join("  ·  ");
   }
   renderReconDecisions(pack.recon.decisions);
+  renderReconTolerance(pack.recon.tolerances);
   if (reconSearchEl) {
     reconSearchEl.classList.remove("hidden");
     if (document.activeElement !== reconSearchEl && reconSearchEl.value !== reconSearch) {
@@ -3086,6 +3194,21 @@ if (reconSearchEl) {
   });
 }
 
+if (reconTolSaveEl) {
+  reconTolSaveEl.addEventListener("click", () => {
+    reconSaveTolerances();
+  });
+}
+
+for (const el of [reconTolDaysEl, reconTolAmountEl]) {
+  if (!el) continue;
+  el.addEventListener("input", () => setReconTolNote(""));
+}
+
+if (reconTolMonthlyEl) {
+  reconTolMonthlyEl.addEventListener("change", () => setReconTolNote(""));
+}
+
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
 document.getElementById("guide-open").addEventListener("click", reopenGuide);
 
@@ -3640,7 +3763,8 @@ if (!window.pywebview) {
       },
       get_period_desk: async (pid) => {
         const p = mockPeriods.find(x => x.id === pid) || mockPeriods[0];
-        return { ok: true, period: p, files: mockFiles, pack: null };
+        const client = mockState.clients.find(c => c.id === p.client_id) || mockState.clients[0];
+        return { ok: true, client, period: p, files: mockFiles, pack: null };
       },
       start_dump: async (pid, paths) => ({ ok: true, job_id: "demo-job-1" }),
       get_job: async (jid) => ({ ok: true, job: { id: jid, status: "completed", progress: 100 } }),
@@ -3656,6 +3780,22 @@ if (!window.pywebview) {
         pack: null,
         decision: { row_key: rowKey, decision: "" }
       }),
+      set_client_tolerances: async (clientId, days, amount) => {
+        const client = mockState.clients.find(c => c.id === clientId) || mockState.clients[0];
+        client.tolerance_days = Number(days) || 0;
+        client.tolerance_amount = Number(amount) || 0;
+        return { ok: true, client };
+      },
+      set_period_tolerances: async (periodId, days, amount) => {
+        const period = mockPeriods.find(x => x.id === periodId) || mockPeriods[0];
+        period.tolerance_days_override = days == null ? null : Number(days) || 0;
+        period.tolerance_amount_override = amount == null ? null : Number(amount) || 0;
+        return {
+          ok: true,
+          period,
+          periods: mockPeriods.filter(x => x.client_id === period.client_id)
+        };
+      },
       activate_license: async (key) => ({ ok: true, license: { plan: "Pro", tier: "pro", active: true } }),
       wipe_and_restart: async () => { location.reload(); return { ok: true }; },
       set_guide_dismissed: async (val) => { mockState.guide_dismissed = val; return { ok: true }; },

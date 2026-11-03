@@ -496,6 +496,14 @@
                   <h2 class="box-title">GSTR-2B vs Books Match Engine</h2>
                   <p id="recon-counts" class="meta-desc"></p>
                   <p id="recon-decisions" class="recon-decisions-line"></p>
+                  <div id="recon-tolerance" class="recon-tolerance hidden">
+                    <span class="recon-tolerance-label">Allowance</span>
+                    <label>Dates ± <input id="recon-tol-days" type="number" min="0" max="30" step="1" /></label>
+                    <label>Amounts ₹ <input id="recon-tol-amount" type="number" min="0" max="1000" step="0.01" /></label>
+                    <label class="recon-tol-month"><input id="recon-tol-monthly" type="checkbox" /> This month only</label>
+                    <button type="button" id="recon-tol-save" class="filter-chip">SAVE</button>
+                    <span id="recon-tol-note" class="recon-tol-note"></span>
+                  </div>
                 </div>
               </div>
               <div id="recon-money" class="money-strip hidden"></div>
@@ -512,6 +520,10 @@
                 <button type="button" class="filter-chip" data-recon-filter="unmatched">UNMATCHED</button>
                 <button type="button" class="filter-chip" data-recon-filter="amount_mismatch">AMOUNT MISMATCH</button>
                 <button type="button" class="filter-chip" data-recon-filter="likely">LIKELY</button>
+                <button type="button" class="filter-chip" data-recon-filter="tax_mismatch">TAX DIFFERS</button>
+                <button type="button" class="filter-chip" data-recon-filter="duplicate">DUPLICATE</button>
+                <button type="button" class="filter-chip" data-recon-filter="split_merged">SPLIT/MERGED</button>
+                <button type="button" class="filter-chip" data-recon-filter="credit_note">CREDIT NOTES</button>
                 <button type="button" class="filter-chip" data-recon-filter="to_do">TO DO</button>
                 <button type="button" class="filter-chip" data-recon-filter="decided">DECIDED</button>
               </div>
