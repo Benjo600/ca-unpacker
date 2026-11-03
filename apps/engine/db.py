@@ -43,6 +43,8 @@ class Client(Base):
     gstin: Mapped[str | None] = mapped_column(String(15), nullable=True)
     bank_profile_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
     compliance_profile_key: Mapped[str | None] = mapped_column(String(20), nullable=True)
+    tolerance_days: Mapped[int] = mapped_column(Integer, default=0, server_default=text("0"))
+    tolerance_amount: Mapped[float] = mapped_column(Float, default=1.0, server_default=text("1.0"))
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -52,6 +54,8 @@ class Period(Base):
     id: Mapped[int] = mapped_column(primary_key=True)
     client_id: Mapped[int] = mapped_column(ForeignKey("clients.id"))
     label: Mapped[str] = mapped_column(String(80))
+    tolerance_days_override: Mapped[int | None] = mapped_column(Integer, nullable=True)
+    tolerance_amount_override: Mapped[float | None] = mapped_column(Float, nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

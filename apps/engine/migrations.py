@@ -11,7 +11,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.sql.schema import MetaData
 
 BASELINE_SCHEMA_VERSION = 1
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 
 APP_TABLES = frozenset(
     {
@@ -73,6 +73,24 @@ def _migrate_v2_to_v3(connection: Connection) -> None:
 
 
 MIGRATION_STEPS = {2: _migrate_v1_to_v2, 3: _migrate_v2_to_v3}
+
+
+def _migrate_v3_to_v4(connection: Connection) -> None:
+    statements = (
+        "ALTER TABLE clients ADD COLUMN tolerance_days INTEGER NOT NULL DEFAULT 0",
+        "ALTER TABLE clients ADD COLUMN tolerance_amount FLOAT NOT NULL DEFAULT 1.0",
+        "ALTER TABLE periods ADD COLUMN tolerance_days_override INTEGER",
+        "ALTER TABLE periods ADD COLUMN tolerance_amount_override FLOAT",
+    )
+    for statement in statements:
+        connection.exec_driver_sql(statement)
+
+
+MIGRATION_STEPS = {
+    2: _migrate_v1_to_v2,
+    3: _migrate_v2_to_v3,
+    4: _migrate_v3_to_v4,
+}
 
 
 def _database_path(engine: Engine) -> Path:

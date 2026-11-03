@@ -1303,6 +1303,7 @@ input::placeholder,
 /* Reconciliation Filters */
 .terminal-filter-strip {
   display: flex;
+  flex-wrap: wrap;
   gap: 4px;
   margin-bottom: 12px;
 }
@@ -1410,6 +1411,66 @@ input::placeholder,
 
 .recon-status-cell {
   white-space: nowrap;
+}
+
+/* Reconciliation allowance (tolerances) */
+.recon-tolerance {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 8px;
+  margin: 6px 0 0;
+  font-family: var(--font-mono);
+  font-size: 10px;
+  color: var(--term-text-muted);
+}
+
+.recon-tolerance-label {
+  font-weight: 700;
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--term-text-secondary);
+}
+
+.recon-tolerance label {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+  white-space: nowrap;
+}
+
+.recon-tolerance input[type="number"] {
+  width: 62px;
+  height: 22px;
+  padding: 0 6px;
+  background: var(--term-bg-canvas);
+  border: 1px solid var(--term-border-subtle);
+  border-radius: var(--radius-xs);
+  color: var(--term-text-primary);
+  font-family: var(--font-mono);
+  font-size: 10.5px;
+}
+
+.recon-tolerance input[type="number"]:focus {
+  border-color: var(--term-blue-core);
+  outline: none;
+}
+
+.recon-tolerance input[type="checkbox"] {
+  margin: 0;
+}
+
+.recon-tol-month {
+  color: var(--term-text-muted);
+}
+
+.recon-tol-note {
+  font-size: 10px;
+  color: var(--term-text-muted);
+}
+
+.recon-tol-note:empty {
+  display: none;
 }
 
 .recon-new-badge {
@@ -1651,6 +1712,12 @@ input::placeholder,
   background: var(--term-amber-dim);
   color: var(--term-amber-core);
   border: 1px solid rgba(245, 158, 11, 0.3);
+}
+
+.pill.mute {
+  background: var(--term-bg-canvas);
+  color: var(--term-text-muted);
+  border: 1px solid var(--term-border-subtle);
 }
 
 /* Review Box */

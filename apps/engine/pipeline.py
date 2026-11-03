@@ -10,6 +10,7 @@ from pathlib import Path
 from apps.engine import decisions
 from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session, utcnow
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
+from apps.engine.periods import effective_tolerances
 from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.outcomes import (
     evaluate_file_outcome,
@@ -284,7 +285,14 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             bank_txns: list[dict] = []
             for item in bank_files:
                 bank_txns.extend(item.get("rows") or [])
-            recon_result = reconcile(purchase_rows, gstr_2b, bank_txns)
+            tolerance_days, tolerance_amount = effective_tolerances(period_id)
+            recon_result = reconcile(
+                purchase_rows,
+                gstr_2b,
+                bank_txns,
+                date_tolerance_days=tolerance_days,
+                amount_tolerance=tolerance_amount,
+            )
             _apply_gstr_2b_matches(gstr_2b, recon_result)
             # Decisions are remembered per row so a re-run of the month keeps
             # them. Only remember new keys; never delete the saved rows below.
@@ -386,6 +394,10 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             summary["recon"] = {
                 "counts": recon_result.get("counts") or {},
                 "totals": recon_result.get("totals") or {},
+                "tolerances": {
+                    "days": tolerance_days,
+                    "amount": tolerance_amount,
+                },
                 "rows": recon_result.get("rows") or [],
                 "decisions": recon_result.get("decisions") or {},
             }
