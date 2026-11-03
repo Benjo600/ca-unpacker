@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import json
 import os
+import shutil
 import subprocess
 import sys
 import threading
@@ -11,6 +12,8 @@ from urllib.parse import parse_qs, urlparse
 
 import webview
 
+from apps.desktop import updater
+from apps.engine import updates
 from apps.engine.clients import create_client, delete_client, get_client, list_clients
 from apps.engine.db import get_engine
 from apps.engine.dump import (
@@ -54,6 +57,392 @@ _SINGLE_INSTANCE_MUTEX_NAME = "Global\\CAUnpackerSingleInstance"
 _startup_deep_link: str | None = None
 _mutex_handle: int | None = None
 
+_UPDATE_HELPER_NAME = "CAUnpackerUpdater.exe"
+_UPDATE_MANIFEST_FIELDS = (
+    "version",
+    "title",
+    "release_notes",
+    "installer_url",
+    "installer_sha256",
+    "installer_size",
+    "mandatory",
+    "published_at",
+    "minimum_supported_version",
+)
+
+_CHECK_FAILED_MESSAGE = (
+    "Could not check for updates. Check your internet connection and try again."
+)
+_DOWNLOAD_FAILED_MESSAGE = (
+    "Could not download the update. Check your internet connection and try again."
+)
+_CANCELLED_NOTE = "Update download cancelled."
+_NOTHING_TO_DOWNLOAD = "There is no update ready to download."
+_NO_DOWNLOAD_RUNNING = "No update download is running."
+_NOT_DOWNLOADED = "The update has not been downloaded yet."
+_UPDATE_BUSY = "An update task is already running. Wait for it to finish."
+_DEV_MODE_MESSAGE = (
+    "Updates install only in the packaged CA Unpacker app, not in a development copy."
+)
+_HELPER_MISSING = (
+    "The update helper is missing from this installation. Reinstall CA Unpacker."
+)
+_DAMAGED_INSTALLER = "The downloaded update is damaged. Download it again."
+_LAUNCH_FAILED = "Could not start the update helper. CA Unpacker is still open."
+_UPDATE_READ_FAILED = "Could not read the update status."
+
+
+class UpdateRefused(Exception):
+    """A user-facing refusal that leaves the stored update state unchanged."""
+
+
+def _copy_update_state(state: updates.UpdateState) -> updates.UpdateState:
+    return updates.UpdateState(
+        status=state.status,
+        version=state.version,
+        title=state.title,
+        notes=state.notes,
+        mandatory=bool(state.mandatory),
+        progress=float(state.progress),
+        error=state.error,
+        downloaded_path=state.downloaded_path,
+        installer_sha256=state.installer_sha256,
+        installer_size=int(state.installer_size),
+    )
+
+
+def _update_payload(state: updates.UpdateState) -> dict:
+    """The only update shape the web view ever sees: no paths, tokens or cache."""
+
+    return {
+        "status": state.status,
+        "version": state.version,
+        "title": state.title,
+        "notes": state.notes,
+        "mandatory": bool(state.mandatory),
+        "progress": float(state.progress),
+        "error": state.error,
+        "available": bool(state.available),
+    }
+
+
+def _manifest_from_cache(cache: dict) -> updates.ReleaseManifest | None:
+    entry = cache.get("manifest") if isinstance(cache, dict) else None
+    if not isinstance(entry, dict):
+        return None
+    values = {key: entry[key] for key in _UPDATE_MANIFEST_FIELDS if key in entry}
+    try:
+        return updates.ReleaseManifest(**values)
+    except TypeError:
+        return None
+
+
+class UpdateController:
+    """One process-wide update state machine driven by a single worker thread.
+
+    Every state change happens under ``self._lock``; long work (network check,
+    download, helper launch) runs outside it. Repeated calls while a worker is
+    busy return the current state instead of starting a second worker.
+    """
+
+    def __init__(self) -> None:
+        self._lock = threading.Lock()
+        self._state = updates.UpdateState()
+        self._manifest: updates.ReleaseManifest | None = None
+        self._installer: Path | None = None
+        self._worker: threading.Thread | None = None
+        self._cancel: threading.Event | None = None
+        self._busy = False
+
+    # -- reading ---------------------------------------------------------
+
+    def snapshot(self) -> updates.UpdateState:
+        with self._lock:
+            return _copy_update_state(self._state)
+
+    def wait_idle(self, timeout: float = 10.0) -> bool:
+        worker = self._worker
+        if worker is not None and worker is not threading.current_thread():
+            worker.join(timeout)
+        with self._lock:
+            return not self._busy
+
+    # -- checking --------------------------------------------------------
+
+    def check(self, force: bool = False) -> updates.UpdateState:
+        with self._lock:
+            if self._busy:
+                return _copy_update_state(self._state)
+            previous = self._state
+            self._state = updates.UpdateState(
+                status="checking",
+                version=previous.version,
+                title=previous.title,
+                notes=previous.notes,
+                mandatory=bool(previous.mandatory),
+            )
+            self._busy = True
+            self._worker = threading.Thread(
+                target=self._run_check,
+                args=(bool(force),),
+                name="update-check",
+                daemon=True,
+            )
+            self._worker.start()
+            return _copy_update_state(self._state)
+
+    def _run_check(self, force: bool) -> None:
+        try:
+            state = updates.check_for_update(force=force)
+            manifest = None
+            if state.status == "available":
+                manifest = _manifest_from_cache(updates.load_update_cache())
+        except ValueError as exc:
+            state = updates.UpdateState(status="error", error=str(exc))
+            manifest = None
+        except Exception:
+            state = updates.UpdateState(status="error", error=_CHECK_FAILED_MESSAGE)
+            manifest = None
+        with self._lock:
+            self._state = _copy_update_state(state)
+            self._manifest = manifest
+            self._installer = None
+            self._cancel = None
+            self._busy = False
+
+    # -- downloading -----------------------------------------------------
+
+    def download(self) -> updates.UpdateState:
+        with self._lock:
+            if self._busy:
+                return _copy_update_state(self._state)
+            if self._state.status != "available" or self._manifest is None:
+                raise UpdateRefused(_NOTHING_TO_DOWNLOAD)
+            self._busy = True
+            self._cancel = threading.Event()
+            self._state = _copy_update_state(self._state)
+            self._state.status = "downloading"
+            self._state.progress = 0.0
+            self._state.error = ""
+            self._state.downloaded_path = None
+            manifest = self._manifest
+            cancel = self._cancel
+            self._worker = threading.Thread(
+                target=self._run_download,
+                args=(manifest, cancel),
+                name="update-download",
+                daemon=True,
+            )
+            self._worker.start()
+            return _copy_update_state(self._state)
+
+    def _report_progress(self, fraction: float) -> None:
+        try:
+            value = max(0.0, min(1.0, float(fraction)))
+        except (TypeError, ValueError):
+            return
+        with self._lock:
+            if self._state.status == "downloading":
+                self._state.progress = value
+
+    def _run_download(
+        self, manifest: updates.ReleaseManifest, cancel: threading.Event
+    ) -> None:
+        try:
+            path = updates.download_update(
+                manifest,
+                progress_callback=self._report_progress,
+                cancel_event=cancel,
+            )
+        except updates.UpdateCancelled:
+            with self._lock:
+                self._state = updates.UpdateState(
+                    status="available",
+                    version=manifest.version,
+                    title=manifest.title,
+                    notes=manifest.release_notes,
+                    mandatory=bool(self._state.mandatory),
+                    error=_CANCELLED_NOTE,
+                    installer_sha256=manifest.installer_sha256,
+                    installer_size=manifest.installer_size,
+                )
+                self._installer = None
+        except ValueError as exc:
+            with self._lock:
+                self._state = updates.UpdateState(status="error", error=str(exc))
+                self._installer = None
+        except Exception:
+            with self._lock:
+                self._state = updates.UpdateState(
+                    status="error", error=_DOWNLOAD_FAILED_MESSAGE
+                )
+                self._installer = None
+        else:
+            with self._lock:
+                self._state = updates.UpdateState(
+                    status="ready",
+                    version=manifest.version,
+                    title=manifest.title,
+                    notes=manifest.release_notes,
+                    mandatory=bool(self._state.mandatory),
+                    progress=1.0,
+                    installer_sha256=manifest.installer_sha256,
+                    installer_size=manifest.installer_size,
+                )
+                self._installer = Path(path)
+        finally:
+            with self._lock:
+                self._cancel = None
+                self._busy = False
+
+    def cancel_download(self) -> updates.UpdateState:
+        with self._lock:
+            if self._state.status != "downloading" or self._cancel is None:
+                raise UpdateRefused(_NO_DOWNLOAD_RUNNING)
+            self._cancel.set()
+            return _copy_update_state(self._state)
+
+    # -- installing ------------------------------------------------------
+
+    def install(self, window=None) -> updates.UpdateState:
+        with self._lock:
+            if self._busy:
+                raise UpdateRefused(_UPDATE_BUSY)
+            state = _copy_update_state(self._state)
+            manifest = self._manifest
+            installer = self._installer
+            if state.status != "ready" or manifest is None or installer is None:
+                raise UpdateRefused(_NOT_DOWNLOADED)
+            self._busy = True
+        try:
+            return self._run_install(manifest, installer, window)
+        finally:
+            with self._lock:
+                self._busy = False
+
+    def _run_install(
+        self,
+        manifest: updates.ReleaseManifest,
+        installer: Path,
+        window,
+    ) -> updates.UpdateState:
+        if not getattr(sys, "frozen", False):
+            raise UpdateRefused(_DEV_MODE_MESSAGE)
+
+        try:
+            updater.verify_installer(
+                installer, manifest.installer_size, manifest.installer_sha256
+            )
+        except (updater.UpdaterError, OSError):
+            with self._lock:
+                self._state = updates.UpdateState(
+                    status="available",
+                    version=manifest.version,
+                    title=manifest.title,
+                    notes=manifest.release_notes,
+                    mandatory=bool(self._state.mandatory),
+                    error=_DAMAGED_INSTALLER,
+                    installer_sha256=manifest.installer_sha256,
+                    installer_size=manifest.installer_size,
+                )
+                self._installer = None
+            raise UpdateRefused(_DAMAGED_INSTALLER)
+
+        helper_source = Path(sys.executable).resolve().parent / _UPDATE_HELPER_NAME
+        if not helper_source.is_file():
+            raise UpdateRefused(_HELPER_MISSING)
+        helper_target = installer.parent / _UPDATE_HELPER_NAME
+        try:
+            shutil.copyfile(helper_source, helper_target)
+        except OSError:
+            raise UpdateRefused(_HELPER_MISSING)
+
+        command = [
+            str(helper_target),
+            "--installer",
+            str(installer),
+            "--parent-pid",
+            str(os.getpid()),
+            "--app-exe",
+            str(Path(sys.executable)),
+            "--expected-version",
+            manifest.version,
+            "--expected-size",
+            str(manifest.installer_size),
+            "--expected-sha256",
+            manifest.installer_sha256,
+        ]
+        try:
+            process = subprocess.Popen(command, cwd=str(helper_target.parent))
+        except OSError:
+            raise UpdateRefused(_LAUNCH_FAILED)
+        if process is None:
+            raise UpdateRefused(_LAUNCH_FAILED)
+
+        with self._lock:
+            self._state = updates.UpdateState(
+                status="installing",
+                version=manifest.version,
+                title=manifest.title,
+                notes=manifest.release_notes,
+                mandatory=bool(self._state.mandatory),
+                progress=1.0,
+                installer_sha256=manifest.installer_sha256,
+                installer_size=manifest.installer_size,
+            )
+            result = _copy_update_state(self._state)
+
+        # Only close the app once the helper is really running.
+        if window is not None:
+            try:
+                window.destroy()
+            except Exception:
+                pass
+        return result
+
+
+_UPDATE_CONTROLLER: UpdateController | None = None
+_UPDATE_CONTROLLER_LOCK = threading.Lock()
+
+
+def update_controller() -> UpdateController:
+    global _UPDATE_CONTROLLER
+    if _UPDATE_CONTROLLER is None:
+        with _UPDATE_CONTROLLER_LOCK:
+            if _UPDATE_CONTROLLER is None:
+                _UPDATE_CONTROLLER = UpdateController()
+    return _UPDATE_CONTROLLER
+
+
+def _update_response(state: updates.UpdateState) -> dict:
+    payload = _update_payload(state)
+    if state.status == "error" and state.error:
+        return {"ok": False, "error": state.error, "update": payload}
+    return {"ok": True, "update": payload}
+
+
+def _update_refusal_response(message: str, state: updates.UpdateState) -> dict:
+    return {"ok": False, "error": message, "update": _update_payload(state)}
+
+
+def _schedule_startup_update_check() -> None:
+    """One silent, non-blocking check once the window exists and the user is in."""
+
+    def work() -> None:
+        try:
+            if not auth.get_auth_state().get("signed_in"):
+                return
+            update_controller().check()
+        except Exception:
+            pass
+
+    try:
+        threading.Thread(
+            target=work, name="update-startup-check", daemon=True
+        ).start()
+    except Exception:
+        pass
+
 
 def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
     args = argv if argv is not None else sys.argv
@@ -78,6 +467,53 @@ class DesktopApi:
 
     def get_auth_state(self) -> dict:
         return auth.get_auth_state()
+
+    # -- updates ---------------------------------------------------------
+
+    def get_update_state(self, force_check: bool = False) -> dict:
+        controller = update_controller()
+        try:
+            if force_check:
+                state = controller.check(force=True)
+            else:
+                state = controller.snapshot()
+        except Exception:
+            return {"ok": False, "error": _UPDATE_READ_FAILED}
+        return _update_response(state)
+
+    def download_update(self) -> dict:
+        controller = update_controller()
+        try:
+            state = controller.download()
+        except UpdateRefused as exc:
+            return _update_refusal_response(str(exc), controller.snapshot())
+        except Exception:
+            return _update_refusal_response(
+                _DOWNLOAD_FAILED_MESSAGE, controller.snapshot()
+            )
+        return _update_response(state)
+
+    def cancel_update_download(self) -> dict:
+        controller = update_controller()
+        try:
+            state = controller.cancel_download()
+        except UpdateRefused as exc:
+            return _update_refusal_response(str(exc), controller.snapshot())
+        except Exception:
+            return _update_refusal_response(
+                _NO_DOWNLOAD_RUNNING, controller.snapshot()
+            )
+        return _update_response(state)
+
+    def install_update(self) -> dict:
+        controller = update_controller()
+        try:
+            state = controller.install(window=_WINDOW)
+        except UpdateRefused as exc:
+            return _update_refusal_response(str(exc), controller.snapshot())
+        except Exception:
+            return _update_refusal_response(_LAUNCH_FAILED, controller.snapshot())
+        return _update_response(state)
 
     def open_signup(self) -> dict:
         # Browser signup flow removed. Use in-app signup_with_password.
@@ -358,6 +794,10 @@ class DesktopApi:
         return {"ok": True, "paths": paths}
 
     def start_dump(self, period_id: int, paths: list[str]) -> dict:
+        try:
+            updates.assert_update_allows_ingest()
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
         if not paths:
             return {"ok": False, "error": "No files or folders were chosen."}
         try:
@@ -383,6 +823,10 @@ class DesktopApi:
             return {"ok": False, "error": str(exc)}
 
     def reparse_period(self, period_id: int) -> dict:
+        try:
+            updates.assert_update_allows_ingest()
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
         try:
             job = start_job(int(period_id))
         except ValueError as exc:
@@ -735,6 +1179,8 @@ def main() -> None:
             background_color="#2C3330",
         )
         _WINDOW.events.shown += lambda: _on_window_shown(api)
+        # Best-effort, non-blocking: only checks once the user is signed in.
+        _schedule_startup_update_check()
         webview.start(icon=app_icon_path())
     except Exception:
         _log_crash(traceback.format_exc())

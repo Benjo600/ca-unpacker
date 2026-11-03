@@ -15,7 +15,42 @@ if str(ROOT) not in sys.path:
 
 LICENSE_PY = ROOT / "apps" / "engine" / "license.py"
 DUMP_PY = ROOT / "apps" / "engine" / "dump.py"
+APP_PY = ROOT / "apps" / "desktop" / "app.py"
 _BANNED_NET = {"requests", "httpx", "urllib", "aiohttp"}
+
+
+class Stage9UpdateGateTests(unittest.TestCase):
+    """A required update must stop ingest before any job or quota work starts."""
+
+    def test_ingest_entry_points_check_the_update_gate_first(self) -> None:
+        source = APP_PY.read_text(encoding="utf-8")
+        tree = ast.parse(source)
+        api = next(
+            node
+            for node in tree.body
+            if isinstance(node, ast.ClassDef) and node.name == "DesktopApi"
+        )
+        methods = {
+            node.name: node for node in api.body if isinstance(node, ast.FunctionDef)
+        }
+        gate = "updates.assert_update_allows_ingest()"
+        for name in ("start_dump", "reparse_period"):
+            self.assertIn(name, methods)
+            body = ast.get_source_segment(source, methods[name]) or ""
+            self.assertIn(gate, body)
+            self.assertLess(
+                body.index(gate),
+                body.index("start_job("),
+                f"{name} must check the update gate before creating a job",
+            )
+            self.assertIn('"ok": False, "error": str(exc)', body)
+
+        dump_body = ast.get_source_segment(source, methods["start_dump"]) or ""
+        self.assertLess(
+            dump_body.index(gate),
+            dump_body.index("assert_can_ingest("),
+            "the quota check must stay after the update gate",
+        )
 
 
 class Stage9LicenseGateTests(unittest.TestCase):
