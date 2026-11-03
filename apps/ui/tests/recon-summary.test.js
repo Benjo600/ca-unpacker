@@ -2,6 +2,12 @@
 
 const assert = require("node:assert/strict");
 const {
+  DECISION_REASONS,
+  decisionLabel,
+  decisionReasonLabel,
+  decisionCountsText,
+  decisionMoneyText,
+  isDecidedRow,
   hasRecon,
   reconCountsText,
   reconStatusLabel,
@@ -172,5 +178,95 @@ assert.match(
 );
 assert.equal(reconMissingText({ recon_missing: "something-else" }), "");
 assert.equal(reconMissingText(null), "");
+
+// --- ready-made decision reasons, in the shipped order ---
+assert.deepEqual(
+  DECISION_REASONS.map((reason) => reason.code),
+  ["rate_difference", "credit_note_pending", "supplier_not_filed", "wrong_gstin", "other"]
+);
+assert.deepEqual(
+  DECISION_REASONS.map((reason) => reason.label),
+  ["Rate difference", "Credit note pending", "Supplier has not filed", "Wrong GSTIN", "Something else"]
+);
+assert.equal(decisionReasonLabel("wrong_gstin"), "Wrong GSTIN");
+assert.equal(decisionReasonLabel("nope"), "");
+
+// --- decision labels ---
+assert.equal(decisionLabel("accepted"), "Accepted");
+assert.equal(decisionLabel("rejected"), "Rejected");
+assert.equal(decisionLabel("noted"), "Noted");
+assert.equal(decisionLabel(""), "Not decided");
+assert.equal(decisionLabel(null), "Not decided");
+assert.equal(decisionLabel("something-else"), "Not decided");
+
+// --- who still owes a decision ---
+assert.equal(isDecidedRow({ decision: "accepted" }), true);
+assert.equal(isDecidedRow({ decision: "noted" }), true);
+assert.equal(isDecidedRow({ decision: "" }), false);
+assert.equal(isDecidedRow({ decision: "   " }), false);
+assert.equal(isDecidedRow({}), false);
+assert.equal(isDecidedRow(null), false);
+
+// --- decision counts line ---
+assert.equal(
+  decisionCountsText({
+    counts: { accepted: 3, rejected: 1, noted: 2, undecided: 5, new: 1, exceptions: 6 },
+  }),
+  "Accepted 3 · Rejected 1 · Noted 2 · Still to decide 5 · New 1"
+);
+assert.equal(
+  decisionCountsText({ counts: { accepted: 0, rejected: 0, noted: 0, undecided: 0, new: 0 } }),
+  "Accepted 0 · Rejected 0 · Noted 0 · Still to decide 0"
+);
+assert.equal(
+  decisionCountsText({ counts: { accepted: 0, rejected: 0, noted: 0, undecided: 0, new: 4 } }),
+  "Accepted 0 · Rejected 0 · Noted 0 · Still to decide 0 · New 4"
+);
+assert.equal(
+  decisionCountsText(null),
+  "Accepted 0 · Rejected 0 · Noted 0 · Still to decide 0"
+);
+
+// --- money already decided vs money still at stake ---
+assert.equal(
+  decisionMoneyText({
+    money: { accepted: 1000, rejected: 500, noted: 500, undecided: 2000, at_stake: 4000 },
+  }),
+  "Decided ₹2,000.00 of ₹4,000.00 still worth deciding"
+);
+assert.equal(
+  decisionMoneyText({ money: { accepted: 0, rejected: 0, noted: 0, at_stake: 0 } }),
+  "Decided ₹0.00 · nothing still worth deciding"
+);
+assert.match(decisionMoneyText(null), /^Decided ₹0\.00/);
+
+// --- to_do and decided filters ---
+const decisionRows = [
+  { status: "amount_mismatch", invoice_2b: "A-1", needs_decision: true, decision: "" },
+  { status: "books_only", invoice_2b: "A-2", needs_decision: true, decision: "accepted" },
+  { status: "portal_only", invoice_2b: "A-3", needs_decision: true, decision: "rejected" },
+  { status: "matched", invoice_2b: "A-4", needs_decision: false, decision: "" },
+  { status: "likely", invoice_2b: "A-5", needs_decision: true, decision: "noted" },
+  { status: "matched", invoice_2b: "A-6", needs_decision: false, decision: "" },
+];
+assert.deepEqual(
+  filterReconRows(decisionRows, "to_do").map((row) => row.invoice_2b),
+  ["A-1"]
+);
+assert.deepEqual(
+  filterReconRows(decisionRows, "decided").map((row) => row.invoice_2b),
+  ["A-2", "A-3", "A-5"]
+);
+assert.deepEqual(
+  filterReconRows(decisionRows, "decided", "a-3").map((row) => row.invoice_2b),
+  ["A-3"]
+);
+assert.equal(filterReconRows(decisionRows, "to_do", "a-4").length, 0);
+assert.equal(filterReconRows(decisionRows, "all").length, 6);
+// A-1 is amount_mismatch, which the older "unmatched" view does not include.
+assert.deepEqual(
+  filterReconRows(decisionRows, "unmatched").map((row) => row.invoice_2b),
+  ["A-2", "A-3"]
+);
 
 console.log("recon-summary behavior tests passed");

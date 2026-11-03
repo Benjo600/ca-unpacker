@@ -2,7 +2,16 @@ from __future__ import annotations
 
 from datetime import datetime, timezone
 
-from sqlalchemy import DateTime, Float, ForeignKey, Integer, String, create_engine, text
+from sqlalchemy import (
+    DateTime,
+    Float,
+    ForeignKey,
+    Integer,
+    String,
+    UniqueConstraint,
+    create_engine,
+    text,
+)
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
 
 from apps.engine.library import acquire_library_lock, get_db_path, init_library, release_library_lock
@@ -121,6 +130,23 @@ class DataPack(Base):
     balance_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     row_count: Mapped[int] = mapped_column(Integer, default=0)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
+class ReconDecision(Base):
+    __tablename__ = "recon_decisions"
+    __table_args__ = (UniqueConstraint("period_id", "row_key", name="uq_recon_decision_row"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_id: Mapped[int] = mapped_column(ForeignKey("periods.id"))
+    row_key: Mapped[str] = mapped_column(String(320))
+    decision: Mapped[str] = mapped_column(String(20), default="", server_default=text("''"))
+    reason_code: Mapped[str | None] = mapped_column(String(40), nullable=True)
+    reason_label: Mapped[str | None] = mapped_column(String(120), nullable=True)
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    decided_by: Mapped[str | None] = mapped_column(String(200), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    first_seen_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
 _engine = None

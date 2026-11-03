@@ -11,6 +11,61 @@
     likely: "Likely (confirm)",
   };
 
+  const DECISION_REASONS = [
+    { code: "rate_difference", label: "Rate difference" },
+    { code: "credit_note_pending", label: "Credit note pending" },
+    { code: "supplier_not_filed", label: "Supplier has not filed" },
+    { code: "wrong_gstin", label: "Wrong GSTIN" },
+    { code: "other", label: "Something else" },
+  ];
+
+  const DECISION_LABELS = {
+    accepted: "Accepted",
+    rejected: "Rejected",
+    noted: "Noted",
+  };
+
+  function decisionLabel(value) {
+    const key = value == null ? "" : String(value).trim();
+    return DECISION_LABELS[key] || "Not decided";
+  }
+
+  function isDecidedRow(row) {
+    if (!row) return false;
+    const decision = row.decision == null ? "" : String(row.decision).trim();
+    return decision !== "";
+  }
+
+  function decisionReasonLabel(code) {
+    const key = code == null ? "" : String(code).trim();
+    for (const reason of DECISION_REASONS) {
+      if (reason.code === key) return reason.label;
+    }
+    return "";
+  }
+
+  function decisionCountsText(decisions) {
+    const counts = (decisions && decisions.counts) || {};
+    const parts = [
+      `Accepted ${Number(counts.accepted) || 0}`,
+      `Rejected ${Number(counts.rejected) || 0}`,
+      `Noted ${Number(counts.noted) || 0}`,
+      `Still to decide ${Number(counts.undecided) || 0}`,
+    ];
+    const fresh = Number(counts.new) || 0;
+    if (fresh > 0) parts.push(`New ${fresh}`);
+    return parts.join(" · ");
+  }
+
+  function decisionMoneyText(decisions) {
+    const money = (decisions && decisions.money) || {};
+    const decided =
+      (Number(money.accepted) || 0) + (Number(money.rejected) || 0) + (Number(money.noted) || 0);
+    const atStake = Number(money.at_stake) || 0;
+    if (atStake <= 0) return `Decided ${formatINR(decided)} · nothing still worth deciding`;
+    return `Decided ${formatINR(decided)} of ${formatINR(atStake)} still worth deciding`;
+  }
+
   function hasRecon(pack) {
     const recon = pack && pack.recon;
     if (!recon) return false;
@@ -49,6 +104,8 @@
       list = list.filter((row) => row.status === "books_only" || row.status === "portal_only");
     } else if (filter === "amount_mismatch") list = list.filter((row) => row.status === "amount_mismatch");
     else if (filter === "likely") list = list.filter((row) => row.status === "likely");
+    else if (filter === "to_do") list = list.filter((row) => row.needs_decision === true && !isDecidedRow(row));
+    else if (filter === "decided") list = list.filter((row) => isDecidedRow(row));
     const needle = String(search || "").trim().toLowerCase();
     if (!needle) return list.slice();
     return list.filter((row) => {
@@ -146,6 +203,12 @@
   }
 
   return {
+    DECISION_REASONS,
+    decisionLabel,
+    decisionReasonLabel,
+    decisionCountsText,
+    decisionMoneyText,
+    isDecidedRow,
     hasRecon,
     reconCountsText,
     reconStatusLabel,

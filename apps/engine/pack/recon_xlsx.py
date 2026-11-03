@@ -28,6 +28,16 @@ MONEY_LABELS = (
     ("Credit at risk (portal only)", "credit_at_risk"),
     ("Credit claimed without support (books only)", "unsupported_credit"),
 )
+DECISION_LABELS = (
+    ("Rows accepted", "accepted"),
+    ("Rows rejected", "rejected"),
+    ("Rows noted", "noted"),
+    ("Still to decide", "undecided"),
+    ("New this run", "new"),
+)
+DECISION_NOTE = (
+    "A decision never changes the difference above; it only records what the firm decided."
+)
 COUNT_ORDER = (
     ("matched", "matched"),
     ("books_only", "books_only"),
@@ -38,6 +48,11 @@ COUNT_ORDER = (
 GRID_HEADERS = [
     "Status",
     "Why",
+    "Decision",
+    "Reason",
+    "Note",
+    "Decided by",
+    "Decided on",
     "GSTIN",
     "Party",
     "Invoice no (2B)",
@@ -54,6 +69,11 @@ GRID_HEADERS = [
 GRID_KEYS = [
     "status",
     "reason",
+    "decision_label",
+    "decision_reason",
+    "decision_note",
+    "decision_by",
+    "decision_at",
     "gstin",
     "party",
     "invoice_2b",
@@ -67,20 +87,21 @@ GRID_KEYS = [
     "source_2b",
     "source_books",
 ]
-MONEY_COLS = (9, 10, 11)
+MONEY_COLS = (14, 15, 16)
 UNMATCHED_STATUSES = {"books_only", "portal_only", "amount_mismatch", "likely"}
 FLAG_STATUSES = {"books_only", "portal_only", "amount_mismatch", "likely"}
-WIDTHS = [16, 46, 18, 28, 20, 20, 14, 14, 14, 16, 14, 28, 28, 28]
+WIDTHS = [16, 46, 14, 30, 40, 16, 20, 18, 28, 20, 20, 14, 14, 14, 16, 14, 28, 28, 28]
 
 
 def write_master_grid(path: Path, result: dict) -> Path:
     rows = list((result or {}).get("rows") or [])
     counts = (result or {}).get("counts") or {}
     totals = (result or {}).get("totals") or {}
+    decisions = (result or {}).get("decisions") or {}
     book = Workbook()
     cover = book.active
     cover.title = "Cover"
-    _write_cover(cover, counts, len(rows), totals)
+    _write_cover(cover, counts, len(rows), totals, decisions)
     _write_table(book.create_sheet("Grid"), rows)
     unmatched = [row for row in rows if str(row.get("status") or "") in UNMATCHED_STATUSES]
     _write_table(book.create_sheet("Unmatched"), unmatched)
@@ -90,7 +111,13 @@ def write_master_grid(path: Path, result: dict) -> Path:
     return path
 
 
-def _write_cover(sheet, counts: dict, row_count: int, totals: dict | None = None) -> None:
+def _write_cover(
+    sheet,
+    counts: dict,
+    row_count: int,
+    totals: dict | None = None,
+    decisions: dict | None = None,
+) -> None:
     sheet["A1"] = "Master reconciliation"
     style_title(sheet, "A1")
     sheet.append([])
@@ -107,12 +134,21 @@ def _write_cover(sheet, counts: dict, row_count: int, totals: dict | None = None
         sheet.cell(sheet.max_row, 2).number_format = MONEY_FORMAT
     money_last = sheet.max_row
     sheet.append([])
+    decision_counts = (decisions or {}).get("counts") or {}
+    decision_first = sheet.max_row + 1
+    for label, key in DECISION_LABELS:
+        sheet.append([label, int(decision_counts.get(key) or 0)])
+    decision_last = sheet.max_row
+    sheet.append([DECISION_NOTE])
+    style_note(sheet, f"A{sheet.max_row}")
+    sheet.append([])
     sheet.append([BANK_NOTE])
     style_note(sheet, f"A{sheet.max_row}")
     sheet.append([MONEY_NOTE])
     style_note(sheet, f"A{sheet.max_row}")
     style_count_pairs(sheet, first_pair, last_pair)
     style_count_pairs(sheet, money_first, money_last)
+    style_count_pairs(sheet, decision_first, decision_last)
     sheet.column_dimensions["A"].width = 44
     sheet.column_dimensions["B"].width = 16
     sheet.freeze_panes = "A2"
