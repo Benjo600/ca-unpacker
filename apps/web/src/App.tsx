@@ -4,6 +4,8 @@ import AdminLayout from "./components/AdminLayout";
 import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import Overview from "./pages/admin/Overview";
+import ReleaseEditor from "./pages/admin/ReleaseEditor";
+import Releases from "./pages/admin/Releases";
 import UserDetail from "./pages/admin/UserDetail";
 import Users from "./pages/admin/Users";
 
@@ -24,6 +26,9 @@ export default function App() {
         <Route index element={<Overview />} />
         <Route path="users" element={<Users />} />
         <Route path="users/:id" element={<UserDetail />} />
+        <Route path="releases" element={<Releases />} />
+        <Route path="releases/new" element={<ReleaseEditor />} />
+        <Route path="releases/:id" element={<ReleaseEditor />} />
       </Route>
       <Route path="*" element={<Navigate to="/signup" replace />} />
     </Routes>
