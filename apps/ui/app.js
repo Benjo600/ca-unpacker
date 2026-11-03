@@ -52,6 +52,11 @@ const reconTolAmountEl = document.getElementById("recon-tol-amount");
 const reconTolMonthlyEl = document.getElementById("recon-tol-monthly");
 const reconTolSaveEl = document.getElementById("recon-tol-save");
 const reconTolNoteEl = document.getElementById("recon-tol-note");
+const reconDeskNoteEl = document.getElementById("recon-desk-note");
+const reconExportExceptionsEl = document.getElementById("recon-export-exceptions");
+const reconExportSummaryEl = document.getElementById("recon-export-summary");
+const reconExportNoteEl = document.getElementById("recon-export-note");
+const navReconEl = document.getElementById("nav-recon");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
 const scanNoteEl = document.getElementById("scan-note");
@@ -160,6 +165,9 @@ let reconFilter = "all";
 let reconSearch = "";
 let reconDecisionDraft = null;
 let reconToleranceBusy = false;
+let reconExportBusy = false;
+let reconDeskNoteSeen = false;
+let reconHighlightTimer = null;
 let unlockFile = null;
 let tesseractChecked = false;
 let tesseractFound = true;
@@ -1538,6 +1546,7 @@ async function openClient(clientId) {
 
 async function openPeriod(periodId) {
   showError(dumpErrorEl, "");
+  setReconExportNote("");
   const result = await window.pywebview.api.get_period_desk(periodId);
   if (!result.ok) {
     showError(periodErrorEl, result.error);
@@ -1560,6 +1569,41 @@ async function openPeriod(periodId) {
     periodId: currentPeriod.id,
   });
   syncGuide();
+}
+
+function revealReconDeskNote() {
+  if (reconDeskNoteSeen) return;
+  reconDeskNoteSeen = true;
+  if (reconDeskNoteEl) reconDeskNoteEl.classList.remove("hidden");
+}
+
+function highlightReconBlock() {
+  if (!reconBlock) return;
+  reconBlock.classList.add("recon-block-highlight");
+  if (reconHighlightTimer) window.clearTimeout(reconHighlightTimer);
+  reconHighlightTimer = window.setTimeout(() => {
+    reconBlock.classList.remove("recon-block-highlight");
+    reconHighlightTimer = null;
+  }, 1600);
+}
+
+function openReconDesk() {
+  revealReconDeskNote();
+  if (currentPeriod) {
+    showPane("dump");
+    if (reconBlock) {
+      reconBlock.scrollIntoView({ behavior: "smooth", block: "start" });
+      highlightReconBlock();
+    }
+    return;
+  }
+  if (currentClient) {
+    openClient(currentClient.id);
+    showError(periodErrorEl, "Pick a month to open the Reconciliation Desk.");
+    return;
+  }
+  showPane("clients");
+  showError(deskErrorEl, "Pick a month to open the Reconciliation Desk.");
 }
 
 function money(value) {
@@ -1845,6 +1889,54 @@ function reconCurrentPeriodId() {
   return currentPeriod && currentPeriod.id != null ? currentPeriod.id : null;
 }
 
+function setReconExportNote(message) {
+  if (reconExportNoteEl) reconExportNoteEl.textContent = message || "";
+}
+
+function reconExportAvailable(pack) {
+  const api = window.CAReconSummary;
+  const hasRecon = Boolean(api && api.hasRecon(pack));
+  return hasRecon && reconCurrentPeriodId() != null;
+}
+
+function setReconExportEnabled(enabled) {
+  const active = Boolean(enabled) && !reconExportBusy;
+  if (reconExportExceptionsEl) reconExportExceptionsEl.disabled = !active;
+  if (reconExportSummaryEl) reconExportSummaryEl.disabled = !active;
+}
+
+async function reconExport(kind) {
+  if (reconExportBusy) return;
+  const periodId = reconCurrentPeriodId();
+  if (periodId == null) {
+    showError(dumpErrorEl, "Open the month again before exporting.");
+    return;
+  }
+  const api = desktopApi();
+  const fnName = kind === "summary" ? "export_recon_audit_summary" : "export_recon_exceptions";
+  if (!api || typeof api[fnName] !== "function") {
+    showError(dumpErrorEl, "Update the app to export the reconciliation files.");
+    return;
+  }
+  showError(dumpErrorEl, "");
+  setReconExportNote("");
+  reconExportBusy = true;
+  setReconExportEnabled(false);
+  try {
+    const result = await api[fnName](periodId);
+    if (!result || !result.ok) {
+      showError(dumpErrorEl, (result && result.error) || "Could not export that file.");
+      return;
+    }
+    setReconExportNote("Saved to the pack folder.");
+  } catch (err) {
+    showError(dumpErrorEl, "Could not export that file.");
+  } finally {
+    reconExportBusy = false;
+    setReconExportEnabled(reconExportAvailable(lastPack));
+  }
+}
+
 async function reconBridgeCall(kind, row, payload, busyRoot) {
   const periodId = reconCurrentPeriodId();
   if (periodId == null) {
@@ -2023,6 +2115,7 @@ function renderRecon(pack) {
   const api = window.CAReconSummary;
   if (!api || !api.hasRecon(pack)) {
     reconBlock.classList.remove("hidden");
+    setReconExportEnabled(false);
     hideReconWorkspace();
     renderReconDecisions(null);
     if (api && api.hasReconMissing(pack)) {
@@ -2034,6 +2127,7 @@ function renderRecon(pack) {
     return;
   }
   reconBlock.classList.remove("hidden");
+  setReconExportEnabled(reconExportAvailable(pack));
   if (reconCountsEl) {
     reconCountsEl.textContent = [
       api.reconCountsText(pack.recon.counts),
@@ -3090,6 +3184,15 @@ document.getElementById("back-to-periods").addEventListener("click", () => {
   if (currentClient) openClient(currentClient.id);
 });
 
+if (navReconEl) {
+  navReconEl.addEventListener("click", openReconDesk);
+  navReconEl.addEventListener("keydown", (event) => {
+    if (event.key !== "Enter" && event.key !== " " && event.key !== "Spacebar") return;
+    event.preventDefault();
+    openReconDesk();
+  });
+}
+
 const navBackBtn = document.getElementById("nav-back");
 const navForwardBtn = document.getElementById("nav-forward");
 const navRefreshBtn = document.getElementById("nav-refresh");
@@ -3207,6 +3310,14 @@ for (const el of [reconTolDaysEl, reconTolAmountEl]) {
 
 if (reconTolMonthlyEl) {
   reconTolMonthlyEl.addEventListener("change", () => setReconTolNote(""));
+}
+
+if (reconExportExceptionsEl) {
+  reconExportExceptionsEl.addEventListener("click", () => reconExport("exceptions"));
+}
+
+if (reconExportSummaryEl) {
+  reconExportSummaryEl.addEventListener("click", () => reconExport("summary"));
 }
 
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
@@ -3780,6 +3891,8 @@ if (!window.pywebview) {
         pack: null,
         decision: { row_key: rowKey, decision: "" }
       }),
+      export_recon_exceptions: async (pid) => ({ ok: true, path: "" }),
+      export_recon_audit_summary: async (pid) => ({ ok: true, path: "" }),
       set_client_tolerances: async (clientId, days, amount) => {
         const client = mockState.clients.find(c => c.id === clientId) || mockState.clients[0];
         client.tolerance_days = Number(days) || 0;
