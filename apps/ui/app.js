@@ -2184,9 +2184,27 @@ function pollJob(jobId) {
   if (pollTimer) clearInterval(pollTimer);
   pollTimer = setInterval(async () => {
     if (jobId !== activeJobId) return;
-    const result = await window.pywebview.api.get_job(jobId);
+    let result;
+    try {
+      result = await window.pywebview.api.get_job(jobId);
+    } catch (err) {
+      // The bridge is momentarily unavailable (window closing, engine busy).
+      // Try again on the next tick rather than spinning forever silently.
+      return;
+    }
     if (jobId !== activeJobId) return;
-    if (!result.ok) return;
+    if (!result || !result.ok) {
+      // A job that cannot be read is never coming back: stop polling and say so.
+      clearInterval(pollTimer);
+      pollTimer = null;
+      activeJobId = null;
+      setDumpBusy(false);
+      showError(
+        dumpErrorEl,
+        (result && result.error) || "This job could not be read. Reload the period.",
+      );
+      return;
+    }
     const job = result.job;
     if (job.status === "routing" || job.status === "queued" || job.status === "parsing") {
       renderFiles(job.files || []);
@@ -2435,7 +2453,19 @@ async function deleteClientRow(client) {
 }
 
 async function boot(prefetched) {
-  const state = prefetched || (await window.pywebview.api.get_state());
+  let state;
+  try {
+    state = prefetched || (await window.pywebview.api.get_state());
+  } catch (err) {
+    // Without this, one failed bridge call left the window blank forever.
+    showScreen("login");
+    showError(
+      authErrorEl,
+      "CA Unpacker could not read this PC's library. Close the app and open it again. " +
+        ((err && err.message) || ""),
+    );
+    return;
+  }
   lastAppState = state;
   guideDismissed = Boolean(state.guide_dismissed);
   authState = state.auth || null;

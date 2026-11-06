@@ -6,6 +6,7 @@ import re
 import shutil
 import uuid
 from dataclasses import dataclass
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 from apps.engine.classifier import classify_path
@@ -21,6 +22,11 @@ from apps.engine.pipeline import parse_period_banks
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
 TRUNCATION_WARNING = "This folder had more than 400 files. Only the first 400 were imported."
+INTERRUPTED_MESSAGE = (
+    "This period was interrupted before it finished. Add its files again, or "
+    "use Retry to process what is already here."
+)
+STALE_JOB_MINUTES = 30
 _SKIP_NAMES = {"readme.md", "readme.txt", "thumbs.db", "desktop.ini"}
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
 _FILE_OUTCOMES = ("processed", "needs_review", "failed", "unclassified")
@@ -277,12 +283,81 @@ def fail_job(job_id: int, message: str) -> None:
         session.close()
 
 
+def _as_naive_utc(value: datetime | None) -> datetime | None:
+    if value is None:
+        return None
+    if value.tzinfo is not None:
+        return value.astimezone(timezone.utc).replace(tzinfo=None)
+    return value
+
+
+def _mark_interrupted(job: Job) -> None:
+    job.status = "failed"
+    job.error_message = INTERRUPTED_MESSAGE
+    job.finished_at = utcnow()
+
+
+def reconcile_interrupted_work(grace_minutes: int = 0) -> int:
+    """Fail jobs left running by a crash or a restart.
+
+    Only one process may write the library, so at startup every active job is
+    orphaned - its thread died with the previous process. Left alone, such a job
+    blocks the period forever with "already being processed".
+    """
+    session = get_session()
+    if session is None:
+        return 0
+    failed = 0
+    try:
+        cutoff = _as_naive_utc(utcnow()) - timedelta(minutes=max(0, grace_minutes))
+        active = (
+            session.query(Job).filter(Job.status.in_(_ACTIVE_JOB_STATUSES)).all()
+        )
+        for job in active:
+            created = _as_naive_utc(job.created_at)
+            if created is not None and created > cutoff:
+                continue
+            _mark_interrupted(job)
+            failed += 1
+        if failed:
+            session.commit()
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        return 0
+    finally:
+        session.close()
+    return failed
+
+
+def _fail_stale_jobs(session, period_id: int) -> None:
+    """Free a period whose active job is older than the stale threshold."""
+    cutoff = _as_naive_utc(utcnow()) - timedelta(minutes=STALE_JOB_MINUTES)
+    active = (
+        session.query(Job)
+        .filter(Job.period_id == period_id, Job.status.in_(_ACTIVE_JOB_STATUSES))
+        .all()
+    )
+    changed = False
+    for job in active:
+        created = _as_naive_utc(job.created_at)
+        if created is not None and created > cutoff:
+            continue
+        _mark_interrupted(job)
+        changed = True
+    if changed:
+        session.commit()
+
+
 def start_job(period_id: int) -> dict:
     period = get_period(period_id)
     if period is None:
         raise ValueError("Period was not found.")
     session = get_session()
     try:
+        _fail_stale_jobs(session, period_id)
         active = (
             session.query(Job)
             .filter(Job.period_id == period_id, Job.status.in_(_ACTIVE_JOB_STATUSES))

@@ -81,7 +81,11 @@ def set_output_root(raw: str) -> Path:
     path = Path((raw or "").strip())
     if not str(path):
         raise ValueError("Choose a folder for the cleaned Excels.")
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # Callers only translate ValueError into a friendly message.
+        raise ValueError(f"That folder could not be created. {exc}") from exc
     probe = path / ".ca_unpacker_write_test"
     try:
         probe.write_text("ok", encoding="utf-8")

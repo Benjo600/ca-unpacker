@@ -27,6 +27,7 @@ from apps.engine.dump import (
     list_period_files,
     override_kind,
     preflight_paths,
+    reconcile_interrupted_work,
     reparse_period,
     start_job,
 )
@@ -660,9 +661,46 @@ def apply_window_icon(title: str = "CA Unpacker") -> None:
 
 
 def _log_crash(message: str) -> None:
-    log_path = get_library_path() / "app.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(message, encoding="utf-8")
+    """Best effort: a failing log must never hide the real failure."""
+    try:
+        log_path = get_library_path() / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(message, encoding="utf-8")
+    except OSError:
+        pass
+
+
+_FAULT_LOG = None
+
+
+def _enable_fault_handler() -> None:
+    """Record native crashes (PDF/OCR C extensions) to the library log."""
+    global _FAULT_LOG
+    if _FAULT_LOG is not None:
+        return
+    try:
+        import faulthandler
+
+        log_path = get_library_path() / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _FAULT_LOG = open(log_path, "a", encoding="utf-8")
+        faulthandler.enable(file=_FAULT_LOG)
+    except (OSError, AttributeError):
+        _FAULT_LOG = None
+
+
+def _show_fatal(message: str) -> None:
+    """Surface a startup failure as a dialog instead of a silent exit."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            0, message, "CA Unpacker", 0x00000010 | 0x00000000
+        )
+    except Exception:
+        pass
 
 
 def _run_job_thread(job_id: int, fn) -> None:
@@ -677,10 +715,23 @@ def _run_job_thread(job_id: int, fn) -> None:
         except Exception:
             import traceback
 
-            _log_crash(traceback.format_exc())
-            leftover = get_job(job_id)
-            if leftover is None or leftover.get("status") in {"queued", "routing", "parsing"}:
-                fail_job(job_id, "Could not process these files.")
+            # Log first, but never let a logging failure stop the job from
+            # being marked failed - a stuck "parsing" job blocks the period
+            # until the library is deleted.
+            try:
+                _log_crash(traceback.format_exc())
+            except Exception:
+                pass
+            try:
+                leftover = get_job(job_id)
+                if leftover is None or leftover.get("status") in {
+                    "queued",
+                    "routing",
+                    "parsing",
+                }:
+                    fail_job(job_id, "Could not process these files.")
+            except Exception:
+                pass
         finally:
             with _job_threads_lock:
                 _job_threads.discard(threading.current_thread())
@@ -899,17 +950,32 @@ def main() -> None:
     import traceback
 
     claim_taskbar_identity()
+    _enable_fault_handler()
+
     global _startup_deep_link
     deep_link = extract_deep_link_url()
     is_primary = _acquire_single_instance_mutex()
-    if deep_link and not is_primary:
-        _delegate_deep_link_to_running_instance(deep_link)
+    if not is_primary:
+        if deep_link:
+            _delegate_deep_link_to_running_instance(deep_link)
+        else:
+            # A second double-click used to exit silently and look like a crash.
+            _show_fatal(
+                "CA Unpacker is already open.\n\n"
+                "Switch to the window that is already running, or close it and "
+                "try again."
+            )
         return
     _startup_deep_link = deep_link
 
     try:
         init_library()
         get_engine()
+        # Free any period left mid-parse by the last crash or restart.
+        try:
+            reconcile_interrupted_work()
+        except Exception:
+            pass
         # Claim caunpacker:// so browser sign-in can hand the session back.
         # Best effort: the in-app form still works if this fails.
         registered, err = ensure_registered()
@@ -926,7 +992,9 @@ def main() -> None:
             logging.getLogger(__name__).info(
                 "Registered caunpacker:// protocol for browser handoff"
             )
-        _startup_auth_sync()
+        # Auth sync talks to the network (up to three round trips). Do it in the
+        # background so the window appears immediately instead of after ~45s.
+        threading.Thread(target=_startup_auth_sync, daemon=True).start()
         global _WINDOW
         api = DesktopApi()
         _WINDOW = webview.create_window(
@@ -941,5 +1009,12 @@ def main() -> None:
         _WINDOW.events.shown += lambda: _on_window_shown(api)
         webview.start(icon=app_icon_path())
     except Exception:
-        _log_crash(traceback.format_exc())
+        detail = traceback.format_exc()
+        _log_crash(detail)
+        last_line = detail.strip().splitlines()[-1] if detail.strip() else ""
+        _show_fatal(
+            "CA Unpacker could not start.\n\n"
+            f"{last_line}\n\n"
+            f"Details were written to:\n{get_library_path() / 'app.log'}"
+        )
         raise

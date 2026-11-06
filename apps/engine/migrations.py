@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 import os
 import sqlite3
 from collections.abc import Callable, Mapping
@@ -12,6 +13,8 @@ from sqlalchemy.sql.schema import MetaData
 
 BASELINE_SCHEMA_VERSION = 1
 LATEST_SCHEMA_VERSION = 3
+
+_log = logging.getLogger(__name__)
 
 APP_TABLES = frozenset(
     {"firms", "clients", "periods", "jobs", "files", "extracted_rows", "data_packs"}
@@ -110,6 +113,63 @@ def _create_version_table(connection: Connection) -> None:
     )
 
 
+def _column_default_literal(column) -> str | None:
+    """A literal SQLite accepts in ADD COLUMN ... NOT NULL DEFAULT <here>."""
+    name = column.name.lower()
+    if name.endswith("_json"):
+        return "'{}'"
+    try:
+        python_type = column.type.python_type
+    except (NotImplementedError, AttributeError):
+        return None
+    if python_type is bool:
+        return "0"
+    if python_type is int:
+        return "0"
+    if python_type is float:
+        return "0.0"
+    if python_type is str:
+        return "''"
+    return None
+
+
+def _add_column_statement(connection: Connection, table_name: str, column) -> str:
+    type_sql = column.type.compile(dialect=connection.dialect)
+    literal = _column_default_literal(column)
+    if not column.nullable and literal is not None:
+        tail = f" NOT NULL DEFAULT {literal}"
+    else:
+        # Dates and other values have no safe literal: add them nullable so the
+        # repair cannot write junk into existing rows.
+        tail = ""
+    return f'ALTER TABLE "{table_name}" ADD COLUMN "{column.name}" {type_sql}{tail}'
+
+
+def repair_missing_columns(connection: Connection, metadata: MetaData) -> list[str]:
+    """Add columns this build expects but the file on disk does not have.
+
+    Libraries written by a newer build, or by a build whose model changed
+    without a migration, end up missing columns the code reads on every query -
+    which surfaced as an unopenable app. SQLite only supports additive column
+    changes, so that is all this does; nothing is dropped or rewritten.
+    """
+    inspector = inspect(connection)
+    existing_tables = set(inspector.get_table_names())
+    added: list[str] = []
+    for table_name, table in metadata.tables.items():
+        if table_name not in existing_tables:
+            continue
+        present = {column["name"] for column in inspector.get_columns(table_name)}
+        for column in table.columns:
+            if column.name in present:
+                continue
+            connection.exec_driver_sql(
+                _add_column_statement(connection, table_name, column)
+            )
+            added.append(f"{table_name}.{column.name}")
+    return added
+
+
 def _create_fresh_schema(connection: Connection, metadata: MetaData) -> None:
     metadata.create_all(connection)
     _create_version_table(connection)
@@ -125,7 +185,13 @@ def ensure_schema(
     *,
     migration_steps: Mapping[int, Migration] | None = None,
 ) -> None:
-    """Create the latest schema or transactionally upgrade an existing database."""
+    """Create the latest schema, upgrade an older one, or open a newer one.
+
+    A library written by a newer build used to abort startup outright. It now
+    opens as-is (numbered migrations cannot run backwards) and any column this
+    build reads but the file lacks is added, so an app update cannot leave the
+    user with a window that refuses to start.
+    """
     with engine.connect() as connection:
         connection.exec_driver_sql("BEGIN IMMEDIATE")
         try:
@@ -134,37 +200,53 @@ def ensure_schema(
                 _create_fresh_schema(connection, metadata)
             else:
                 current_version = _read_version(connection, table_names)
-                if current_version > LATEST_SCHEMA_VERSION:
-                    raise RuntimeError(
-                        f"Database schema v{current_version} is newer than supported "
-                        f"v{LATEST_SCHEMA_VERSION}"
-                    )
                 steps = MIGRATION_STEPS if migration_steps is None else migration_steps
-                missing_steps = [
-                    version
-                    for version in range(current_version + 1, LATEST_SCHEMA_VERSION + 1)
-                    if version not in steps
-                ]
-                if missing_steps:
-                    raise RuntimeError(f"Missing database migration steps: {missing_steps}")
-                if current_version < LATEST_SCHEMA_VERSION:
-                    create_backup(
-                        _database_path(engine), current_version, LATEST_SCHEMA_VERSION
+                if current_version > LATEST_SCHEMA_VERSION:
+                    # Another build already moved this library forward. Numbered
+                    # migrations cannot go backwards, so open it read/write as it
+                    # is instead of refusing to start, then make sure every column
+                    # this build reads actually exists.
+                    _log.warning(
+                        "Library schema v%s is newer than this build supports (v%s); "
+                        "opening it without migrating",
+                        current_version,
+                        LATEST_SCHEMA_VERSION,
                     )
-                    if VERSION_TABLE not in table_names:
-                        _create_version_table(connection)
-                        connection.exec_driver_sql(
-                            f"INSERT INTO {VERSION_TABLE} (version) VALUES (?)",
-                            (current_version,),
+                else:
+                    missing_steps = [
+                        version
+                        for version in range(current_version + 1, LATEST_SCHEMA_VERSION + 1)
+                        if version not in steps
+                    ]
+                    if missing_steps:
+                        raise RuntimeError(
+                            f"Missing database migration steps: {missing_steps}"
                         )
-                    for version in range(
-                        current_version + 1, LATEST_SCHEMA_VERSION + 1
-                    ):
-                        steps[version](connection)
-                        connection.exec_driver_sql(
-                            f"UPDATE {VERSION_TABLE} SET version = ?",
-                            (version,),
+                    if current_version < LATEST_SCHEMA_VERSION:
+                        create_backup(
+                            _database_path(engine), current_version, LATEST_SCHEMA_VERSION
                         )
+                        if VERSION_TABLE not in table_names:
+                            _create_version_table(connection)
+                            connection.exec_driver_sql(
+                                f"INSERT INTO {VERSION_TABLE} (version) VALUES (?)",
+                                (current_version,),
+                            )
+                        for version in range(
+                            current_version + 1, LATEST_SCHEMA_VERSION + 1
+                        ):
+                            steps[version](connection)
+                            connection.exec_driver_sql(
+                                f"UPDATE {VERSION_TABLE} SET version = ?",
+                                (version,),
+                            )
+                repaired = repair_missing_columns(connection, metadata)
+                if repaired:
+                    _log.warning(
+                        "Library was missing columns this build needs and they were "
+                        "added: %s",
+                        ", ".join(repaired),
+                    )
         except BaseException:
             connection.rollback()
             raise
