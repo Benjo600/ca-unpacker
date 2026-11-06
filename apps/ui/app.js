@@ -92,6 +92,7 @@ const profileButtonEl = document.getElementById("profile-button");
 const profilePanelEl = document.getElementById("profile-panel");
 const profileInitialEl = document.getElementById("profile-initial");
 const profileEmailEl = document.getElementById("profile-email");
+const profileRailEmailEl = document.getElementById("profile-rail-email");
 const profilePlanEl = document.getElementById("profile-plan");
 const profileMeterEl = document.getElementById("profile-meter");
 const profileMeterFillEl = document.getElementById("profile-meter-fill");
@@ -1033,9 +1034,15 @@ function renderQuotaBanner(state) {
     profileInitialEl.textContent = email.trim().charAt(0) || "·";
   }
   if (profileButtonEl) {
-    profileButtonEl.title = email ? `Account — ${email}` : "Account";
+    profileButtonEl.setAttribute(
+      "aria-label",
+      email ? `Account - ${email}` : "Account",
+    );
   }
   if (profileEmailEl) profileEmailEl.textContent = email;
+  if (profileRailEmailEl) {
+    profileRailEmailEl.textContent = email || "Signed in";
+  }
 
   const offline = auth.offline ? " · offline" : "";
   if (profilePlanEl) {
@@ -2774,12 +2781,26 @@ if (authForgotBtn) {
     showError(authNoticeEl, "If that email has an account, a reset link is on its way.");
   });
 }
+function positionProfilePanel() {
+  if (!profilePanelEl || !profileButtonEl) return;
+  // The rail scrolls and clips horizontally, so the docket is fixed beside it.
+  const anchor = profileButtonEl.getBoundingClientRect();
+  const rail = profileButtonEl.closest(".rail");
+  const railRight = rail ? rail.getBoundingClientRect().right : anchor.right;
+  const width = profilePanelEl.offsetWidth || 260;
+  const left = Math.min(railRight + 12, window.innerWidth - width - 12);
+  const bottom = Math.max(12, window.innerHeight - anchor.bottom);
+  profilePanelEl.style.left = `${Math.round(Math.max(12, left))}px`;
+  profilePanelEl.style.bottom = `${Math.round(bottom)}px`;
+}
+
 if (profileButtonEl && profilePanelEl) {
   profileButtonEl.addEventListener("click", (event) => {
     event.stopPropagation();
     const open = profilePanelEl.hidden;
     profilePanelEl.hidden = !open;
     profileButtonEl.setAttribute("aria-expanded", open ? "true" : "false");
+    if (open) positionProfilePanel();
   });
   document.addEventListener("click", (event) => {
     if (profilePanelEl.hidden) return;
@@ -2790,6 +2811,9 @@ if (profileButtonEl && profilePanelEl) {
       closeProfilePanel();
       profileButtonEl.focus();
     }
+  });
+  window.addEventListener("resize", () => {
+    if (!profilePanelEl.hidden) positionProfilePanel();
   });
 }
 
