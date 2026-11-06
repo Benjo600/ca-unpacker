@@ -215,6 +215,23 @@ function updateNavButtons() {
   if (forwardBtn) forwardBtn.disabled = navBusy || navIndex < 0 || navIndex >= navHistory.length - 1;
 }
 
+let navPersistTimer = null;
+
+function persistNavLocation(entry) {
+  const api = window.pywebview && window.pywebview.api;
+  if (!api || !api.save_ui_location || !entry) return;
+  if (navPersistTimer) clearTimeout(navPersistTimer);
+  // Best effort: losing the last screen is not worth interrupting the user for.
+  navPersistTimer = setTimeout(() => {
+    navPersistTimer = null;
+    try {
+      api.save_ui_location(entry);
+    } catch {
+      /* ignore */
+    }
+  }, 600);
+}
+
 function recordNav(entry) {
   if (navSilent || !entry) return;
   const last = navHistory[navIndex];
@@ -226,6 +243,7 @@ function recordNav(entry) {
   navHistory.push(entry);
   navIndex = navHistory.length - 1;
   updateNavButtons();
+  persistNavLocation(entry);
 }
 
 async function applyNavEntry(entry) {
@@ -1143,6 +1161,8 @@ function showDesk(state) {
   recordNav({ pane: "clients" });
   syncGuide();
 }
+
+let restoredLastLocation = false;
 
 function showSetup(state) {
   lastAppState = state;
@@ -2479,6 +2499,15 @@ async function boot(prefetched) {
   }
   if (state.firm && state.output_path) {
     showDesk(state);
+    // Put the user back where they were before the app closed (update, crash
+    // or a plain restart) instead of dropping them on the client list.
+    const last = state.ui_last_nav;
+    if (last && last.pane && last.pane !== "clients" && !restoredLastLocation) {
+      restoredLastLocation = true;
+      setTimeout(() => {
+        applyNavEntry(last).catch(() => {});
+      }, 0);
+    }
   } else {
     showSetup(state);
   }
@@ -3041,4 +3070,8 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
-window.addEventListener("pywebviewready", boot);
+window.addEventListener("pywebviewready", () => {
+  // Boot used to receive the event object as its "prefetched" state, so it fell
+  // through to the setup screen and raced the auth refresh for the desk.
+  boot();
+});
