@@ -90,13 +90,81 @@ html, body {
   border-top: 8px solid var(--tab);
 }
 
-/* Account control: a wax-seal monogram that opens a paper docket. Keeps the
-   ledger metaphor instead of a full-width bar stealing the top of the desk. */
-.profile {
-  position: fixed;
-  top: 14px;
-  right: 16px;
-  z-index: 30;
+/* Account control: a wax-seal monogram that opens a paper docket. It sits in
+   the rail under Settings; the docket is fixed-positioned beside the rail so
+   the rail's own scroll container can never clip it. */
+.rail-account {
+  position: relative;
+  margin: 2px 0 4px;
+}
+
+.rail-account-btn {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  width: 100%;
+  padding: 6px 2px;
+  background: none;
+  border: 0;
+  border-radius: var(--radius-sm);
+  cursor: pointer;
+  text-align: left;
+}
+
+.rail-account-btn:hover .rail-account-seal {
+  transform: translateY(-1px);
+  box-shadow: 0 5px 14px #00000055, inset 0 0 0 2px #ffffff38;
+}
+
+.rail-account-btn:hover .rail-account-caption {
+  color: var(--color-on-primary);
+}
+
+.rail-account-btn:focus-visible {
+  outline: 2px solid var(--color-on-dark-soft);
+  outline-offset: 2px;
+}
+
+.rail-account-seal {
+  display: block;
+  flex: 0 0 32px;
+  width: 32px;
+  height: 32px;
+  border-radius: 50%;
+  background: var(--tab);
+  color: var(--paper);
+  font-family: Cambria, "Palatino Linotype", serif;
+  font-size: 15px;
+  line-height: 32px;
+  text-align: center;
+  text-transform: uppercase;
+  box-shadow: 0 2px 8px #00000045, inset 0 0 0 2px #ffffff26;
+  transition: transform 120ms ease, box-shadow 120ms ease;
+}
+
+.rail-account-text {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.rail-account-caption {
+  font-family: var(--font-sans);
+  font-size: 11px;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+  color: var(--color-on-dark-muted);
+  transition: color 120ms ease;
+}
+
+.rail-account-email {
+  font-family: var(--font-sans);
+  font-size: var(--font-size-xs);
+  font-weight: var(--font-weight-semibold);
+  color: var(--color-on-dark);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .sr-only {
@@ -108,38 +176,12 @@ html, body {
   white-space: nowrap;
 }
 
-.profile-seal {
-  width: 38px;
-  height: 38px;
-  padding: 0;
-  border: 0;
-  border-radius: 50%;
-  cursor: pointer;
-  background: var(--tab);
-  color: var(--paper);
-  font-family: Cambria, "Palatino Linotype", serif;
-  font-size: 17px;
-  line-height: 38px;
-  text-transform: uppercase;
-  box-shadow: 0 2px 8px #00000045, inset 0 0 0 2px #ffffff26;
-  transition: transform 120ms ease, box-shadow 120ms ease;
-}
-
-.profile-seal:hover {
-  transform: translateY(-1px);
-  box-shadow: 0 5px 14px #00000055, inset 0 0 0 2px #ffffff38;
-}
-
-.profile-seal:focus-visible {
-  outline: 2px solid var(--paper);
-  outline-offset: 2px;
-}
-
 .profile-panel {
-  position: absolute;
-  top: 48px;
-  right: 0;
+  position: fixed;
+  left: 248px;
+  bottom: 96px;
   width: 260px;
+  z-index: 40;
   padding: 18px 18px 16px;
   background: var(--paper);
   border-top: 5px solid var(--tab);
