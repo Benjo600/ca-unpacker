@@ -52,6 +52,19 @@ def is_guide_dismissed() -> bool:
     return bool(load_settings().get("guide_dismissed"))
 
 
+def get_ui_location() -> dict | None:
+    """Where the user was last looking, so a restart can put them back."""
+    entry = load_settings().get("ui_last_nav")
+    return entry if isinstance(entry, dict) else None
+
+
+def save_ui_location(entry: dict | None) -> None:
+    if not isinstance(entry, dict):
+        save_settings({"ui_last_nav": None})
+        return
+    save_settings({"ui_last_nav": entry})
+
+
 def set_guide_dismissed(dismissed: bool = True) -> None:
     save_settings({"guide_dismissed": bool(dismissed)})
 

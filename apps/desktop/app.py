@@ -40,8 +40,10 @@ from apps.engine.license import activate_key, assert_can_ingest, get_license_sta
 from apps.engine.library import get_library_path, init_library
 from apps.engine.settings import (
     get_output_root,
+    get_ui_location,
     is_guide_dismissed,
     path_sync_warnings,
+    save_ui_location,
     set_guide_dismissed,
     set_output_root,
 )
@@ -228,7 +230,15 @@ class DesktopApi:
             "path_warnings": path_sync_warnings(
                 str(library), str(output) if output else ""
             ),
+            "ui_last_nav": get_ui_location(),
         }
+
+    def save_ui_location(self, entry: dict | None) -> dict:
+        try:
+            save_ui_location(entry if isinstance(entry, dict) else None)
+            return {"ok": True}
+        except Exception:
+            return {"ok": False}
 
     def save_firm(self, name: str) -> dict:
         try:
