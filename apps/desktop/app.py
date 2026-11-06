@@ -533,6 +533,132 @@ def app_icon_path() -> str | None:
     return str(path) if path.is_file() else None
 
 
+def claim_taskbar_identity(app_id: str = "CAUnpacker.Desktop.1") -> None:
+    """Give the process its own taskbar identity.
+
+    Without this Windows groups the window under python.exe, so the taskbar
+    button shows the Python icon even though the window frame carries ours.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
+
+
+def _load_icon(path: str, size: int):
+    import ctypes
+    from ctypes import wintypes
+
+    image_icon = 1
+    lr_loadfromfile = 0x0010
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE,
+        wintypes.LPCWSTR,
+        wintypes.UINT,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    return user32.LoadImageW(None, path, image_icon, size, size, lr_loadfromfile)
+
+
+def _send_window_icon(hwnd, path: str) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    wm_seticon = 0x0080
+    icon_small = 0
+    icon_big = 1
+    sm_cxicon = 11
+    sm_cxsmicon = 49
+    user32 = ctypes.windll.user32
+    user32.SendMessageW.restype = ctypes.c_ssize_t
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    # Match the desktop's icon metrics; a 32px bitmap looks blurred at 150%.
+    big_size = max(32, int(user32.GetSystemMetrics(sm_cxicon) or 0))
+    small_size = max(16, int(user32.GetSystemMetrics(sm_cxsmicon) or 0))
+    big = _load_icon(path, big_size)
+    small = _load_icon(path, small_size)
+    if big:
+        user32.SendMessageW(hwnd, wm_seticon, icon_big, big)
+    if small:
+        user32.SendMessageW(hwnd, wm_seticon, icon_small, small)
+
+
+def _find_window_by_title(title: str):
+    """Find our own top-level window by title, falling back to any visible one."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.FindWindowW.restype = wintypes.HWND
+    user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.EnumWindows.argtypes = [
+        ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM),
+        wintypes.LPARAM,
+    ]
+    hwnd = user32.FindWindowW(None, title)
+    if hwnd:
+        return hwnd
+
+    matches: list[int] = []
+    pid = os.getpid()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _visit(candidate, _lparam):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(candidate, ctypes.byref(owner))
+        if owner.value != pid or not user32.IsWindowVisible(candidate):
+            return True
+        buffer = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(candidate, buffer, 256)
+        if buffer.value == title:
+            matches.append(candidate)
+            return False
+        return True
+
+    user32.EnumWindows(_visit, 0)
+    return matches[0] if matches else None
+
+
+def apply_window_icon(title: str = "CA Unpacker") -> None:
+    """Put the app icon on the window (and any dev console) after it is shown."""
+    if sys.platform != "win32":
+        return
+    path = app_icon_path()
+    if not path:
+        return
+    try:
+        import ctypes
+
+        hwnd = _find_window_by_title(title)
+        if hwnd:
+            _send_window_icon(hwnd, path)
+        console = ctypes.windll.kernel32.GetConsoleWindow()
+        if console:
+            _send_window_icon(console, path)
+    except Exception:
+        pass
+
+
 def _log_crash(message: str) -> None:
     log_path = get_library_path() / "app.log"
     log_path.parent.mkdir(parents=True, exist_ok=True)
@@ -744,6 +870,7 @@ def _start_deep_link_poller(api: DesktopApi) -> None:
 
 
 def _on_window_shown(api: DesktopApi) -> None:
+    apply_window_icon()
     _bind_explorer_drop(api)
     if _startup_deep_link:
         _process_deep_link(api, _startup_deep_link)
@@ -761,11 +888,17 @@ def _on_window_shown(api: DesktopApi) -> None:
             _WINDOW.events.loaded += lambda: _check_pending_now(api)
         except Exception:
             pass
+        try:
+            # WebView2 can reset the frame icon when the document loads.
+            _WINDOW.events.loaded += lambda: apply_window_icon()
+        except Exception:
+            pass
 
 
 def main() -> None:
     import traceback
 
+    claim_taskbar_identity()
     global _startup_deep_link
     deep_link = extract_deep_link_url()
     is_primary = _acquire_single_instance_mutex()

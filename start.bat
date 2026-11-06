@@ -83,6 +83,25 @@ if errorlevel 1 (
 echo.
 echo Starting CA Unpacker...
 echo.
+set "PYW=%~dp0.venv\Scripts\pythonw.exe"
+if not exist "%PYW%" goto :run_in_console
+rem Run without a console: pythonw has no console window, so the taskbar shows
+rem only the app (with its own icon) instead of a Python interpreter button.
+start "" "%PYW%" -m apps.desktop
+set "TRIES=0"
+:wait_for_window
+timeout /t 2 /nobreak >nul
+tasklist /fi "windowtitle eq CA Unpacker" /nh 2>nul | find /i "pythonw" >nul
+if not errorlevel 1 goto :eof
+set /a TRIES+=1
+if %TRIES% lss 8 goto :wait_for_window
+echo The app did not open. Recent errors:
+if exist "%LOG%" type "%LOG%"
+if exist "%LOCALAPPDATA%\CAUnpacker\app.log" type "%LOCALAPPDATA%\CAUnpacker\app.log"
+pause
+goto :eof
+
+:run_in_console
 "%PY%" -m apps.desktop
 if errorlevel 1 (
   echo The app closed with an error. See start-log.txt
