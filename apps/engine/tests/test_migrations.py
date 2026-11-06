@@ -400,5 +400,113 @@ class MigrationTests(unittest.TestCase):
         )
 
 
+class NewerLibraryTests(unittest.TestCase):
+    """A library from a newer build must open instead of killing startup."""
+
+    def setUp(self) -> None:
+        self._tmp = tempfile.TemporaryDirectory(dir=Path.cwd())
+        self.local_app_data = Path(self._tmp.name)
+        self.db_path = self.local_app_data / "CAUnpacker" / "app.db"
+        self._env = patch.dict(os.environ, {"LOCALAPPDATA": self._tmp.name})
+        self._env.start()
+        from apps.engine.db import reset_engine
+
+        reset_engine()
+
+    def tearDown(self) -> None:
+        from apps.engine.db import reset_engine
+
+        reset_engine()
+        self._env.stop()
+        self._tmp.cleanup()
+
+    def test_database_from_a_newer_build_opens_without_migrating(self) -> None:
+        from sqlalchemy import create_engine
+
+        from apps.engine.db import Base
+        from apps.engine.migrations import ensure_schema
+
+        self.db_path.parent.mkdir(parents=True)
+        engine = create_engine(f"sqlite:///{self.db_path}")
+        ensure_schema(engine, Base.metadata)
+        engine.dispose()
+
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            connection.execute("UPDATE schema_version SET version = 99")
+            connection.commit()
+
+        reopened = create_engine(f"sqlite:///{self.db_path}")
+        ensure_schema(reopened, Base.metadata)  # must not raise
+        reopened.dispose()
+
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            version = connection.execute("SELECT version FROM schema_version").fetchone()[0]
+        self.assertEqual(version, 99, "a newer version must not be stamped backwards")
+
+    def test_missing_column_is_added_and_data_is_kept(self) -> None:
+        from sqlalchemy import create_engine
+
+        from apps.engine.db import Base
+        from apps.engine.migrations import ensure_schema
+
+        self.db_path.parent.mkdir(parents=True)
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            # Mimics the real broken library: version says 4, but the clients
+            # table never got the v3 profile columns.
+            connection.executescript(
+                """
+                CREATE TABLE clients (
+                    id INTEGER PRIMARY KEY,
+                    firm_id INTEGER NOT NULL,
+                    name VARCHAR(200) NOT NULL,
+                    gstin VARCHAR(15),
+                    created_at DATETIME NOT NULL
+                );
+                CREATE TABLE schema_version (version INTEGER NOT NULL);
+                INSERT INTO schema_version VALUES (4);
+                INSERT INTO clients VALUES (1, 1, 'Acme Traders', NULL, '2026-08-01');
+                """
+            )
+            connection.commit()
+
+        engine = create_engine(f"sqlite:///{self.db_path}")
+        ensure_schema(engine, Base.metadata)
+        engine.dispose()
+
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            columns = {
+                row[1]: row for row in connection.execute("PRAGMA table_info(clients)")
+            }
+            names = {row[1] for row in connection.execute("PRAGMA table_info(clients)")}
+            profile_default = connection.execute(
+                "SELECT profile_json FROM clients WHERE id = 1"
+            ).fetchone()[0]
+            client_name = connection.execute(
+                "SELECT name FROM clients WHERE id = 1"
+            ).fetchone()[0]
+
+        self.assertIn("profession_key", names)
+        self.assertIn("profile_json", names)
+        self.assertEqual(profile_default, "{}", "a repaired JSON column needs a default")
+        self.assertEqual(client_name, "Acme Traders")
+        self.assertTrue(columns["profession_key"], "column metadata must be readable")
+
+    def test_repair_is_idempotent(self) -> None:
+        from sqlalchemy import create_engine
+
+        from apps.engine.db import Base
+        from apps.engine.migrations import ensure_schema
+
+        self.db_path.parent.mkdir(parents=True)
+        engine = create_engine(f"sqlite:///{self.db_path}")
+        ensure_schema(engine, Base.metadata)
+        ensure_schema(engine, Base.metadata)  # second pass must be a no-op
+        engine.dispose()
+
+        with closing(sqlite3.connect(self.db_path)) as connection:
+            versions = connection.execute("SELECT version FROM schema_version").fetchall()
+        self.assertEqual(len(versions), 1)
+
+
 if __name__ == "__main__":
     unittest.main()
