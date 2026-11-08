@@ -19,6 +19,15 @@ def page_size_pts(path: Path, page: int, password: str | None = None) -> tuple[f
     return float(width), float(height)
 
 
+def page_count(path: Path, password: str | None = None) -> int:
+    """Number of pages in a PDF. Raises ValueError for encrypted files without a password."""
+    pdf = _open_pdf(path, password)
+    try:
+        return len(pdf)
+    finally:
+        pdf.close()
+
+
 def render_page_png(
     path: Path,
     page: int,

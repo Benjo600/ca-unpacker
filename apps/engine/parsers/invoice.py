@@ -28,6 +28,7 @@ from apps.engine.ocr import extract_image
 from apps.engine.parsers.bank.money import DATE_RE, normalize_date, parse_amount
 from apps.engine.pdf_extract import ExtractedPdf, LineBox, extract_pdf
 from apps.engine.validators.gstin import find_gstins, gstin_flags, hsn_flags
+from apps.engine.validators.hsn_rates import hsn_rate_flags
 
 # ---------------------------------------------------------------------------
 # Patterns
@@ -58,6 +59,12 @@ HSN_RE = re.compile(r"\b(?:HSN(?:/SAC)?|SAC)\b\s*(?:code)?\s*[:.\-]?\s*(\d{4,8})
 GSTIN_LOOSE_RE = re.compile(r"\b[0-9]{2}[A-Z0-9]{13}\b", re.I)
 _HSN_TOKEN_RE = re.compile(r"^\d{4,8}$")
 _NUMBER_TOKEN_RE = re.compile(r"^\d{1,4}$")
+_ITEM_HEADER_RE = re.compile(r"\b(hsn|sac)\b", re.I)
+_ITEM_COL_RE = re.compile(r"\b(qty|quantity|rate|amount|taxable)\b", re.I)
+_ITEM_FOOTER_RE = re.compile(
+    r"^(?:taxable\s+value|invoice\s+value|grand\s+total|total\s+amount|invoice\s+total)\b",
+    re.I,
+)
 
 TOTAL_LABELS = (
     r"grand\s+total|invoice\s+total|invoice\s+value|total\s+invoice\s+value|"
@@ -1590,6 +1597,18 @@ def _parse_record(
     items, skipped, totals, _summary_flags = (
         _line_items(record, header, line_words) if header is not None else ([], [], {}, [])
     )
+    if not items and getattr(extracted, "tables", None):
+        # Some PDFs expose the item table only through the table extractor.
+        # Restrict rows to this record's pages so a multi-invoice PDF cannot
+        # leak one invoice's items into another.
+        record_pages = {int(line.page or 1) for line in record.lines}
+        table_items = [
+            item
+            for item in _line_items_from_tables(extracted.tables, source)
+            if int(item.get("source_page") or 0) in record_pages
+        ]
+        if table_items:
+            items = table_items
     summary = _parse_summary(record, header, text)
     row = _build_row(record, text, source, items, totals, summary, header, line_words)
     if row is None or not items:
@@ -1763,6 +1782,8 @@ def _build_row(
     else:
         hsn = next((item.get("hsn") for item in items if item.get("hsn")), None)
     flags.extend(hsn_flags(hsn))
+    # Advisory only: never blocks the row, just annotates the Flags column.
+    flags.extend(hsn_rate_flags(hsn, taxable=taxable, tax=tax))
 
     currency = _detect_currency(text)
     if currency is None:
@@ -1830,6 +1851,158 @@ def _sum_items(items: list[dict], key: str) -> Decimal | None:
     if not present or any(value is None for value in present):
         return None
     return sum((_decimal(value) for value in present), Decimal("0"))
+
+
+def _line_items_from_tables(tables: list, source: str) -> list[dict]:
+    items: list[dict] = []
+    if not tables:
+        return items
+    for table in tables:
+        grid = getattr(table, "grid", None)
+        if not grid or len(grid) < 2:
+            continue
+        header_idx = -1
+        col_desc = -1
+        col_hsn = -1
+        col_qty = -1
+        col_rate = -1
+        col_taxable = -1
+        col_amount = -1
+
+        for r_idx, row in enumerate(grid[:5]):
+            row_strs = [(str(c).lower().strip() if c is not None else "") for c in row]
+            has_hsn = any(_ITEM_HEADER_RE.search(c) for c in row_strs)
+            has_col = any(_ITEM_COL_RE.search(c) for c in row_strs)
+            if has_hsn or has_col:
+                header_idx = r_idx
+                for c_idx, cell in enumerate(row_strs):
+                    if not cell:
+                        continue
+                    if re.search(r"\b(item|desc|particular|service|product|goods)\b", cell):
+                        col_desc = c_idx
+                    elif _ITEM_HEADER_RE.search(cell):
+                        col_hsn = c_idx
+                    elif re.search(r"\b(qty|quantity|nos|units)\b", cell):
+                        col_qty = c_idx
+                    elif re.search(r"\b(rate|price|unit\s*rate)\b", cell):
+                        col_rate = c_idx
+                    elif re.search(r"\b(taxable|basic)\b", cell):
+                        col_taxable = c_idx
+                    elif re.search(r"\b(amount|total|value)\b", cell):
+                        col_amount = c_idx
+                break
+
+        if header_idx == -1:
+            continue
+
+        for row in grid[header_idx + 1:]:
+            if not row or not any(row):
+                continue
+            first_text = " ".join(str(c).strip() for c in row[:2] if c)
+            if _ITEM_FOOTER_RE.search(first_text) or re.match(r"^(total|subtotal|cgst|sgst|igst|tax)\b", first_text, re.I):
+                break
+
+            hsn = None
+            if col_hsn != -1 and col_hsn < len(row) and row[col_hsn]:
+                match = re.search(r"\b\d{4,8}\b", str(row[col_hsn]))
+                if match:
+                    hsn = match.group(0)
+            if not hsn:
+                for cell in row:
+                    if cell:
+                        match = re.search(r"\b\d{4,8}\b", str(cell))
+                        if match:
+                            hsn = match.group(0)
+                            break
+
+            desc = None
+            if col_desc != -1 and col_desc < len(row) and row[col_desc]:
+                desc = str(row[col_desc]).strip() or None
+
+            qty = None
+            if col_qty != -1 and col_qty < len(row) and row[col_qty]:
+                try:
+                    qty = float(re.sub(r"[^\d.]", "", str(row[col_qty])))
+                except (ValueError, TypeError):
+                    qty = None
+
+            rate = parse_amount(str(row[col_rate])) if (col_rate != -1 and col_rate < len(row) and row[col_rate]) else None
+            taxable = parse_amount(str(row[col_taxable])) if (col_taxable != -1 and col_taxable < len(row) and row[col_taxable]) else None
+            amount = parse_amount(str(row[col_amount])) if (col_amount != -1 and col_amount < len(row) and row[col_amount]) else None
+
+            if amount is None and taxable is not None:
+                amount = taxable
+            elif amount is None:
+                amounts_found = []
+                for cell in row:
+                    if cell:
+                        val = parse_amount(str(cell))
+                        if val is not None:
+                            amounts_found.append(val)
+                if amounts_found:
+                    amount = amounts_found[-1]
+                    if len(amounts_found) >= 2 and taxable is None:
+                        taxable = amounts_found[-2]
+
+            if amount is not None or hsn is not None:
+                items.append({
+                    "invoice_number": None,
+                    "description": desc,
+                    "hsn": hsn,
+                    "qty": qty,
+                    "rate": _f(rate),
+                    "taxable": _f(taxable),
+                    "tax": None,
+                    "amount": _f(amount),
+                    "source": source,
+                    "source_page": int(getattr(table, "page", 1)),
+                    "source_bbox": getattr(table, "bbox", None),
+                })
+    return items
+
+
+def _is_item_header(text: str) -> bool:
+    return bool(_ITEM_HEADER_RE.search(text) and _ITEM_COL_RE.search(text))
+
+
+def _parse_item_line(text: str, source: str, line: LineBox) -> dict | None:
+    tokens = text.split()
+    hsn_index = next((index for index, token in enumerate(tokens) if _HSN_TOKEN_RE.match(token)), None)
+    if hsn_index is None:
+        return None
+    hsn = tokens[hsn_index]
+    qty = None
+    amounts: list[Decimal] = []
+    for index, token in enumerate(tokens):
+        if index == hsn_index:
+            continue
+        if qty is None and re.fullmatch(r"\d{1,4}", token) and not _HSN_TOKEN_RE.match(token):
+            qty = float(token)
+            continue
+        parsed = parse_amount(token)
+        if parsed is None:
+            continue
+        if "." in token or "," in token or parsed >= 1:
+            amounts.append(parsed)
+    if not amounts:
+        return None
+    line_amount = amounts[-1]
+    taxable = amounts[-2] if len(amounts) >= 2 else amounts[0]
+    rate = amounts[-3] if len(amounts) >= 3 else (amounts[0] if qty == 1 else None)
+    description = " ".join(tokens[:hsn_index]).strip() or None
+    return {
+        "invoice_number": None,
+        "description": description,
+        "hsn": hsn,
+        "qty": qty,
+        "rate": _f(rate),
+        "taxable": _f(taxable),
+        "tax": None,
+        "amount": _f(line_amount),
+        "source": source,
+        "source_page": int(line.page),
+        "source_bbox": _bbox(line),
+    }
 
 
 def _non_taxable_adjustments(items: list[dict]) -> Decimal:

@@ -298,6 +298,8 @@ def _classify_pdf(path: Path, name: str) -> Classification:
     if extracted.pdf_type == "encrypted":
         return Classification("unknown", 0.5, "password-protected PDF")
     text = "\n".join(page.text or "" for page in extracted.pages[:4]).strip()
+    if not text:
+        text = "\n".join(line.text for line in extracted.lines[:30]).strip()
     if text:
         # Scanned PDFs already carry OCR text when a local engine is present.
         return classify_from_text(name, extracted.page_count, text)

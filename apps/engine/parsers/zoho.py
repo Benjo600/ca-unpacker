@@ -7,6 +7,7 @@ from typing import Any
 
 from apps.engine.parsers.bank.money import normalize_date
 from apps.engine.validators.gstin import gstin_flags
+from apps.engine.validators.hsn_rates import hsn_rate_flags
 
 # Canonical field → Zoho Books export header aliases (normalized, first match wins).
 HEADER_MAP: dict[str, tuple[str, ...]] = {
@@ -219,6 +220,16 @@ def _canonical_row(record: dict[str, Any], register: str | None, source: str) ->
     tax = _tax(lookup, taxable_value)
     if not any((invoice_number, invoice_date, supplier_name, gstin, taxable_value, tax, invoice_value, hsn)):
         return None
+    flags = gstin_flags(gstin) if gstin else []
+    # Advisory only: Zoho exports the tax percent, so prefer that over dividing.
+    flags.extend(
+        hsn_rate_flags(
+            hsn,
+            taxable=taxable_value,
+            tax=tax,
+            tax_percent=_num(_pick(lookup, HEADER_MAP["tax_percent"])),
+        )
+    )
     return {
         "register": register,
         "supplier_name": supplier_name,
@@ -229,7 +240,7 @@ def _canonical_row(record: dict[str, Any], register: str | None, source: str) ->
         "tax": tax,
         "invoice_value": invoice_value,
         "hsn": hsn,
-        "flags": gstin_flags(gstin) if gstin else [],
+        "flags": flags,
         "source": source,
     }
 

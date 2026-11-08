@@ -1,5 +1,7 @@
 import { useEffect, useState, type ReactNode } from "react";
-import { Navigate, useLocation } from "react-router-dom";
+import { Link, Navigate, useLocation } from "react-router-dom";
+import AuthShell from "./AuthShell";
+import { Alert } from "./ui";
 import { AdminForbiddenError, fetchAdminOrgs } from "../lib/admin";
 import { supabase } from "../lib/supabase";
 
@@ -9,19 +11,16 @@ interface AdminGuardProps {
 
 export default function AdminGuard({ children }: AdminGuardProps) {
   const location = useLocation();
-  const [status, setStatus] = useState<"loading" | "ok" | "forbidden" | "anon">(
-    "loading",
-  );
+  const [status, setStatus] = useState<
+    "loading" | "ok" | "forbidden" | "anon" | "error"
+  >("loading");
+  const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
     let cancelled = false;
 
-    async function verify() {
-      const {
-        data: { session },
-      } = await supabase.auth.getSession();
-
-      if (!session) {
+    async function verify(sessionExists: boolean) {
+      if (!sessionExists) {
         if (!cancelled) setStatus("anon");
         return;
       }
@@ -30,34 +29,36 @@ export default function AdminGuard({ children }: AdminGuardProps) {
         await fetchAdminOrgs();
         if (!cancelled) setStatus("ok");
       } catch (err) {
+        if (cancelled) return;
         if (err instanceof AdminForbiddenError) {
-          if (!cancelled) setStatus("forbidden");
+          setStatus("forbidden");
           return;
         }
+        setError(err instanceof Error ? err.message : "Could not verify admin access.");
+        setStatus("error");
         console.error(err);
-        if (!cancelled) setStatus("forbidden");
       }
     }
 
-    verify();
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      void verify(Boolean(session));
+    });
 
     return () => {
       cancelled = true;
+      subscription.unsubscribe();
     };
   }, []);
 
   if (status === "loading") {
     return (
-      <div className="center-page">
-        <header className="top">
-          <div className="wrap">
-            <span className="brand">CA Unpacker</span>
-          </div>
-        </header>
-        <main>
-          <p className="muted">Checking access…</p>
-        </main>
-      </div>
+      <AuthShell title="Verifying access" subtitle="Checking operator credentials…">
+        <div className="flex justify-center py-8">
+          <div className="h-8 w-8 animate-spin rounded-full border-2 border-rule border-t-accent" />
+        </div>
+      </AuthShell>
     );
   }
 
@@ -66,24 +67,37 @@ export default function AdminGuard({ children }: AdminGuardProps) {
     return <Navigate to={`/login?next=${next}`} replace />;
   }
 
+  if (status === "error") {
+    return (
+      <AuthShell
+        title="Could not reach the console"
+        subtitle="Your session is valid, but the admin API did not respond."
+        footer={
+          <Link to="/login" className="font-semibold text-accent no-underline">
+            Try signing in again
+          </Link>
+        }
+      >
+        <Alert variant="error">{error}</Alert>
+      </AuthShell>
+    );
+  }
+
   if (status === "forbidden") {
     return (
-      <div className="center-page">
-        <header className="top">
-          <div className="wrap">
-            <span className="brand">CA Unpacker</span>
-          </div>
-        </header>
-        <main>
-          <div className="docket">
-            <h1>Not an admin</h1>
-            <p className="muted">
-              This dashboard is restricted to operator accounts. Contact support
-              if you believe this is an error.
-            </p>
-          </div>
-        </main>
-      </div>
+      <AuthShell
+        title="Access denied"
+        subtitle="This console is restricted to CA Unpacker operators."
+        footer={
+          <Link to="/app" className="font-semibold text-accent no-underline">
+            Open your firm dashboard
+          </Link>
+        }
+      >
+        <Alert variant="error">
+          Your email is not on the operator allowlist.
+        </Alert>
+      </AuthShell>
     );
   }
 

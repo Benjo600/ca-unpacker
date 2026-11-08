@@ -36,9 +36,10 @@ class VisibleParseFailureTests(unittest.TestCase):
         job = start_job(self.period["id"])
         with patch("apps.engine.pipeline.parse_gstr_file", side_effect=RuntimeError("boom")):
             result = ingest_paths(job["id"], [str(bad)])
-        self.assertEqual(result.get("status"), "needs_review")
+        self.assertEqual(result.get("status"), "failed")
         files = list_period_files(self.period["id"])
         self.assertTrue(files)
+        self.assertEqual(files[0].get("parse_outcome"), "failed")
         self.assertTrue(files[0].get("parse_failed"))
         self.assertIn("could not parse", (files[0].get("classify_reason") or "").lower())
         warnings = result.get("warnings") or []
@@ -53,13 +54,14 @@ class VisibleParseFailureTests(unittest.TestCase):
         result = ingest_paths(job["id"], [str(empty)])
         files = list_period_files(self.period["id"])
         self.assertTrue(files)
+        self.assertEqual(files[0].get("parse_outcome"), "failed")
         reason = (files[0].get("classify_reason") or "").lower()
         self.assertTrue(
             files[0].get("parse_failed") or "no rows" in reason or "could not parse" in reason,
             files[0],
         )
         self.assertTrue(result.get("warnings"), result)
-        self.assertEqual(result.get("status"), "needs_review")
+        self.assertEqual(result.get("status"), "failed")
 
     def test_mixed_dump_keeps_bank_and_blocks_done(self) -> None:
         from make_test_dump import pdf_with_text
@@ -83,7 +85,17 @@ class VisibleParseFailureTests(unittest.TestCase):
         (inbox / "GSTR-2B_July.json").write_text("{", encoding="utf-8")
         job = start_job(self.period["id"])
         result = ingest_paths(job["id"], [str(inbox)])
-        self.assertEqual(result.get("status"), "needs_review", result)
+        self.assertEqual(result.get("status"), "done_with_warnings", result)
+        files_by_name = {file["original_name"]: file for file in result["files"]}
+        self.assertEqual(
+            files_by_name["HDFC_Statement.pdf"]["parse_outcome"], "processed"
+        )
+        self.assertEqual(
+            files_by_name["GSTR-2B_July.json"]["parse_outcome"], "failed"
+        )
+        self.assertEqual(
+            files_by_name["meeting_notes.docx"]["parse_outcome"], "unclassified"
+        )
         pack = get_period_pack(self.period["id"])
         self.assertIsNotNone(pack)
         outputs = {item.get("key"): item for item in (pack.get("outputs") or [])}

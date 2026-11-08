@@ -1,6 +1,7 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useNavigate, useSearchParams } from "react-router-dom";
 import { redirectToDesktop } from "../lib/admin";
+import { pathAfterAuth } from "../lib/postAuth";
 import { supabase } from "../lib/supabase";
 
 export default function Login() {
@@ -57,7 +58,8 @@ export default function Login() {
       return;
     }
 
-    const next = searchParams.get("next") || "/admin";
+    const next = await pathAfterAuth(data.session, searchParams);
+    if (next === "desktop") return;
     navigate(next, { replace: true });
   }
 

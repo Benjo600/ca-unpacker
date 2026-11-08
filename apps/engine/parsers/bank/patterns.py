@@ -8,7 +8,10 @@ SKIP_LINE = re.compile(
     r"page\s+\d+|statement of account|account statement|customer id|"
     r"nomination|gstin of bank|relationship manager|continued on next|"
     r"computer generated|end of statement|confidential|"
-    r"^summary\b|debits\s+\d+|opening\s+[\d,]+|this statement is system",
+    r"^summary\b|debits\s+\d+|opening\s+[\d,]+|this statement is system|"
+    r"deposit insurance|credit guarantee|positive pay|circular\b|guidelines pertaining|"
+    r"goods and services tax \(gst\)|toll-free|commonly used narrati|tax invoice under the goods|"
+    r"tds is deducted|form 15g|form 15h|form 121|complimentary insurance",
     re.I,
 )
 HEADERISH = re.compile(

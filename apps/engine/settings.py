@@ -36,11 +36,33 @@ def get_output_root() -> Path | None:
     if not raw:
         return None
     path = Path(raw)
-    return path if path.exists() else None
+    if path.exists():
+        return path
+    # The folder was chosen once but is gone (moved, renamed, network drive
+    # back after a reboot). Recreate it instead of returning None — that is
+    # what kept throwing the app back to first-run setup on every relaunch.
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+        return path
+    except OSError:
+        return None
 
 
 def is_guide_dismissed() -> bool:
     return bool(load_settings().get("guide_dismissed"))
+
+
+def get_ui_location() -> dict | None:
+    """Where the user was last looking, so a restart can put them back."""
+    entry = load_settings().get("ui_last_nav")
+    return entry if isinstance(entry, dict) else None
+
+
+def save_ui_location(entry: dict | None) -> None:
+    if not isinstance(entry, dict):
+        save_settings({"ui_last_nav": None})
+        return
+    save_settings({"ui_last_nav": entry})
 
 
 def set_guide_dismissed(dismissed: bool = True) -> None:
@@ -72,7 +94,11 @@ def set_output_root(raw: str) -> Path:
     path = Path((raw or "").strip())
     if not str(path):
         raise ValueError("Choose a folder for the cleaned Excels.")
-    path.mkdir(parents=True, exist_ok=True)
+    try:
+        path.mkdir(parents=True, exist_ok=True)
+    except OSError as exc:
+        # Callers only translate ValueError into a friendly message.
+        raise ValueError(f"That folder could not be created. {exc}") from exc
     probe = path / ".ca_unpacker_write_test"
     try:
         probe.write_text("ok", encoding="utf-8")

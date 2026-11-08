@@ -1,6 +1,7 @@
 @echo off
 setlocal
 cd /d "%~dp0"
+
 if exist "%~dp0.env" (
   for /f "usebackq eol=# tokens=1,* delims==" %%A in ("%~dp0.env") do (
     call :load_env "%%A" "%%B"
@@ -49,9 +50,9 @@ echo.
 echo ================================================
 echo   CA Unpacker - Direct In-App Supabase Auth
 echo ================================================
-echo Auth mode: STRICT in-app email/password (no browser redirect)
+echo Auth mode: STRICT in-app email/password
 echo - Fresh users must sign up / log in before folder or firm setup.
-echo - Uses production Supabase from apps/config.json (unless .env overrides).
+echo - Uses production Supabase from apps/config.json.
 echo.
 
 if exist "%~dp0dist\CAUnpacker\tesseract\tesseract.exe" (
@@ -83,7 +84,6 @@ if not exist "%PY%" (
     pause
     exit /b 1
   )
-  echo.
   echo Setup complete.
   echo.
   echo === Perfect Auth Baked In ===
@@ -101,8 +101,26 @@ if errorlevel 1 (
 
 echo.
 echo Starting CA Unpacker...
-echo (Strict in-app Supabase auth - sign up or log in with email/password first)
 echo.
+set "PYW=%~dp0.venv\Scripts\pythonw.exe"
+if not exist "%PYW%" goto :run_in_console
+rem Run without a console: pythonw has no console window, so the taskbar shows
+rem only the app (with its own icon) instead of a Python interpreter button.
+start "" "%PYW%" -m apps.desktop
+set "TRIES=0"
+:wait_for_window
+timeout /t 2 /nobreak >nul
+tasklist /fi "windowtitle eq CA Unpacker" /nh 2>nul | find /i "pythonw" >nul
+if not errorlevel 1 goto :eof
+set /a TRIES+=1
+if %TRIES% lss 8 goto :wait_for_window
+echo The app did not open. Recent errors:
+if exist "%LOG%" type "%LOG%"
+if exist "%LOCALAPPDATA%\CAUnpacker\app.log" type "%LOCALAPPDATA%\CAUnpacker\app.log"
+pause
+goto :eof
+
+:run_in_console
 "%PY%" -m apps.desktop
 if errorlevel 1 (
   echo The app closed with an error. See start-log.txt
@@ -135,8 +153,7 @@ for /l %%I in (1,1,8) do (
   if defined k if "!k:~-1!"==" " set "k=!k:~0,-1!"
   if defined v if "!v:~-1!"==" " set "v=!v:~0,-1!"
 )
-if /i not "!k!"=="SUPABASE_URL" if /i not "!k!"=="SUPABASE_ANON_KEY" if /i not "!k!"=="CA_UNPACKER_AUTH_URL" (
-  rem CA_UNPACKER_AUTH_URL is legacy (browser flow removed). Still allow override for compatibility.
+if /i not "!k!"=="SUPABASE_URL" if /i not "!k!"=="SUPABASE_ANON_KEY" (
   endlocal
   exit /b 0
 )
