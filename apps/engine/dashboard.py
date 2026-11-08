@@ -1,13 +1,12 @@
 from __future__ import annotations
 
+import json
 from datetime import datetime, timezone
 
-from apps.engine.db import Client, Job, Period, StoredFile, get_session
+from apps.engine.db import Client, Job, Period, ReconRun, StoredFile, get_session
 from apps.engine.kinds import KIND_LABELS
-from apps.engine.recon_workflows import (
-    latest_reconciliation_summary,
-    reconciliation_workspace,
-)
+from apps.engine.recon_datasets import reconciliation_workspace
+from apps.engine.recon_workflows import latest_reconciliation_summary
 
 _ATTENTION_OUTCOMES = {"needs_review", "failed", "unclassified"}
 _RECENT_LIMIT = 8
@@ -34,6 +33,54 @@ def _effective_kind(row: StoredFile) -> str:
 
 def _iso(value) -> str | None:
     return value.isoformat() if value else None
+
+
+def _json_load(text: str | None, fallback):
+    try:
+        value = json.loads(text or "")
+    except (TypeError, ValueError, json.JSONDecodeError):
+        return fallback
+    return value
+
+
+def _latest_persisted_run() -> dict:
+    session = get_session()
+    try:
+        run = (
+            session.query(ReconRun)
+            .filter(ReconRun.status.in_(("completed", "completed_with_exceptions")))
+            .order_by(ReconRun.completed_at.desc(), ReconRun.id.desc())
+            .first()
+        )
+        if run is None:
+            return {"available": False}
+        counts = _json_load(run.counts_json, {})
+        totals = _json_load(run.totals_json, {})
+        return {
+            "available": True,
+            "run_id": run.id,
+            "period_id": run.period_id,
+            "period_label": run.period_label,
+            "client_name": run.client_name,
+            "workflow_id": run.workflow_id,
+            "workflow_label": run.workflow_label,
+            "left_label": "",
+            "right_label": "",
+            "counts": counts,
+            "totals": totals,
+            "metrics": {
+                "matched": int(totals.get("matched_records") or 0),
+                "unmatched": int(totals.get("unmatched_records") or 0),
+                "review": int(totals.get("proposed_records") or 0)
+                + int(totals.get("duplicate_records") or 0),
+                "duplicate": int(totals.get("duplicate_records") or 0),
+                "match_rate": float(totals.get("match_rate") or 0),
+                "records_processed": int(totals.get("records_processed") or 0),
+            },
+            "generated_at": _iso(run.completed_at),
+        }
+    finally:
+        session.close()
 
 
 def get_dashboard() -> dict:
@@ -155,7 +202,9 @@ def get_dashboard() -> dict:
         session.close()
 
     workspace = reconciliation_workspace()
-    latest_reconciliation = latest_reconciliation_summary(workspace)
+    latest_reconciliation = _latest_persisted_run()
+    if not latest_reconciliation.get("available"):
+        latest_reconciliation = latest_reconciliation_summary(workspace)
     ready_periods = sum(
         1 for period in workspace.get("periods") or [] if period.get("has_comparison")
     )

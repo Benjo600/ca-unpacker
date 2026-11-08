@@ -32,6 +32,7 @@ from apps.engine.parsers.gstr import parse_gstr_file
 from apps.engine.parsers.invoice import parse_invoice_file
 from apps.engine.parsers.sap import parse_sap_file
 from apps.engine.parsers.tally import parse_tally_file
+from apps.engine.parsers.vendor_statement import parse_vendor_statement_file
 from apps.engine.parsers.zoho import parse_zoho_file
 from apps.engine.validators.balance import check_balance
 
@@ -393,7 +394,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         )
             if (
                 not rows
-                and kind in {"bank", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho", "sap"}
+                and kind in {"bank", "gstr_1", "gstr_2b", "gstr_3b", "tally", "zoho", "sap", "vendor_statement"}
                 and "password" not in (stored.classify_reason or "").lower()
             ):
                 stored.classify_reason = (
@@ -985,6 +986,9 @@ def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
         return parsed["rows"], parsed
     if kind == "sap":
         parsed = parse_sap_file(path, filename)
+        return parsed["rows"], parsed
+    if kind == "vendor_statement":
+        parsed = parse_vendor_statement_file(path, filename)
         return parsed["rows"], parsed
     return [], {}
 
