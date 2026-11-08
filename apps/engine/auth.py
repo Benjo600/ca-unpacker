@@ -6,17 +6,33 @@ import json
 import platform
 import secrets
 import uuid
-from datetime import date, datetime, timedelta
+from datetime import date, datetime, timedelta, timezone
 from typing import Any
 
 import httpx
 from cryptography.fernet import Fernet, InvalidToken
 
-from apps.engine.auth_config import SUPABASE_ANON_KEY, SUPABASE_URL
+from apps.engine.auth_config import (
+    APP_VERSION,
+    CA_UNPACKER_AUTH_URL,
+    SUPABASE_ANON_KEY,
+    SUPABASE_URL,
+)
 from apps.engine.license import STARTER_LIMIT, _QUOTA_MESSAGE
 from apps.engine.settings import load_settings, save_settings
 
 OFFLINE_GRACE_DAYS = 7
+
+# Settings keys that belong to the login, not to client data. The wipe/Reset
+# flow snapshots these so "Delete everything" clears the library without
+# signing the user out.
+_AUTH_SETTING_KEYS = (
+    "auth_salt",
+    "auth_access_token",
+    "auth_refresh_token_enc",
+    "auth_email",
+    "auth_quota_cache",
+)
 
 _BANNED_BODY_KEYS = frozenset(
     {
@@ -94,6 +110,24 @@ def _email_from_jwt(access_token: str) -> str | None:
         return None
 
 
+def _jwt_exp(access_token: str) -> float | None:
+    try:
+        payload = access_token.split(".")[1]
+        padded = payload + "=" * (-len(payload) % 4)
+        data = json.loads(base64.urlsafe_b64decode(padded))
+        exp = data.get("exp")
+        return float(exp) if exp is not None else None
+    except Exception:
+        return None
+
+
+def _access_expired(access_token: str, leeway_seconds: int = 60) -> bool:
+    exp = _jwt_exp(access_token)
+    if exp is None:
+        return True
+    return datetime.now(timezone.utc).timestamp() >= exp - leeway_seconds
+
+
 def get_session() -> dict | None:
     data = load_settings()
     access = (data.get("auth_access_token") or "").strip()
@@ -117,6 +151,23 @@ def _clear_session() -> None:
             "auth_email": "",
         }
     )
+
+
+def snapshot_auth_settings() -> dict:
+    """Copy the login-related settings before the library folder is wiped."""
+    data = load_settings()
+    return {key: data[key] for key in _AUTH_SETTING_KEYS if key in data}
+
+
+def restore_auth_settings(snapshot: dict) -> None:
+    """Put the login back after a wipe, so Delete does not sign the user out."""
+    if not isinstance(snapshot, dict):
+        return
+    payload = {
+        key: value for key, value in snapshot.items() if key in _AUTH_SETTING_KEYS
+    }
+    if payload:
+        save_settings(payload)
 
 
 def login_via_tokens(access_token: str, refresh_token: str) -> dict:
@@ -244,6 +295,17 @@ def _post_password_auth(path: str, body: dict[str, Any], signup: bool = False) -
         raise ValueError(_NO_CONNECTION_MESSAGE) from None
 
 
+def login_with_password(email: str, password: str) -> dict:
+    """Compatibility API used by the current desktop UI."""
+    state = sign_in_with_password(email, password)
+    try:
+        fetch_quota()
+        send_heartbeat()
+    except Exception:
+        pass
+    return state | get_auth_state()
+
+
 def logout() -> None:
     session = get_session()
     if session and _network_available():
@@ -262,19 +324,42 @@ def logout() -> None:
 
 
 def refresh_session() -> dict | None:
+    """Refresh the stored session only when the access token is expiring.
+
+    A failed refresh must almost never destroy the saved login: a dropped
+    connection or a server hiccup is not proof the account is invalid, and
+    logging the CA out on every hiccup is exactly what they complain about.
+    The session is cleared only when the server explicitly rejects the
+    refresh token (revoked / reused / invalid), or when the user logs out.
+    """
     session = get_session()
     if session is None:
         return None
+    if not _access_expired(session["access_token"]):
+        return session
     if not _network_available():
+        # Processing already runs on the offline grace timer until the next
+        # successful refresh; signing out here would be a false positive.
         return session
     try:
         payload = _post_auth(
             "/auth/v1/token?grant_type=refresh_token",
             {"refresh_token": session["refresh_token"]},
         )
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code in (400, 401):
+            # Supabase answers an invalid / revoked / reused refresh token
+            # with 400 invalid_grant. Only then is signing out correct.
+            _clear_session()
+            return None
+        # 429 and 5xx are server trouble — keep the session and let quota
+        # callers fall back to the offline grace path.
+        return session
     except httpx.HTTPError:
-        _clear_session()
-        return None
+        # Network broke mid-refresh. The rotation may or may not have landed
+        # server-side; keeping the local session is the safer answer, and
+        # Supabase's refresh-token reuse window covers the retry.
+        return session
     access = str(payload.get("access_token") or "").strip()
     refresh = str(payload.get("refresh_token") or session["refresh_token"]).strip()
     if not access:
@@ -320,6 +405,18 @@ def fetch_quota() -> dict:
         result = _call_function("check-quota", {"file_count": 0}, session)
     except httpx.HTTPError:
         return load_quota_cache()
+    except ValueError as exc:
+        if "suspend" in str(exc).lower():
+            cached = load_quota_cache()
+            return save_quota_cache(
+                {
+                    "files_used": cached.get("files_used", 0),
+                    "file_limit": 0,
+                    "plan": "suspended",
+                    "synced_at": datetime.now().isoformat(timespec="seconds"),
+                }
+            )
+        return load_quota_cache()
     cache = save_quota_cache(
         {
             "files_used": result.get("files_used", 0),
@@ -329,6 +426,24 @@ def fetch_quota() -> dict:
         }
     )
     return cache
+
+
+def send_heartbeat() -> dict | None:
+    session = get_session()
+    if session is None or not _network_available():
+        return None
+    try:
+        return _call_function(
+            "heartbeat",
+            {
+                "app_version": APP_VERSION,
+                "device_label": platform.node() or "Windows PC",
+                "fingerprint_sha256": device_fingerprint(),
+            },
+            session,
+        )
+    except (httpx.HTTPError, ValueError):
+        return None
 
 
 def check_can_ingest_offline(file_count: int, today: date | None = None) -> None:
@@ -418,14 +533,18 @@ def get_auth_state() -> dict:
         file_limit = int(file_limit)
     elif plan == "starter" and not cache:
         file_limit = STARTER_LIMIT
+    remaining = None if file_limit is None else max(0, int(file_limit) - files_used)
     return {
         "signed_in": session is not None,
         "email": session.get("email") if session else None,
         "plan": plan,
         "files_used": files_used,
         "file_limit": file_limit,
+        "files_remaining": remaining,
         "offline": offline,
         "last_sync_at": cache.get("synced_at"),
+        "auth_url": CA_UNPACKER_AUTH_URL,
+        "dashboard_url": f"{CA_UNPACKER_AUTH_URL}/app",
     }
 
 
@@ -472,8 +591,7 @@ def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> 
     return data if isinstance(data, dict) else {}
 
 
-def _call_function(name: str, body: dict[str, Any], session: dict) -> dict:
-    _reject_document_keys(body)
+def _post_function(name: str, body: dict[str, Any], session: dict | None) -> dict:
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         response = client.post(
             f"{SUPABASE_URL}/functions/v1/{name}",
@@ -481,14 +599,24 @@ def _call_function(name: str, body: dict[str, Any], session: dict) -> dict:
             json=body,
         )
     if response.status_code == 403:
-        detail = ""
-        try:
-            detail = str(response.json().get("error") or response.json().get("message") or "")
-        except Exception:
-            detail = response.text
-        if "suspend" in detail.lower():
-            raise ValueError(_SUSPENDED_MESSAGE)
         raise ValueError(_SUSPENDED_MESSAGE)
     response.raise_for_status()
     data = response.json()
     return data if isinstance(data, dict) else {}
+
+
+def _call_function(name: str, body: dict[str, Any], session: dict) -> dict:
+    _reject_document_keys(body)
+    try:
+        return _post_function(name, body, session)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 401:
+            raise
+        # The access token aged out mid-session. Refresh once and retry;
+        # if the refresh token itself was revoked, refresh_session clears
+        # the session and the original 401 still travels to the caller,
+        # which falls back to the offline grace path.
+        refreshed = refresh_session()
+        if refreshed is None:
+            raise
+        return _post_function(name, body, refreshed)

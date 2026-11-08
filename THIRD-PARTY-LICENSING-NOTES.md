@@ -49,6 +49,15 @@ These are not automatically unusable, but depending on how a component is linked
 - Commercial use: generally permitted under Apache-2.0 terms
 - Important: verify any bundled language data, Windows runtime files, and other redistributed dependencies before shipping.
 
+### Free GST Billing Software (HSN/SAC rate reference)
+
+- Project: Free GST Billing Software (open-source GST billing project)
+- License: MIT
+- Intended use: reference data only, for the curated HSN/SAC -> GST rate seed table in `apps/engine/validators/hsn_rates.py`
+- What we take: publicly published classification -> rate mappings, cross-checked against the CBIC rate schedules
+- Commercial use: no source code is copied, bundled or linked; the shipped table is a hand-curated subset with our own labels
+- Important: rates change by notification, so the table is advisory data, not a licensed legal reference.
+
 ## Model-weight licensing matters separately
 
 For AI/OCR projects, always check both:

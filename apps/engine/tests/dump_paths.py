@@ -36,7 +36,7 @@ def ensure_sample_dump() -> None:
         return
     from build_test_dump import build
 
-    build()
+    build(include_landing_zip=False)
 
 
 ensure_sample_dump()

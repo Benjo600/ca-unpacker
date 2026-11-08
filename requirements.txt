@@ -5,6 +5,7 @@ pypdf>=5.1.0
 pypdfium2>=4.30.0
 pdfplumber>=0.11.0
 pdf-inspector>=1.14.1
+pymupdf>=1.25
 rapidocr>=2.0
 onnxruntime>=1.18
 babel>=2.14

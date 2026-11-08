@@ -6,12 +6,19 @@ import subprocess
 import sys
 import threading
 import time
+import webbrowser
 from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import webview
 
-from apps.engine.clients import create_client, delete_client, get_client, list_clients
+from apps.engine.clients import (
+    create_client,
+    delete_client,
+    get_client,
+    list_clients,
+    update_client_profile,
+)
 from apps.engine.currency import currency_options
 from apps.engine.dashboard import get_dashboard as dashboard_state
 from apps.engine.db import ExtractedRow, StoredFile, get_engine, get_session
@@ -22,6 +29,7 @@ from apps.engine.dump import (
     list_period_files,
     override_kind,
     preflight_paths,
+    reconcile_interrupted_work,
     reparse_period,
     set_file_currency,
     start_job,
@@ -30,6 +38,7 @@ from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
 from apps.engine import auth
+from apps.engine.auth_config import CA_UNPACKER_AUTH_URL
 from apps.engine.license import activate_key, assert_can_ingest, get_license_status
 from apps.engine.library import (
     get_library_path,
@@ -43,14 +52,17 @@ from apps.engine.recon_workflows import (
 from apps.engine.reports import list_reports as report_packs
 from apps.engine.settings import (
     get_output_root,
+    get_ui_location,
     is_guide_dismissed,
     path_sync_warnings,
+    save_ui_location,
     set_guide_dismissed,
     set_output_root,
 )
 from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
 from apps.engine.removal import remove_period_file
 from apps.engine.pdf_passwords import set_file_password as store_file_password
+from apps.engine.profiles import profile_options
 from apps.engine.pipeline import (
     get_period_pack,
     get_period_preview,
@@ -58,6 +70,7 @@ from apps.engine.pipeline import (
     open_pack_folder,
     open_pack_path,
 )
+from apps.engine.preview import preview_file as build_preview, source_file_path
 from apps.engine.wipe import wipe_all
 
 _WINDOW: webview.Window | None = None
@@ -65,6 +78,14 @@ _PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
 _SINGLE_INSTANCE_MUTEX_NAME = "Global\\CAUnpackerSingleInstance"
 _startup_deep_link: str | None = None
 _mutex_handle: int | None = None
+
+# Bumped every time the library is wiped in place. Background job threads
+# capture the epoch when they start; if it changed underneath them, their
+# output belongs to a deleted library and gets wiped again (see
+# _run_job_thread), so a reset always ends with an empty library.
+_wipe_epoch = 0
+_job_threads: set[threading.Thread] = set()
+_job_threads_lock = threading.Lock()
 
 
 def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
@@ -164,6 +185,10 @@ class DesktopApi:
             return {"ok": False, "error": "Could not send the reset email. Try again."}
         return {"ok": True}
 
+    def open_account(self) -> dict:
+        webbrowser.open(f"{CA_UNPACKER_AUTH_URL}/app")
+        return {"ok": True}
+
     def logout(self) -> dict:
         auth.logout()
         return {"ok": True, **auth.get_auth_state()}
@@ -185,6 +210,7 @@ class DesktopApi:
                     pass
             try:
                 auth.fetch_quota()
+                auth.send_heartbeat()
             except Exception:
                 pass
             state = auth.get_auth_state()
@@ -213,9 +239,11 @@ class DesktopApi:
             "guide_dismissed": is_guide_dismissed(),
             "license": get_license_status(),
             "auth": auth.get_auth_state(),
+            "profile_options": profile_options(),
             "path_warnings": path_sync_warnings(
                 str(library), str(output) if output else ""
             ),
+            "ui_last_nav": get_ui_location(),
         }
 
     def get_dashboard(self) -> dict:
@@ -307,6 +335,13 @@ class DesktopApi:
         finally:
             session.close()
 
+    def save_ui_location(self, entry: dict | None) -> dict:
+        try:
+            save_ui_location(entry if isinstance(entry, dict) else None)
+            return {"ok": True}
+        except Exception:
+            return {"ok": False}
+
     def save_firm(self, name: str) -> dict:
         try:
             firm = save_firm(name)
@@ -323,12 +358,22 @@ class DesktopApi:
         set_guide_dismissed(bool(dismissed))
         return {"ok": True, "guide_dismissed": is_guide_dismissed()}
 
-    def create_client(self, name: str, gstin: str = "") -> dict:
+    def create_client(self, name: str, gstin: str = "", profile: dict | None = None) -> dict:
         try:
-            client = create_client(name, gstin)
+            client = create_client(name, gstin, profile)
             return {"ok": True, "client": client, "clients": list_clients()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def update_client_profile(self, client_id: int, profile: dict | None = None) -> dict:
+        try:
+            client = update_client_profile(int(client_id), profile)
+            return {"ok": True, "client": client, "clients": list_clients()}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+
+    def get_profile_options(self) -> dict:
+        return {"ok": True, **profile_options()}
 
     def delete_client_desk(self, client_id: int) -> dict:
         try:
@@ -540,6 +585,38 @@ class DesktopApi:
     def get_source_crop(self, file_id: int, page: int, bbox: str = "") -> dict:
         return crop_source(int(file_id), int(page), bbox or None)
 
+    def get_file_preview(
+        self,
+        file_id: int,
+        page: int = 1,
+        password: str = "",
+        sheet: str = "",
+        formatted: bool = True,
+    ) -> dict:
+        """One page of the source document, for the in-app preview pane."""
+        try:
+            return build_preview(
+                int(file_id),
+                int(page or 1),
+                str(password or ""),
+                str(sheet or ""),
+                bool(formatted),
+            )
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Could not open that file.", "reason": "unreadable"}
+        except Exception:  # noqa: BLE001 - the pane needs a message, not a traceback
+            return {"ok": False, "error": "Could not open that file.", "reason": "unreadable"}
+
+    def open_source_file(self, file_id: int) -> dict:
+        path = source_file_path(int(file_id))
+        if path is None:
+            return {"ok": False, "error": "The stored source file is missing."}
+        try:
+            _open_path(str(path))
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not open that file. {exc}"}
+        return {"ok": True}
+
     def tesseract_status(self) -> dict:
         try:
             from apps.engine.ocr import tesseract_status
@@ -548,15 +625,24 @@ class DesktopApi:
         except Exception:
             return {"ok": True, "found": False, "path": None, "note": "OCR module not loaded"}
 
-    def wipe_and_restart(self) -> dict:
+    def wipe_and_reset(self) -> dict:
+        """Delete every client, file and pack, then reset in place.
+
+        The window stays open and the sign-in survives: only client data is
+        wiped, so the engine lazily rebuilds an empty library and the UI
+        returns to the first-run setup without asking for a login again.
+        """
+        global _wipe_epoch
+        login_snapshot = auth.snapshot_auth_settings()
+        _wipe_epoch += 1
         try:
             wipe_all()
         except OSError as exc:
             return {"ok": False, "error": f"Could not delete the library folder. {exc}"}
-        _spawn_fresh_app()
-        if _WINDOW is not None:
-            _WINDOW.destroy()
-        return {"ok": True}
+        auth.restore_auth_settings(login_snapshot)
+        self._current_period_id = None
+        state = self.get_state()
+        return {"ok": True, **state}
 
 
 def _open_path(path: str) -> None:
@@ -564,28 +650,6 @@ def _open_path(path: str) -> None:
         os.startfile(path)  # type: ignore[attr-defined]
     else:
         subprocess.Popen(["xdg-open", path])
-
-
-def _repo_root() -> Path:
-    return Path(__file__).resolve().parents[2]
-
-
-def _spawn_fresh_app() -> None:
-    if getattr(sys, "frozen", False):
-        exe = Path(sys.executable)
-        if sys.platform == "win32":
-            subprocess.Popen(["cmd", "/c", "start", "", str(exe)], cwd=str(exe.parent))
-            return
-        subprocess.Popen([str(exe)], cwd=str(exe.parent))
-        return
-    root = _repo_root()
-    if sys.platform == "win32":
-        subprocess.Popen(
-            ["cmd", "/c", "start", "", sys.executable, "-m", "apps.desktop"],
-            cwd=str(root),
-        )
-        return
-    subprocess.Popen([sys.executable, "-m", "apps.desktop"], cwd=str(root))
 
 
 def _bundle_root() -> Path:
@@ -603,25 +667,220 @@ def app_icon_path() -> str | None:
     return str(path) if path.is_file() else None
 
 
+def claim_taskbar_identity(app_id: str = "CAUnpacker.Desktop.1") -> None:
+    """Give the process its own taskbar identity.
+
+    Without this Windows groups the window under python.exe, so the taskbar
+    button shows the Python icon even though the window frame carries ours.
+    """
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.shell32.SetCurrentProcessExplicitAppUserModelID(app_id)
+    except Exception:
+        pass
+
+
+def _load_icon(path: str, size: int):
+    import ctypes
+    from ctypes import wintypes
+
+    image_icon = 1
+    lr_loadfromfile = 0x0010
+    user32 = ctypes.windll.user32
+    user32.LoadImageW.restype = wintypes.HANDLE
+    user32.LoadImageW.argtypes = [
+        wintypes.HINSTANCE,
+        wintypes.LPCWSTR,
+        wintypes.UINT,
+        ctypes.c_int,
+        ctypes.c_int,
+        wintypes.UINT,
+    ]
+    return user32.LoadImageW(None, path, image_icon, size, size, lr_loadfromfile)
+
+
+def _send_window_icon(hwnd, path: str) -> None:
+    import ctypes
+    from ctypes import wintypes
+
+    wm_seticon = 0x0080
+    icon_small = 0
+    icon_big = 1
+    sm_cxicon = 11
+    sm_cxsmicon = 49
+    user32 = ctypes.windll.user32
+    user32.SendMessageW.restype = ctypes.c_ssize_t
+    user32.SendMessageW.argtypes = [
+        wintypes.HWND,
+        wintypes.UINT,
+        wintypes.WPARAM,
+        wintypes.LPARAM,
+    ]
+    # Match the desktop's icon metrics; a 32px bitmap looks blurred at 150%.
+    big_size = max(32, int(user32.GetSystemMetrics(sm_cxicon) or 0))
+    small_size = max(16, int(user32.GetSystemMetrics(sm_cxsmicon) or 0))
+    big = _load_icon(path, big_size)
+    small = _load_icon(path, small_size)
+    if big:
+        user32.SendMessageW(hwnd, wm_seticon, icon_big, big)
+    if small:
+        user32.SendMessageW(hwnd, wm_seticon, icon_small, small)
+
+
+def _find_window_by_title(title: str):
+    """Find our own top-level window by title, falling back to any visible one."""
+    import ctypes
+    from ctypes import wintypes
+
+    user32 = ctypes.windll.user32
+    user32.FindWindowW.restype = wintypes.HWND
+    user32.FindWindowW.argtypes = [wintypes.LPCWSTR, wintypes.LPCWSTR]
+    user32.GetWindowThreadProcessId.restype = wintypes.DWORD
+    user32.GetWindowThreadProcessId.argtypes = [wintypes.HWND, ctypes.POINTER(wintypes.DWORD)]
+    user32.IsWindowVisible.restype = wintypes.BOOL
+    user32.IsWindowVisible.argtypes = [wintypes.HWND]
+    user32.GetWindowTextW.restype = ctypes.c_int
+    user32.GetWindowTextW.argtypes = [wintypes.HWND, wintypes.LPWSTR, ctypes.c_int]
+    user32.EnumWindows.restype = wintypes.BOOL
+    user32.EnumWindows.argtypes = [
+        ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM),
+        wintypes.LPARAM,
+    ]
+    hwnd = user32.FindWindowW(None, title)
+    if hwnd:
+        return hwnd
+
+    matches: list[int] = []
+    pid = os.getpid()
+
+    @ctypes.WINFUNCTYPE(wintypes.BOOL, wintypes.HWND, wintypes.LPARAM)
+    def _visit(candidate, _lparam):
+        owner = wintypes.DWORD()
+        user32.GetWindowThreadProcessId(candidate, ctypes.byref(owner))
+        if owner.value != pid or not user32.IsWindowVisible(candidate):
+            return True
+        buffer = ctypes.create_unicode_buffer(256)
+        user32.GetWindowTextW(candidate, buffer, 256)
+        if buffer.value == title:
+            matches.append(candidate)
+            return False
+        return True
+
+    user32.EnumWindows(_visit, 0)
+    return matches[0] if matches else None
+
+
+def apply_window_icon(title: str = "CA Unpacker") -> None:
+    """Put the app icon on the window (and any dev console) after it is shown."""
+    if sys.platform != "win32":
+        return
+    path = app_icon_path()
+    if not path:
+        return
+    try:
+        import ctypes
+
+        hwnd = _find_window_by_title(title)
+        if hwnd:
+            _send_window_icon(hwnd, path)
+        console = ctypes.windll.kernel32.GetConsoleWindow()
+        if console:
+            _send_window_icon(console, path)
+    except Exception:
+        pass
+
+
 def _log_crash(message: str) -> None:
-    log_path = get_library_path() / "app.log"
-    log_path.parent.mkdir(parents=True, exist_ok=True)
-    log_path.write_text(message, encoding="utf-8")
+    """Best effort: a failing log must never hide the real failure."""
+    try:
+        log_path = get_library_path() / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        log_path.write_text(message, encoding="utf-8")
+    except OSError:
+        pass
+
+
+_FAULT_LOG = None
+
+
+def _enable_fault_handler() -> None:
+    """Record native crashes (PDF/OCR C extensions) to the library log."""
+    global _FAULT_LOG
+    if _FAULT_LOG is not None:
+        return
+    try:
+        import faulthandler
+
+        log_path = get_library_path() / "app.log"
+        log_path.parent.mkdir(parents=True, exist_ok=True)
+        _FAULT_LOG = open(log_path, "a", encoding="utf-8")
+        faulthandler.enable(file=_FAULT_LOG)
+    except (OSError, AttributeError):
+        _FAULT_LOG = None
+
+
+def _show_fatal(message: str) -> None:
+    """Surface a startup failure as a dialog instead of a silent exit."""
+    if sys.platform != "win32":
+        return
+    try:
+        import ctypes
+
+        ctypes.windll.user32.MessageBoxW(
+            0, message, "CA Unpacker", 0x00000010 | 0x00000000
+        )
+    except Exception:
+        pass
 
 
 def _run_job_thread(job_id: int, fn) -> None:
+    epoch = _wipe_epoch
+
     def work() -> None:
+        ran = False
         try:
-            fn()
+            if epoch == _wipe_epoch:
+                ran = True
+                fn()
         except Exception:
             import traceback
 
-            _log_crash(traceback.format_exc())
-            leftover = get_job(job_id)
-            if leftover is None or leftover.get("status") in {"queued", "routing", "parsing"}:
-                fail_job(job_id, "Could not process these files.")
+            # Log first, but never let a logging failure stop the job from
+            # being marked failed - a stuck "parsing" job blocks the period
+            # until the library is deleted.
+            try:
+                _log_crash(traceback.format_exc())
+            except Exception:
+                pass
+            try:
+                leftover = get_job(job_id)
+                if leftover is None or leftover.get("status") in {
+                    "queued",
+                    "routing",
+                    "parsing",
+                }:
+                    fail_job(job_id, "Could not process these files.")
+            except Exception:
+                pass
+        finally:
+            with _job_threads_lock:
+                _job_threads.discard(threading.current_thread())
+            if ran and epoch != _wipe_epoch:
+                # The library was wiped while this job was running; the job
+                # may have recreated files or the database on disk. Wipe again
+                # so the reset the user asked for still ends empty.
+                try:
+                    wipe_all()
+                except OSError:
+                    pass
 
-    threading.Thread(target=work, daemon=True).start()
+    thread = threading.Thread(target=work, daemon=True)
+    with _job_threads_lock:
+        _job_threads.add(thread)
+    thread.start()
 
 
 def _drop_paths(event) -> list[str]:
@@ -670,6 +929,7 @@ def _startup_auth_sync() -> None:
     try:
         auth.refresh_session()
         auth.fetch_quota()
+        auth.send_heartbeat()
     except Exception:
         pass
 
@@ -794,6 +1054,7 @@ def _start_deep_link_poller(api: DesktopApi) -> None:
 
 
 def _on_window_shown(api: DesktopApi) -> None:
+    apply_window_icon()
     _bind_explorer_drop(api)
     if _startup_deep_link:
         _process_deep_link(api, _startup_deep_link)
@@ -811,22 +1072,43 @@ def _on_window_shown(api: DesktopApi) -> None:
             _WINDOW.events.loaded += lambda: _check_pending_now(api)
         except Exception:
             pass
+        try:
+            # WebView2 can reset the frame icon when the document loads.
+            _WINDOW.events.loaded += lambda: apply_window_icon()
+        except Exception:
+            pass
 
 
 def main() -> None:
     import traceback
 
+    claim_taskbar_identity()
+    _enable_fault_handler()
+
     global _startup_deep_link
     deep_link = extract_deep_link_url()
     is_primary = _acquire_single_instance_mutex()
-    if deep_link and not is_primary:
-        _delegate_deep_link_to_running_instance(deep_link)
+    if not is_primary:
+        if deep_link:
+            _delegate_deep_link_to_running_instance(deep_link)
+        else:
+            # A second double-click used to exit silently and look like a crash.
+            _show_fatal(
+                "CA Unpacker is already open.\n\n"
+                "Switch to the window that is already running, or close it and "
+                "try again."
+            )
         return
     _startup_deep_link = deep_link
 
     try:
         init_library()
         get_engine()
+        # Free any period left mid-parse by the last crash or restart.
+        try:
+            reconcile_interrupted_work()
+        except Exception:
+            pass
         # Claim caunpacker:// so browser sign-in can hand the session back.
         # Best effort: the in-app form still works if this fails.
         registered, err = ensure_registered()
@@ -843,7 +1125,9 @@ def main() -> None:
             logging.getLogger(__name__).info(
                 "Registered caunpacker:// protocol for browser handoff"
             )
-        _startup_auth_sync()
+        # Auth sync talks to the network (up to three round trips). Do it in the
+        # background so the window appears immediately instead of after ~45s.
+        threading.Thread(target=_startup_auth_sync, daemon=True).start()
         global _WINDOW
         api = DesktopApi()
         _WINDOW = webview.create_window(
@@ -858,5 +1142,12 @@ def main() -> None:
         _WINDOW.events.shown += lambda: _on_window_shown(api)
         webview.start(icon=app_icon_path())
     except Exception:
-        _log_crash(traceback.format_exc())
+        detail = traceback.format_exc()
+        _log_crash(detail)
+        last_line = detail.strip().splitlines()[-1] if detail.strip() else ""
+        _show_fatal(
+            "CA Unpacker could not start.\n\n"
+            f"{last_line}\n\n"
+            f"Details were written to:\n{get_library_path() / 'app.log'}"
+        )
         raise

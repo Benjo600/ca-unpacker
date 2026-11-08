@@ -43,6 +43,8 @@ class DesktopAuthApiContractTests(unittest.TestCase):
         self.assertFalse(state["signed_in"])
 
     def test_handle_auth_callback_parses_fragment_tokens(self) -> None:
+        from unittest.mock import patch
+
         from apps.desktop.app import DesktopApi
 
         api = DesktopApi()
@@ -50,10 +52,14 @@ class DesktopAuthApiContractTests(unittest.TestCase):
             "caunpacker://auth/callback"
             "#access_token=access.abc&refresh_token=refresh.xyz&token_type=bearer"
         )
-        result = api.handle_auth_callback(url)
-        self.assertTrue(result["ok"])
-        self.assertTrue(result["signed_in"])
-        self.assertEqual(api.get_auth_state()["signed_in"], True)
+        # The fake tokens must not reach the real project over the network:
+        # a live quota fetch would reject them and (rightly) clear the
+        # session. This test is only about storing the callback tokens.
+        with patch("apps.engine.auth._network_available", return_value=False):
+            result = api.handle_auth_callback(url)
+            self.assertTrue(result["ok"])
+            self.assertTrue(result["signed_in"])
+            self.assertEqual(api.get_auth_state()["signed_in"], True)
 
     def test_legacy_browser_auth_methods_direct_users_to_in_app_form(self) -> None:
         from apps.desktop.app import DesktopApi
@@ -228,6 +234,32 @@ class DesktopAuthApiContractTests(unittest.TestCase):
         self.assertTrue(ok["ok"])
         self.assertFalse(blank["ok"])
         self.assertTrue(blank["error"])
+
+    def test_login_with_password_returns_error_without_network(self) -> None:
+        from unittest.mock import patch
+
+        from apps.desktop.app import DesktopApi
+
+        api = DesktopApi()
+        with patch(
+            "apps.engine.auth.login_with_password",
+            side_effect=ValueError("Invalid email or password."),
+        ):
+            result = api.login_with_password("owner@example.com", "wrong")
+        self.assertFalse(result["ok"])
+        self.assertEqual(result["error"], "Email or password is incorrect.")
+
+    def test_open_account_opens_dashboard(self) -> None:
+        from unittest.mock import patch
+
+        from apps.desktop.app import DesktopApi
+
+        api = DesktopApi()
+        with patch("webbrowser.open") as opener:
+            result = api.open_account()
+        self.assertTrue(result["ok"])
+        opener.assert_called_once()
+        self.assertIn("/app", opener.call_args[0][0])
 
     def test_extract_deep_link_url_from_argv(self) -> None:
         from apps.desktop.app import extract_deep_link_url

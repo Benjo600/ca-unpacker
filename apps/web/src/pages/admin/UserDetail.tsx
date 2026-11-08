@@ -1,5 +1,8 @@
 import { FormEvent, useEffect, useState } from "react";
 import { Link, useParams } from "react-router-dom";
+import { ArrowLeft } from "lucide-react";
+import PlanBadge from "../../components/PlanBadge";
+import { Alert, FieldLabel, PrimaryButton, SelectInput } from "../../components/ui";
 import {
   currentMonthLabel,
   fetchAdminOrgs,
@@ -33,11 +36,9 @@ export default function UserDetail() {
   async function handlePlanSubmit(e: FormEvent) {
     e.preventDefault();
     if (!org) return;
-
     setSaving(true);
     setError(null);
     setMessage(null);
-
     try {
       await updateOrgPlan(org.id, plan);
       setOrg((prev) =>
@@ -45,14 +46,13 @@ export default function UserDetail() {
           ? {
               ...prev,
               plan,
-              file_limit:
-                plan === "pro" ? null : plan === "starter" ? 100 : 0,
+              file_limit: plan === "pro" ? null : plan === "starter" ? 100 : 0,
             }
           : prev,
       );
       setMessage("Plan updated.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update plan");
+      setError(err instanceof Error ? err.message : "Failed to update");
     } finally {
       setSaving(false);
     }
@@ -60,40 +60,43 @@ export default function UserDetail() {
 
   async function toggleSuspend() {
     if (!org) return;
-    const nextPlan: PlanType = org.plan === "suspended" ? "starter" : "suspended";
+    const next: PlanType = org.plan === "suspended" ? "starter" : "suspended";
     setSaving(true);
     setError(null);
     setMessage(null);
-
     try {
-      await updateOrgPlan(org.id, nextPlan);
-      setPlan(nextPlan);
+      await updateOrgPlan(org.id, next);
+      setPlan(next);
       setOrg((prev) =>
         prev
-          ? {
-              ...prev,
-              plan: nextPlan,
-              file_limit: nextPlan === "starter" ? 100 : 0,
-            }
+          ? { ...prev, plan: next, file_limit: next === "starter" ? 100 : 0 }
           : prev,
       );
-      setMessage(nextPlan === "suspended" ? "Account suspended." : "Account restored to starter.");
+      setMessage(next === "suspended" ? "Account suspended." : "Account restored.");
     } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to update status");
+      setError(err instanceof Error ? err.message : "Failed to update");
     } finally {
       setSaving(false);
     }
   }
 
   if (loading) {
-    return <p className="muted">Loading user…</p>;
+    return <div className="h-64 animate-pulse rounded-xl bg-rule/40" />;
   }
 
   if (!org) {
     return (
       <div>
-        <p className="error">Organization not found.</p>
-        <Link to="/admin/users">Back to users</Link>
+        <p className="rounded-lg border border-red-200 bg-red-50 px-4 py-3 text-sm text-bad">
+          Firm not found.
+        </p>
+        <Link
+          to="/admin/users"
+          className="mt-4 inline-flex items-center gap-2 text-sm font-semibold text-mute no-underline hover:text-accent"
+        >
+          <ArrowLeft className="h-4 w-4" />
+          Back to firms
+        </Link>
       </div>
     );
   }
@@ -102,83 +105,111 @@ export default function UserDetail() {
 
   return (
     <div>
-      <p className="muted">
-        <Link to="/admin/users">← Users</Link>
-      </p>
-      <h1>{org.name}</h1>
-      <p className="muted">{org.email}</p>
-      {error && <p className="error">{error}</p>}
-      {message && <p className="success">{message}</p>}
+      <Link
+        to="/admin/users"
+        className="mb-6 inline-flex items-center gap-2 text-sm font-semibold text-mute no-underline hover:text-accent"
+      >
+        <ArrowLeft className="h-4 w-4" />
+        All firms
+      </Link>
 
-      <div className="detail-grid" style={{ marginTop: 32 }}>
-        <section className="detail-section docket">
-          <h3>Usage</h3>
-          <table className="data-table">
-            <thead>
-              <tr>
-                <th>Month</th>
-                <th>Files processed</th>
-                <th>Limit</th>
-              </tr>
-            </thead>
-            <tbody>
-              <tr>
-                <td>{month}</td>
-                <td>{org.files_used}</td>
-                <td>{formatFileLimit(org.file_limit)}</td>
-              </tr>
-            </tbody>
-          </table>
-          <p className="muted" style={{ marginTop: 12 }}>
-            Historical months will appear here once the admin API exposes usage
-            history.
+      <header className="mb-8 flex flex-wrap items-start justify-between gap-4">
+        <div>
+          <p className="text-[11px] font-bold uppercase tracking-[0.16em] text-accent">
+            Firm detail
           </p>
+          <h1 className="font-display mt-2 text-4xl tracking-tight text-ink">
+            {org.name}
+          </h1>
+          <p className="mt-1 text-sm text-mute">{org.email}</p>
+        </div>
+        <PlanBadge plan={org.plan} />
+      </header>
+
+      {error ? <Alert variant="error">{error}</Alert> : null}
+      {message ? (
+        <div className="mb-4">
+          <Alert variant="success">{message}</Alert>
+        </div>
+      ) : null}
+
+      <div className="grid gap-5 lg:grid-cols-3">
+        <section className="rounded-xl border border-rule/80 bg-white p-6 shadow-card lg:col-span-2">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-mute">
+            Usage · {month}
+          </h2>
+          <div className="mt-4 grid grid-cols-2 gap-4 sm:grid-cols-3">
+            <div>
+              <p className="text-xs text-mute">Files processed</p>
+              <p className="font-display tabular-nums mt-1 text-3xl text-ink">
+                {org.files_used}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-mute">Monthly limit</p>
+              <p className="font-display tabular-nums mt-1 text-3xl text-ink">
+                {formatFileLimit(org.file_limit)}
+              </p>
+            </div>
+            <div>
+              <p className="text-xs text-mute">Devices</p>
+              <p className="font-display tabular-nums mt-1 text-3xl text-ink">
+                {org.device_count}
+              </p>
+            </div>
+          </div>
         </section>
 
-        <section className="detail-section docket">
-          <h3>Devices</h3>
-          <p>
-            <strong>{org.device_count}</strong> registered device
-            {org.device_count === 1 ? "" : "s"}
-          </p>
-          <p className="muted">
-            Per-device labels and last-seen timestamps require a future admin API
-            extension.
-          </p>
+        <section className="rounded-xl border border-rule/80 bg-white p-6 shadow-card">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-mute">
+            Account
+          </h2>
+          <dl className="mt-4 space-y-3 text-sm">
+            <div>
+              <dt className="text-xs text-mute">Joined</dt>
+              <dd className="mt-0.5 font-medium">{formatDate(org.created_at)}</dd>
+            </div>
+            <div>
+              <dt className="text-xs text-mute">Last active</dt>
+              <dd className="mt-0.5 font-medium">
+                {formatDate(org.last_active_at)}
+              </dd>
+            </div>
+          </dl>
         </section>
 
-        <section className="detail-section docket">
-          <h3>Account</h3>
-          <p>
-            Plan: <strong>{org.plan}</strong>
-          </p>
-          <p className="muted">Created {formatDate(org.created_at)}</p>
-          <p className="muted">Last active {formatDate(org.last_active_at)}</p>
-
-          <form onSubmit={handlePlanSubmit} style={{ marginTop: 16 }}>
-            <div className="field">
-              <label htmlFor="plan">Change plan</label>
-              <select
+        <section className="rounded-xl border border-rule/80 bg-white p-6 shadow-card lg:col-span-3">
+          <h2 className="text-sm font-bold uppercase tracking-wider text-mute">
+            Plan controls
+          </h2>
+          <form className="mt-5 max-w-md space-y-5" onSubmit={handlePlanSubmit}>
+            <div>
+              <FieldLabel htmlFor="plan">Subscription plan</FieldLabel>
+              <SelectInput
                 id="plan"
                 value={plan}
                 onChange={(e) => setPlan(e.target.value as PlanType)}
               >
-                <option value="starter">starter</option>
-                <option value="pro">pro</option>
-                <option value="suspended">suspended</option>
-              </select>
+                <option value="starter">Starter</option>
+                <option value="pro">Pro</option>
+                <option value="suspended">Suspended</option>
+              </SelectInput>
             </div>
-            <div className="actions-row">
-              <button type="submit" className="btn btn-ink" disabled={saving}>
+            <div className="flex flex-wrap gap-3">
+              <PrimaryButton
+                type="submit"
+                disabled={saving}
+                className="!w-auto px-6"
+              >
                 {saving ? "Saving…" : "Save plan"}
-              </button>
+              </PrimaryButton>
               <button
                 type="button"
-                className="btn btn-tab"
                 disabled={saving}
                 onClick={toggleSuspend}
+                className="h-11 rounded-lg border border-red-200 bg-red-50 px-6 text-sm font-semibold text-bad transition hover:bg-red-100 disabled:opacity-50"
               >
-                {org.plan === "suspended" ? "Unsuspend" : "Suspend account"}
+                {org.plan === "suspended" ? "Restore account" : "Suspend"}
               </button>
             </div>
           </form>
