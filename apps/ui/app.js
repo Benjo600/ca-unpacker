@@ -418,7 +418,9 @@ async function refreshCurrentView() {
     if (pane === "dashboard") {
       await loadDashboard();
     } else if (pane === "recon") {
-      await loadReconciliationWorkspace({ keepSelection: true });
+      if (window.CAReconCentre && window.CAReconCentre.refresh) {
+        await window.CAReconCentre.refresh();
+      }
     } else if (pane === "reports") {
       await loadReports();
     } else if (pane === "dump" && currentPeriod) {
@@ -1861,10 +1863,17 @@ function renderDashboardRecon(latest) {
   line.textContent = `${latest.client_name || "Client"} · ${latest.period_label || "Period"}${latest.generated_at ? ` · ${formatWhen(latest.generated_at)}` : ""}`;
   const counts = document.createElement("p");
   counts.className = "practice-recon-counts";
-  const summary = window.CAPracticeSummary.countsText(
-    latest.counts || {},
-    latest
-  );
+  let summary = "";
+  if (latest.metrics) {
+    summary = [
+      `Matched ${Number(latest.metrics.matched) || 0}`,
+      `Unmatched ${Number(latest.metrics.unmatched) || 0}`,
+      `Review ${Number(latest.metrics.review) || 0}`,
+      `Match rate ${Number(latest.metrics.match_rate || 0).toFixed(1)}%`,
+    ].join(" · ");
+  } else {
+    summary = window.CAPracticeSummary.countsText(latest.counts || {}, latest);
+  }
   for (const part of summary.split(" · ")) {
     const span = document.createElement("span");
     span.textContent = part;
@@ -1876,6 +1885,7 @@ function renderDashboardRecon(latest) {
   button.textContent = "Open this reconciliation";
   button.addEventListener("click", () =>
     showReconciliation({
+      runId: latest.run_id,
       periodId: latest.period_id,
       workflowId: latest.workflow_id,
     })
@@ -1896,7 +1906,18 @@ async function showReconciliation(options = {}) {
     });
   }
   syncGuide();
-  await loadReconciliationWorkspace(options);
+  if (window.CAReconCentre && window.CAReconCentre.open) {
+    await window.CAReconCentre.open({
+      runId: options.runId,
+      periodId: options.periodId,
+      tab: options.tab,
+    });
+    return;
+  }
+  showError(
+    document.getElementById("recon-page-error"),
+    "The reconciliation workspace could not load."
+  );
 }
 
 async function loadReconciliationWorkspace(options = {}) {

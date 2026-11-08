@@ -6,6 +6,7 @@
   <title>CA Unpacker</title>
   <link rel="icon" href="app-icon.png" />
   <link rel="stylesheet" href="styles.css" />
+  <link rel="stylesheet" href="recon-centre.css" />
 </head>
 <body>
   <div id="auth-gate" class="auth-gate hidden">
@@ -584,82 +585,31 @@
       </div>
     </main>
 
-    <main class="sheet practice-sheet hidden" id="pane-recon">
-      <header class="practice-head">
+    <main class="sheet practice-sheet recon-sheet hidden" id="pane-recon">
+      <header class="practice-head rc-head">
         <div>
-          <p class="eyebrow">Practice</p>
-          <h1>Reconciliation</h1>
-          <p class="practice-sub">Compare processed records without changing either source. Similar amounts alone never create a match.</p>
+          <p class="eyebrow">Practice / Reconciliation control</p>
+          <h1>Reconciliation Control Centre</h1>
+          <p class="practice-sub" id="recon-page-sub">Persisted runs, explainable matches, exception queues and audit history. Source accounting records are never modified.</p>
+        </div>
+        <div class="practice-head-actions rc-head-actions">
+          <button type="button" class="ui-btn ui-btn-secondary" id="recon-refresh">Refresh</button>
+          <button type="button" class="ui-btn ui-btn-primary" id="recon-run-button">Run reconciliation</button>
+          <button type="button" class="ui-btn ui-btn-secondary" id="recon-export-button">Export current run</button>
         </div>
       </header>
 
       <p id="recon-page-error" class="error" hidden></p>
 
-      <section class="practice-controls" aria-label="Reconciliation period">
-        <div class="ui-field practice-period-field">
-          <label class="ui-field-label" for="recon-period">Client period</label>
-          <select id="recon-period" class="ui-select"></select>
-        </div>
-        <button type="button" class="ui-btn ui-btn-secondary" id="recon-refresh">Refresh data</button>
-        <p id="recon-period-meta" class="practice-note"></p>
-      </section>
+      <nav class="rc-tabs" id="recon-tabs" aria-label="Reconciliation sections">
+        <button type="button" class="rc-tab is-active" data-rc-tab="control" aria-current="page">Control Centre</button>
+        <button type="button" class="rc-tab" data-rc-tab="workbench">Workbench</button>
+        <button type="button" class="rc-tab" data-rc-tab="exceptions">Exception Centre</button>
+        <button type="button" class="rc-tab" data-rc-tab="history">Run History</button>
+        <button type="button" class="rc-tab" data-rc-tab="rules">Rules &amp; Configuration</button>
+      </nav>
 
-      <p id="recon-loading" class="practice-loading">Loading reconciliation data…</p>
-
-      <div id="recon-empty" class="practice-empty hidden">
-        <h2>No periods to reconcile</h2>
-        <p>Process documents in the Document Workspace first. Reconciliation reads the extracted rows already stored for a period.</p>
-        <button type="button" class="ui-btn ui-btn-primary" id="recon-go-workspace">Open Document Workspace</button>
-      </div>
-
-      <div id="recon-workspace" class="hidden">
-        <section class="practice-panel">
-          <div class="practice-panel-head">
-            <h2>Choose a comparison</h2>
-            <span class="practice-note">Only workflows with both datasets can run</span>
-          </div>
-          <div id="recon-workflows" class="recon-workflows"></div>
-        </section>
-
-        <div id="recon-missing" class="practice-notice hidden" aria-live="polite"></div>
-        <p id="recon-calculating" class="practice-loading hidden">Calculating reconciliation…</p>
-
-        <section id="recon-results" class="practice-panel hidden">
-          <div class="practice-panel-head">
-            <div>
-              <h2 id="recon-result-title">Reconciliation</h2>
-              <p id="recon-result-sub" class="practice-note"></p>
-            </div>
-            <span id="recon-result-stamp" class="practice-stamp"></span>
-          </div>
-
-          <p id="recon-rules" class="practice-rules"></p>
-          <div id="recon-datasets" class="recon-datasets"></div>
-          <div id="recon-summary" class="recon-summary"></div>
-          <div id="recon-totals" class="recon-totals"></div>
-
-          <div class="recon-toolbar">
-            <div id="recon-page-filters" class="practice-filters" role="group" aria-label="Filter reconciliation rows">
-              <button type="button" data-recon-page-filter="all" aria-pressed="true">All</button>
-              <button type="button" data-recon-page-filter="matched" aria-pressed="false">Matched</button>
-              <button type="button" data-recon-page-filter="review" aria-pressed="false">Review</button>
-              <button type="button" data-recon-page-filter="amount_mismatch" aria-pressed="false">Amount differences</button>
-              <button type="button" data-recon-page-filter="unmatched" aria-pressed="false">Only one side</button>
-              <button type="button" data-recon-page-filter="duplicate" aria-pressed="false">Duplicates</button>
-            </div>
-            <input id="recon-search" class="practice-input" type="search" placeholder="Search reference, party, GSTIN or source" autocomplete="off" />
-          </div>
-
-          <div class="recon-table-wrap">
-            <table class="practice-table recon-table" aria-label="Reconciliation results">
-              <thead id="recon-table-head"></thead>
-              <tbody id="recon-table-body"></tbody>
-            </table>
-          </div>
-          <p id="recon-table-empty" class="empty hidden">No rows match this filter.</p>
-          <p class="practice-note">Click a row to inspect both extracted records and open the original source file. Nothing is written back to the source data.</p>
-        </section>
-      </div>
+      <div id="recon-centre" class="recon-centre" aria-live="polite"></div>
     </main>
 
     <main class="sheet practice-sheet hidden" id="pane-reports">
@@ -813,6 +763,7 @@
   <script src="recon-summary.js"></script>
   <script src="practice-summary.js"></script>
   <script src="remove-file.js"></script>
+  <script src="recon-centre.js"></script>
   <script src="app.js"></script>
 </body>
 </html>

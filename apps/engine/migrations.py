@@ -254,6 +254,12 @@ def ensure_schema(
                         "added: %s",
                         ", ".join(repaired),
                     )
+                # Additive schema repair for tables introduced by newer,
+                # backwards-compatible features (reconciliation runs,
+                # exceptions, audit events, rule snapshots).  create_all is
+                # checkfirst/idempotent and never alters or drops a table that
+                # already exists, so older libraries keep their data intact.
+                metadata.create_all(connection)
         except BaseException:
             connection.rollback()
             raise

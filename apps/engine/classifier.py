@@ -48,6 +48,14 @@ ZOHO_HEADERS = {
     "item tax %",
 }
 
+VENDOR_STATEMENT_HINTS = (
+    "vendor statement",
+    "supplier statement",
+    "statement of account",
+    "creditor statement",
+    "vendor account statement",
+)
+
 
 @dataclass(frozen=True)
 class Classification:
@@ -87,7 +95,12 @@ def classify_from_text(name: str, page_count: int, text: str) -> Classification:
     invoice_hits = sum(1 for hint in INVOICE_HINTS if hint in lowered)
     has_gstin = bool(GSTIN_RE.search(text.upper()))
     filename = name.lower()
+    filename_text = filename.replace("_", " ").replace("-", " ")
 
+    if any(hint in filename_text for hint in VENDOR_STATEMENT_HINTS):
+        return Classification(
+            "vendor_statement", 0.85, "filename looks like a vendor/supplier statement"
+        )
     if _filename_says_gstr(filename, "2b"):
         return Classification("gstr_2b", 0.8, "filename looks like GSTR-2B")
     if _filename_says_gstr(filename, "3b"):
@@ -179,6 +192,11 @@ def _classify_zip(path: Path, name: str) -> Classification:
 
 
 def _classify_spreadsheet(path: Path, name: str) -> Classification:
+    name_words = name.replace("_", " ").replace("-", " ")
+    if any(hint in name_words for hint in VENDOR_STATEMENT_HINTS):
+        return Classification(
+            "vendor_statement", 0.88, "filename looks like a vendor/supplier statement"
+        )
     if "zoho" in name or "books" in name:
         return Classification("zoho", 0.8, "filename looks like a Zoho export")
     suffix = path.suffix.lower()

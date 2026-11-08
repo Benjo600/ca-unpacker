@@ -45,8 +45,33 @@ from apps.engine.library import (
     init_library,
     resolve_storage_key,
 )
+from apps.engine.recon_datasets import reconciliation_workspace
+from apps.engine.recon_report import export_reconciliation
+from apps.engine.recon_service import (
+    accept_match as recon_accept_match,
+    add_exception_note as recon_add_exception_note,
+    add_match_note as recon_add_match_note,
+    cancel_run as recon_cancel_run,
+    compare_runs as recon_compare_runs,
+    control_centre as recon_control_centre,
+    get_exception_detail as recon_exception_detail,
+    get_exceptions as recon_exceptions,
+    get_match_detail as recon_match_detail,
+    get_run as recon_get_run,
+    get_run_rows as recon_run_rows,
+    list_rule_sets as recon_rule_sets,
+    list_runs as recon_list_runs,
+    manual_match as recon_manual_match,
+    recon_filter_options as recon_filter_options_service,
+    reject_match as recon_reject_match,
+    rerun as recon_rerun,
+    run_audit as recon_run_audit,
+    save_rule_set as recon_save_rule_set,
+    start_reconciliation as recon_start,
+    unmatch as recon_unmatch,
+    update_exception as recon_update_exception,
+)
 from apps.engine.recon_workflows import (
-    reconciliation_workspace,
     run_reconciliation as run_recon_workflow,
 )
 from apps.engine.reports import list_reports as report_packs
@@ -276,6 +301,241 @@ class DesktopApi:
                 "error": "Could not calculate this reconciliation.",
             }
         return {"ok": True, **result}
+
+    # ------------------------------------------------------------------
+    # Reconciliation Control Centre / Workbench / Exceptions / Rules
+    # ------------------------------------------------------------------
+
+    def get_recon_workspace(self) -> dict:
+        try:
+            return {"ok": True, **reconciliation_workspace()}
+        except Exception:
+            return {"ok": False, "error": "Could not load the reconciliation workspace."}
+
+    def get_recon_filter_options(self) -> dict:
+        try:
+            return {"ok": True, **recon_filter_options_service()}
+        except Exception:
+            return {"ok": False, "error": "Could not load reconciliation filters."}
+
+    def get_recon_control_centre(self, filters: dict | None = None) -> dict:
+        try:
+            return {"ok": True, **recon_control_centre(filters or {})}
+        except Exception:
+            return {"ok": False, "error": "Could not load the reconciliation control centre."}
+
+    def get_recon_rules(self, workflow_id: str = "") -> dict:
+        try:
+            return {"ok": True, **recon_rule_sets(str(workflow_id or "") or None)}
+        except Exception:
+            return {"ok": False, "error": "Could not load reconciliation rules."}
+
+    def save_recon_rules(self, payload: dict | None = None) -> dict:
+        try:
+            result = recon_save_rule_set(payload or {}, self._actor())
+            return {"ok": True, "ruleset": result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not save the reconciliation rule set."}
+
+    def start_recon_run(
+        self,
+        period_id: int,
+        workflow_id: str,
+        ruleset_id: int | None = None,
+    ) -> dict:
+        try:
+            period_key = int(period_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Period was not found."}
+        try:
+            result = recon_start(
+                period_key,
+                str(workflow_id or ""),
+                ruleset_id=int(ruleset_id) if ruleset_id not in (None, "") else None,
+                actor=self._actor(),
+                background=True,
+            )
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not start this reconciliation."}
+        if not result.get("available"):
+            return {
+                "ok": False,
+                "available": False,
+                "error": result.get("message") or "Required source data is missing.",
+                **result,
+            }
+        return {"ok": True, **result}
+
+    def get_recon_run(self, run_id: int) -> dict:
+        try:
+            return {"ok": True, **recon_get_run(int(run_id))}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not load this reconciliation run."}
+
+    def cancel_recon_run(self, run_id: int) -> dict:
+        try:
+            return {"ok": True, **recon_cancel_run(int(run_id), self._actor())}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not cancel this reconciliation."}
+
+    def get_recon_run_rows(self, run_id: int, filters: dict | None = None) -> dict:
+        try:
+            return {"ok": True, **recon_run_rows(int(run_id), filters or {})}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not load these reconciliation rows."}
+
+    def get_recon_match(self, match_id: int) -> dict:
+        try:
+            return {"ok": True, **recon_match_detail(int(match_id))}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not load this reconciliation row."}
+
+    def get_recon_exceptions(self, filters: dict | None = None) -> dict:
+        try:
+            return {"ok": True, **recon_exceptions(filters or {})}
+        except Exception:
+            return {"ok": False, "error": "Could not load the exception queue."}
+
+    def get_recon_exception(self, exception_id: int) -> dict:
+        try:
+            return {"ok": True, **recon_exception_detail(int(exception_id))}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not load this exception."}
+
+    def recon_decide(self, payload: dict | None = None) -> dict:
+        data = payload or {}
+        action = str(data.get("action") or "").strip()
+        reason = str(data.get("reason") or "").strip()
+        try:
+            if action == "accept":
+                result = recon_accept_match(int(data.get("match_id")), reason, self._actor())
+            elif action == "reject":
+                result = recon_reject_match(int(data.get("match_id")), reason, self._actor())
+            elif action == "unmatch":
+                result = recon_unmatch(int(data.get("match_id")), reason, self._actor())
+            elif action == "manual_match":
+                result = recon_manual_match(data, self._actor())
+            else:
+                return {"ok": False, "error": "That reconciliation action is not available."}
+            return {"ok": True, "result": result}
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not save this reconciliation decision."}
+
+    def recon_update_exception(self, payload: dict | None = None) -> dict:
+        try:
+            return {
+                "ok": True,
+                "exception": recon_update_exception(payload or {}, self._actor()),
+            }
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not update this exception."}
+
+    def recon_add_note(self, payload: dict | None = None) -> dict:
+        data = payload or {}
+        try:
+            if data.get("match_id"):
+                result = recon_add_match_note(data, self._actor())
+            else:
+                result = recon_add_exception_note(data, self._actor())
+            return {"ok": True, **result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not save this note."}
+
+    def list_recon_runs(self, filters: dict | None = None) -> dict:
+        try:
+            data = filters or {}
+            return {
+                "ok": True,
+                **recon_list_runs(
+                    data,
+                    page=int(data.get("page") or 1),
+                    page_size=int(data.get("page_size") or 50),
+                ),
+            }
+        except Exception:
+            return {"ok": False, "error": "Could not load reconciliation history."}
+
+    def compare_recon_runs(self, run_a: int, run_b: int) -> dict:
+        try:
+            return {"ok": True, **recon_compare_runs(int(run_a), int(run_b))}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not compare these reconciliation runs."}
+
+    def rerun_reconciliation(self, run_id: int) -> dict:
+        try:
+            result = recon_rerun(int(run_id), self._actor(), background=True)
+            if not result.get("available"):
+                return {
+                    "ok": False,
+                    "available": False,
+                    "error": result.get("message") or "Required source data is missing.",
+                    **result,
+                }
+            return {"ok": True, **result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not re-run this reconciliation."}
+
+    def get_recon_audit(self, run_id: int) -> dict:
+        try:
+            return {"ok": True, **recon_run_audit(int(run_id))}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not load the audit trail."}
+
+    def export_recon_run(self, run_id: int) -> dict:
+        try:
+            result = export_reconciliation(int(run_id))
+            return {"ok": True, "export": result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not export this reconciliation."}
+
+    def open_recon_export(self, run_id: int) -> dict:
+        result = self.export_recon_run(run_id)
+        if not result.get("ok"):
+            return result
+        path = (result.get("export") or {}).get("xlsx") or ""
+        try:
+            _open_path(str(path))
+        except OSError:
+            return {"ok": False, "error": "The export was created but could not be opened."}
+        return result
+
+    def _actor(self) -> str:
+        try:
+            state = auth.get_auth_state()
+            email = str(state.get("email") or "").strip()
+            if email:
+                return email
+        except Exception:
+            pass
+        return "local user"
 
     def get_reports(self) -> dict:
         try:
