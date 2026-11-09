@@ -1006,6 +1006,106 @@ def _positional_values(tokens: list[_Token], header: _Header, text: str) -> _Val
     return result
 
 
+def _reconcile_positional_with_sequence(
+    tokens: list[_Token], header: _Header, text: str, values: _Values
+) -> _Values:
+    """Repair a positional row that under-filled its numeric columns.
+
+    Cramped layouts let the first value token (usually the quantity) land left
+    of its column centre, so it bleeds into the description and every later
+    value shifts one column over.  When the in-order reading fills every
+    numeric column the positional reading left empty, and agrees with it on
+    the columns both assigned, the in-order reading is the honest one.  A
+    direct conflict still raises the layout-uncertain flag instead of hiding
+    the ambiguity.
+    """
+def _row_amount_consistent(values: dict[str, Decimal]) -> bool:
+    """A row reading is internally consistent when the money adds up.
+
+    With printed tax columns the check is amount = taxable + taxes.  Without
+    them, a discounted row reconciles as amount = taxable + discount.  Rows
+    carrying neither signal cannot be judged and count as consistent.
+    """
+    amount = values.get("amount", values.get("total"))
+    taxable = values.get("taxable")
+    if amount is None or taxable is None:
+        return True  # nothing to arbitrate on
+    tax_parts = [
+        values.get(name)
+        for name in ("sgst", "cgst", "igst", "cess")
+        if values.get(name) is not None
+    ]
+    if tax_parts:
+        return abs(amount - (taxable + sum(tax_parts, Decimal("0")))) <= Decimal("1.00")
+    discount = values.get("discount")
+    if discount is not None:
+        return abs(amount - (taxable + discount)) <= Decimal("1.00")
+    return True
+
+
+def _reconcile_positional_with_sequence(
+    tokens: list[_Token], header: _Header, text: str, values: _Values
+) -> _Values:
+    """Repair a positional row the column centres read badly.
+
+    Cramped layouts let values land beside the wrong column: the quantity
+    bleeds into the description, a fully-discounted fee row reads its gross
+    as its total.  The in-order reading of the same tokens is kept when it
+    explains the columns the positional reading missed, and when both are
+    complete it wins only by being the internally consistent one
+    (amount = taxable + tax).  Anything ambiguous stays flagged.
+    """
+    numeric_fields = [c.field for c in header.columns if c.field in _NUMERIC_FIELDS]
+    if not numeric_fields:
+        return values
+    filled = all(field in values.values for field in numeric_fields)
+    candidate = _sequential_values(tokens, header, text)
+    if filled and _row_amount_consistent(values.values):
+        return values
+    if filled:
+        # Both readings complete: only internal consistency can arbitrate.
+        if (
+            not _row_amount_consistent(values.values)
+            and _row_amount_consistent(candidate.values)
+        ):
+            merged = _Values()
+            merged.values.update(candidate.values)
+            merged.description = candidate.description or values.description
+            merged.hsn = values.hsn or candidate.hsn
+            merged.notes = list(values.notes)
+            merged.notes.append("positional reading failed row math; used in-order columns")
+            merged.uncertain = True
+            return merged
+        return values
+    missing = [field for field in numeric_fields if field not in values.values]
+    if any(field not in candidate.values for field in missing):
+        # The in-order reading cannot explain the columns the positional
+        # reading left empty; keep positional.
+        return values
+    if _row_amount_consistent(values.values) and not _row_amount_consistent(
+        candidate.values
+    ):
+        # The in-order reading breaks the row's own math; keep positional.
+        return values
+    conflicts = [
+        field
+        for field in numeric_fields
+        if field in values.values and candidate.values.get(field) != values.values[field]
+    ]
+    dropped = [field for field in values.values if field not in candidate.values]
+    merged = _Values()
+    merged.values.update(candidate.values)
+    merged.description = candidate.description or values.description
+    merged.hsn = values.hsn or candidate.hsn
+    merged.notes = list(values.notes)
+    if dropped:
+        merged.notes.append(
+            "positional reading of " + ", ".join(sorted(dropped)) + " replaced by in-order columns"
+        )
+    merged.uncertain = values.uncertain or bool(conflicts) or bool(dropped)
+    return merged
+
+
 def _sequential_values(tokens: list[_Token], header: _Header, text: str) -> _Values:
     result = _Values()
     texts = [token.text for token in tokens]
@@ -1205,16 +1305,38 @@ def _line_items(
             if header.positioned
             else _sequential_values(tokens, header, text)
         )
+        if header.positioned:
+            values = _reconcile_positional_with_sequence(tokens, header, text, values)
         if not _is_item_row(values):
             if _is_special_line(text):
                 _continuation(current, text)
                 index += 1
                 continue
             if header.positioned and values.description and not values.values:
+                amount_like = [
+                    token
+                    for token in tokens
+                    if _money(token.text) is not None
+                    and ("." in token.text or "," in token.text)
+                ]
+                if amount_like:
+                    # The line carries amounts yet none of them maps to a
+                    # numeric column - guessing a description continuation
+                    # would hide the ambiguity. Report the row instead.
+                    skipped.append(
+                        {"page": int(line.page), "text": text[:240], "reason": "ambiguous row"}
+                    )
+                    index += 1
+                    continue
                 if current is None or _numeric_row_soon(record, index, line_words):
                     pending_description.append(_strip_hsn(values.description))
+                elif _continuation(current, text):
+                    # Metadata/rate line folded into the open item (HSN, warranty...).
+                    pass
                 else:
-                    _append_description(current, _strip_hsn(values.description))
+                    skipped.append(
+                        {"page": int(line.page), "text": text[:240], "reason": "ambiguous row"}
+                    )
                 index += 1
                 continue
             skipped.append(
@@ -2302,7 +2424,7 @@ def _customer_details(
         header_words = [
             word
             for word in _words_for_line(line, line_words)
-            if re.search(r"bill\s+to|billing\s+address|buyer|customer", _clean(word.text), re.I)
+            if re.search(r"\b(?:bill|billing|buyer|customer)\b", _clean(word.text), re.I)
         ]
         if not header_words:
             continue
