@@ -7,6 +7,7 @@ import Login from "./pages/Login";
 import Signup from "./pages/Signup";
 import HomeRedirect from "./pages/HomeRedirect";
 import Dashboard from "./pages/Dashboard";
+import Features from "./pages/admin/Features";
 import Overview from "./pages/admin/Overview";
 import ReleaseEditor from "./pages/admin/ReleaseEditor";
 import Releases from "./pages/admin/Releases";
@@ -38,6 +39,7 @@ export default function App() {
         }
       >
         <Route index element={<Overview />} />
+        <Route path="features" element={<Features />} />
         <Route path="users" element={<Users />} />
         <Route path="users/:id" element={<UserDetail />} />
         <Route path="releases" element={<Releases />} />

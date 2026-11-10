@@ -148,11 +148,11 @@ export default function ReleaseEditor() {
   const location = useLocation();
   const [form, setForm] = useState<FormState>(() => {
     const state = location.state as
-      | { prefill?: Partial<Pick<FormState, "release_notes">> }
+      | { prefill?: Partial<FormState> }
       | null;
     const prefill = state?.prefill;
     if (!isNew || !prefill) return EMPTY_FORM;
-    return { ...EMPTY_FORM, release_notes: prefill.release_notes ?? "" };
+    return { ...EMPTY_FORM, ...prefill };
   });
   const [release, setRelease] = useState<AppRelease | null>(null);
   const [loading, setLoading] = useState(!isNew);
