@@ -10,7 +10,10 @@ begin
 end
 $$;
 
-create table if not exists public.admin_audit_log (
+-- app_release_audit_log is deliberately separate from the operators'
+-- admin_audit_log table, which predates it with a different shape.
+
+create table if not exists public.app_release_audit_log (
   id bigserial primary key,
   actor_email text not null,
   action text not null,
@@ -48,11 +51,11 @@ create unique index if not exists app_releases_one_published
   where status = 'published';
 
 alter table public.app_releases enable row level security;
-alter table public.admin_audit_log enable row level security;
+alter table public.app_release_audit_log enable row level security;
 
 revoke all on public.app_releases from anon, authenticated;
-revoke all on public.admin_audit_log from anon, authenticated;
-revoke all on sequence public.admin_audit_log_id_seq from anon, authenticated;
+revoke all on public.app_release_audit_log from anon, authenticated;
+revoke all on sequence public.app_release_audit_log_id_seq from anon, authenticated;
 
 create or replace function public.admin_audit(
   p_actor text,
@@ -64,7 +67,7 @@ language sql
 security definer
 set search_path = public
 as $$
-  insert into public.admin_audit_log (actor_email, action, entity, entity_id, detail)
+  insert into public.app_release_audit_log (actor_email, action, entity, entity_id, detail)
   values (coalesce(nullif(btrim(p_actor), ''), 'unknown'), p_action, 'app_release', p_entity_id, coalesce(p_detail, '{}'::jsonb));
 $$;
 
