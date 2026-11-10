@@ -1,0 +1,142 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="840" height="1160" viewBox="0 0 840 1160" font-family="Segoe UI, Arial, sans-serif">
+  <defs>
+    <marker id="arrow" viewBox="0 0 10 10" refX="8" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#5c6b63"/>
+    </marker>
+  </defs>
+  <style>
+    .node { fill: #faf7f0; stroke: #2c3330; stroke-width: 1.5; rx: 8; }
+    .accent { fill: #f4efe3; stroke: #c45a2a; stroke-width: 2; }
+    .green  { fill: #eaf2ec; stroke: #2a6b3f; stroke-width: 2; }
+    .dark   { fill: #2c3330; stroke: #2c3330; }
+    .title  { font-size: 14px; font-weight: 700; fill: #1b3028; }
+    .title-light { font-size: 14px; font-weight: 700; fill: #f4efe3; }
+    .sub    { font-size: 11.5px; fill: #5c6b63; }
+    .sub-light { font-size: 11.5px; fill: #c8d2cb; }
+    .lbl    { font-size: 11px; fill: #8b4a20; font-weight: 600; }
+    .line   { stroke: #5c6b63; stroke-width: 1.6; fill: none; marker-end: url(#arrow); }
+    .line-dashed { stroke: #5c6b63; stroke-width: 1.4; fill: none; stroke-dasharray: 5 4; marker-end: url(#arrow); }
+  </style>
+
+  <!-- 1. push -->
+  <rect class="accent" x="200" y="16" width="440" height="52" rx="8"/>
+  <text class="title" x="420" y="38" text-anchor="middle">You or Darshan push to GitHub</text>
+  <text class="sub" x="420" y="56" text-anchor="middle">feat: = new feature · fix: = existing feature update · other = small update</text>
+
+  <path class="line" d="M 420 68 V 96"/>
+
+  <!-- 2. CI decision -->
+  <rect class="green" x="230" y="98" width="380" height="52" rx="8"/>
+  <text class="title" x="420" y="120" text-anchor="middle">GitHub Actions — build-installer</text>
+  <text class="sub" x="420" y="138" text-anchor="middle">runs on every push to main (code files only)</text>
+
+  <path class="line" d="M 230 124 H 92 V 144"/>
+  <text class="lbl" x="98" y="96" text-anchor="middle">docs / web only</text>
+  <rect x="30" y="146" width="120" height="34" rx="8" class="node"/>
+  <text class="sub" x="90" y="167" text-anchor="middle">No build, no noise</text>
+
+  <path class="line" d="M 420 150 V 178"/>
+  <text class="lbl" x="470" y="168">code changed</text>
+
+  <!-- 3. build -->
+  <rect class="node" x="190" y="180" width="460" height="66" rx="8"/>
+  <text class="title" x="420" y="203" text-anchor="middle">Version becomes 0.11.&#60;run number&#62;</text>
+  <text class="sub" x="420" y="221" text-anchor="middle">PyInstaller app + updater helper</text>
+  <text class="sub" x="420" y="237" text-anchor="middle">Inno Setup one-file installer</text>
+
+  <path class="line" d="M 420 246 V 274"/>
+
+  <!-- 4. prerelease -->
+  <rect class="node" x="190" y="276" width="460" height="50" rx="8"/>
+  <text class="title" x="420" y="297" text-anchor="middle">Prerelease v0.11.X published on GitHub Releases</text>
+  <text class="sub" x="420" y="315" text-anchor="middle">body carries the exact size + sha256 — no tokens needed to read it</text>
+
+  <path class="line" d="M 420 326 V 354"/>
+
+  <!-- 5. dashboard tab -->
+  <rect class="accent" x="190" y="356" width="460" height="50" rx="8"/>
+  <text class="title" x="420" y="377" text-anchor="middle">Dashboard — New features tab</text>
+  <text class="sub" x="420" y="395" text-anchor="middle">&#8220;Auto-built installers ready to test&#8221; + pushes tagged by kind</text>
+
+  <path class="line" d="M 420 406 V 434"/>
+
+  <!-- 6. test -->
+  <rect class="node" x="190" y="436" width="460" height="50" rx="8"/>
+  <text class="title" x="420" y="457" text-anchor="middle">Test the build on a machine</text>
+  <text class="sub" x="420" y="475" text-anchor="middle">install it and run one real job through the app</text>
+
+  <!-- branch: not good -->
+  <path class="line" d="M 190 461 H 66 V 488"/>
+  <text class="lbl" x="112" y="452">not good</text>
+  <rect class="node" x="4" y="490" width="150" height="50" rx="8"/>
+  <text class="sub" x="79" y="510" text-anchor="middle">Skip this build —</text>
+  <text class="sub" x="79" y="526" text-anchor="middle">a push makes a better one</text>
+
+  <path class="line-dashed" d="M 79 540 V 596"/>
+  <text class="sub" x="86" y="590">the loop restarts with the next push</text>
+
+  <path class="line" d="M 420 486 V 514"/>
+  <text class="lbl" x="472" y="500">good</text>
+
+  <!-- 7. draft -->
+  <rect class="node" x="190" y="516" width="460" height="50" rx="8"/>
+  <text class="title" x="420" y="537" text-anchor="middle">&#8220;Create release draft&#8221; in the dashboard</text>
+  <text class="sub" x="420" y="555" text-anchor="middle">version, url, size, sha256 and notes pre-filled from the build</text>
+
+  <path class="line" d="M 420 566 V 594"/>
+
+  <!-- 8. publish -->
+  <rect class="node" x="190" y="596" width="460" height="50" rx="8"/>
+  <text class="title" x="420" y="617" text-anchor="middle">Publish — with second confirmation</text>
+  <text class="sub" x="420" y="635" text-anchor="middle">withdraws the previous release automatically</text>
+
+  <path class="line" d="M 420 646 V 674"/>
+
+  <!-- 9. popup -->
+  <rect class="green" x="230" y="676" width="380" height="52" rx="8"/>
+  <text class="title" x="420" y="698" text-anchor="middle">Every signed-in app pops:</text>
+  <text class="sub" x="420" y="717" text-anchor="middle">NEW UPDATE AVAILABLE</text>
+
+  <!-- two paths -->
+  <path class="line" d="M 310 728 H 130 V 756"/>
+  <path class="line" d="M 530 728 H 710 V 756"/>
+
+  <!-- install now path -->
+  <rect class="dark" x="40" y="758" width="270" height="46" rx="8"/>
+  <text class="title-light" x="175" y="779" text-anchor="middle">Install now</text>
+  <text class="sub-light" x="175" y="797" text-anchor="middle">download starts immediately</text>
+
+  <rect class="node" x="40" y="828" width="270" height="66" rx="8"/>
+  <text class="title" x="175" y="850" text-anchor="middle">Verified twice</text>
+  <text class="sub" x="175" y="868" text-anchor="middle">exact size + sha256 after download,</text>
+  <text class="sub" x="175" y="884" text-anchor="middle">again inside the update helper</text>
+
+  <rect class="node" x="40" y="918" width="270" height="50" rx="8"/>
+  <text class="title" x="175" y="939" text-anchor="middle">Silent install &#8594; app reopens</text>
+  <text class="sub" x="175" y="957" text-anchor="middle">still signed in, work untouched</text>
+
+  <!-- later path -->
+  <rect class="node" x="530" y="758" width="270" height="46" rx="8"/>
+  <text class="title" x="665" y="779" text-anchor="middle">Later</text>
+  <text class="sub" x="665" y="797" text-anchor="middle">popup dismissed for that version</text>
+
+  <rect class="node" x="530" y="828" width="270" height="66" rx="8"/>
+  <text class="title" x="665" y="850" text-anchor="middle">Still available any time</text>
+  <text class="sub" x="665" y="868" text-anchor="middle">the update card lives in the</text>
+  <text class="sub" x="665" y="884" text-anchor="middle">account panel &#8594; Check / Later</text>
+
+  <rect class="node" x="530" y="918" width="270" height="50" rx="8"/>
+  <text class="title" x="665" y="939" text-anchor="middle">Mandatory builds have no Later</text>
+  <text class="sub" x="665" y="957" text-anchor="middle">new imports pause until installed</text>
+
+  <!-- bottom rails -->
+  <rect class="accent" x="130" y="996" width="580" height="44" rx="8"/>
+  <text class="title" x="420" y="1017" text-anchor="middle">Only versions published in the Supabase control plane ever install.</text>
+  <text class="sub" x="420" y="1034" text-anchor="middle">GitHub prereleases alone reach nobody&#8217;s app.</text>
+
+  <rect class="node" x="130" y="1056" width="580" height="44" rx="8"/>
+  <text class="title" x="420" y="1077" text-anchor="middle">Exactly one live release at a time</text>
+  <text class="sub" x="420" y="1094" text-anchor="middle">older clients can be forced up by marking a draft mandatory or setting a minimum version</text>
+
+  <text class="sub" x="420" y="1136" text-anchor="middle">CA Unpacker update pipeline · docs/UPDATE-FLOW.md</text>
+</svg>
