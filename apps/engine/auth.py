@@ -376,6 +376,32 @@ def refresh_session() -> dict | None:
     return get_session()
 
 
+def call_authenticated_function(name: str, body: dict[str, Any]) -> dict:
+    """Call a Supabase Edge Function as the signed-in user.
+
+    An expired access token is refreshed once and the call retried. Tokens are
+    never logged. Document keys are still rejected by ``_call_function``.
+    """
+
+    session = get_session()
+    if session is None:
+        raise ValueError("Sign in to check for updates.")
+    try:
+        return _call_function(name, body, session)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code != 401:
+            raise
+    refreshed = refresh_session()
+    if refreshed is None:
+        raise ValueError("Sign in again to check for updates.") from None
+    try:
+        return _call_function(name, body, refreshed)
+    except httpx.HTTPStatusError as exc:
+        if exc.response.status_code == 401:
+            raise ValueError("Sign in again to check for updates.") from None
+        raise
+
+
 def load_quota_cache() -> dict:
     data = load_settings()
     cache = data.get("auth_quota_cache")

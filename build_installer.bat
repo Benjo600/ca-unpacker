@@ -7,6 +7,13 @@ if exist "%~dp0.venv\Scripts\python.exe" set "PY=%~dp0.venv\Scripts\python.exe"
 
 echo Using %PY%
 
+for /f "delims=" %%v in ('call "%PY%" -c "from apps.version import APP_VERSION; print(APP_VERSION)"') do set "APP_VERSION=%%v"
+if not defined APP_VERSION (
+  echo Could not read APP_VERSION from apps.version. Refusing to build an unversioned installer.
+  goto fail
+)
+echo App version %APP_VERSION%
+
 "%PY%" -m pip install -q -r requirements.txt pyinstaller
 if errorlevel 1 goto fail
 
@@ -16,6 +23,16 @@ if errorlevel 1 goto fail
 
 echo Bundling Tesseract if present...
 "%PY%" installer\bundle_tesseract.py
+if errorlevel 1 goto fail
+
+echo Building CAUnpackerUpdater.exe ...
+"%PY%" -m PyInstaller --noconfirm --clean CAUnpackerUpdater.spec
+if errorlevel 1 goto fail
+if not exist "dist\CAUnpackerUpdater.exe" (
+  echo Updater helper was not built.
+  goto fail
+)
+copy /y "dist\CAUnpackerUpdater.exe" "dist\CAUnpacker\CAUnpackerUpdater.exe" >nul
 if errorlevel 1 goto fail
 
 set "ISCC="
@@ -29,7 +46,7 @@ if not defined ISCC (
 )
 
 echo Building one-file installer...
-"%ISCC%" "installer\ca-unpacker.iss"
+"%ISCC%" /DAppVersion=%APP_VERSION% "installer\ca-unpacker.iss"
 if errorlevel 1 goto fail
 
 if exist "dist\CAUnpacker-Windows.zip" del /q "dist\CAUnpacker-Windows.zip"

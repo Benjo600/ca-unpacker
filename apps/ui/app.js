@@ -138,6 +138,19 @@ const profileRailEmailEl = document.getElementById("profile-rail-email");
 const profilePlanEl = document.getElementById("profile-plan");
 const profileMeterEl = document.getElementById("profile-meter");
 const profileMeterFillEl = document.getElementById("profile-meter-fill");
+const updateCardEl = document.getElementById("update-card");
+const updateBannerEl = document.getElementById("update-banner");
+const updateTitleEl = document.getElementById("update-title");
+const updateProgressEl = document.getElementById("update-progress");
+const updateErrorEl = document.getElementById("update-error");
+const updateNotesEl = document.getElementById("update-notes");
+const updateVersionEl = document.getElementById("update-version");
+const updateCheckBtn = document.getElementById("update-check");
+const updateDownloadBtn = document.getElementById("update-download");
+const updateCancelBtn = document.getElementById("update-cancel");
+const updateInstallBtn = document.getElementById("update-install");
+const updateRetryBtn = document.getElementById("update-retry");
+const updateLaterBtn = document.getElementById("update-later");
 const authErrorEl = document.getElementById("auth-error");
 const authNoticeEl = document.getElementById("auth-notice");
 
@@ -190,12 +203,54 @@ let reconPageFilter = "all";
 let reconPageSearch = "";
 let reconPageBusy = false;
 let reportsData = null;
+let updateState = null;
+let updatePollTimer = null;
+let updateCheckTimer = null;
+let updateLaterDismissed = false;
+
+const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const UI_SESSION_KEY = "caUnpackerUiSession";
 const UI_REMEMBER_KEY = "caUnpackerRememberUser";
 
 function desktopApi() {
   return (window.pywebview && window.pywebview.api) || null;
+}
+
+// Dev mode runs without the packaged bridge. Keep the update calls answered so
+// the Profile panel never hangs on a missing method.
+function installDevUpdateMocks() {
+  const api = desktopApi();
+  if (!api) return;
+  const idleUpdate = () => ({
+    ok: true,
+    update: {
+      status: "idle",
+      version: "",
+      title: "",
+      notes: "",
+      mandatory: false,
+      progress: 0,
+      error: "",
+      available: false,
+    },
+  });
+  try {
+    if (typeof api.get_update_state !== "function") {
+      api.get_update_state = async () => idleUpdate();
+    }
+    if (typeof api.download_update !== "function") {
+      api.download_update = async () => ({ ok: true });
+    }
+    if (typeof api.cancel_update_download !== "function") {
+      api.cancel_update_download = async () => ({ ok: true });
+    }
+    if (typeof api.install_update !== "function") {
+      api.install_update = async () => ({ ok: true });
+    }
+  } catch {
+    // Mocking is best-effort; a real bridge always wins.
+  }
 }
 
 function showError(el, message) {
@@ -1296,11 +1351,210 @@ function setAuthLocked(locked) {
   setDumpBusy(Boolean(activeJobId));
 }
 
+function updateNeedsPolling(update) {
+  if (!update) return false;
+  return ["checking", "downloading", "installing"].indexOf(update.status) >= 0;
+}
+
+function stopUpdatePolling() {
+  if (updatePollTimer) {
+    clearInterval(updatePollTimer);
+    updatePollTimer = null;
+  }
+}
+
+function syncUpdatePolling() {
+  if (!updateNeedsPolling(updateState)) {
+    stopUpdatePolling();
+    return;
+  }
+  if (updatePollTimer) return;
+  updatePollTimer = setInterval(() => {
+    refreshUpdateState(false);
+  }, 1000);
+}
+
+function isUpdateSignedIn() {
+  return devMode || Boolean(authState && authState.signed_in);
+}
+
+function scheduleUpdateChecks() {
+  if (updateCheckTimer || !isUpdateSignedIn()) return;
+  updateCheckTimer = setInterval(() => {
+    if (!isUpdateSignedIn()) {
+      clearUpdateTimers();
+      return;
+    }
+    // The six-hourly check is a real check; the desktop side still honours
+    // its cache and only reports a newer published release.
+    refreshUpdateState(true);
+  }, UPDATE_CHECK_INTERVAL_MS);
+}
+
+function clearUpdateTimers() {
+  if (updateCheckTimer) {
+    clearInterval(updateCheckTimer);
+    updateCheckTimer = null;
+  }
+  stopUpdatePolling();
+}
+
+function setUpdateButton(button, visible) {
+  if (!button) return;
+  button.classList.toggle("hidden", !visible);
+}
+
+function renderUpdateCard(update) {
+  if (!updateCardEl) return;
+  const helper = window.CAUpdateState;
+  const view = helper
+    ? helper.viewModelForUpdateState(update)
+    : {
+        visible: false,
+        status: "idle",
+        version: "",
+        title: "",
+        notes: "",
+        mandatory: false,
+        progressText: "",
+        error: "",
+        canCheck: false,
+        canDownload: false,
+        canCancel: false,
+        canInstall: false,
+        canRetry: false,
+        canLater: false,
+        banner: "",
+      };
+  const show = Boolean(view.visible) && !updateLaterDismissed;
+  updateCardEl.classList.toggle("hidden", !show);
+
+  if (updateBannerEl) {
+    updateBannerEl.textContent = view.banner;
+    updateBannerEl.classList.toggle("hidden", !view.banner);
+  }
+  if (updateTitleEl) updateTitleEl.textContent = view.title;
+  if (updateProgressEl) updateProgressEl.textContent = view.progressText;
+  if (updateErrorEl) {
+    updateErrorEl.textContent = view.error;
+    updateErrorEl.classList.toggle("hidden", !view.error);
+  }
+  if (updateNotesEl) {
+    updateNotesEl.textContent = "";
+    const lines = helper ? helper.notesLines(view.notes) : [];
+    for (const line of lines) {
+      const note = document.createElement("p");
+      note.className = "update-note-line";
+      note.textContent = line;
+      updateNotesEl.appendChild(note);
+    }
+    updateNotesEl.classList.toggle("hidden", lines.length === 0);
+  }
+
+  const version = view.version || (lastAppState && lastAppState.app_version) || "";
+  if (updateVersionEl) updateVersionEl.textContent = version;
+
+  setUpdateButton(updateCheckBtn, view.canCheck);
+  setUpdateButton(updateDownloadBtn, view.canDownload);
+  setUpdateButton(updateCancelBtn, view.canCancel);
+  setUpdateButton(updateInstallBtn, view.canInstall);
+  setUpdateButton(updateRetryBtn, view.canRetry);
+  setUpdateButton(updateLaterBtn, view.canLater);
+}
+
+function applyUpdateResult(result) {
+  if (result && result.ok === false) {
+    updateState = {
+      status: "error",
+      error: result.error ? String(result.error) : "",
+    };
+  } else {
+    updateState = (result && result.update) || null;
+  }
+  renderUpdateCard(updateState);
+  syncUpdatePolling();
+}
+
+async function refreshUpdateState(force) {
+  const api = desktopApi();
+  if (!api || typeof api.get_update_state !== "function") {
+    renderUpdateCard(null);
+    return null;
+  }
+  if (!isUpdateSignedIn()) {
+    updateState = null;
+    renderUpdateCard(null);
+    stopUpdatePolling();
+    return null;
+  }
+  if (force) updateLaterDismissed = false;
+  try {
+    const result = await api.get_update_state(Boolean(force));
+    if (!result || result.ok === false) {
+      const message = result && result.error ? String(result.error) : "";
+      updateState = force && message ? { status: "error", error: message } : null;
+      renderUpdateCard(updateState);
+      syncUpdatePolling();
+      return updateState;
+    }
+    updateLaterDismissed = false;
+    updateState = result.update || null;
+    renderUpdateCard(updateState);
+    syncUpdatePolling();
+    return updateState;
+  } catch {
+    updateState = null;
+    renderUpdateCard(null);
+    stopUpdatePolling();
+    return null;
+  }
+}
+
+async function runUpdateAction(method) {
+  const api = desktopApi();
+  if (!api || typeof api[method] !== "function") return;
+  try {
+    applyUpdateResult(await api[method]());
+  } catch {
+    // Keep the current card; the next poll or check can recover.
+  }
+}
+
+async function installUpdate() {
+  const api = desktopApi();
+  if (!api || typeof api.install_update !== "function") return;
+  const confirmed = window.confirm(
+    "CA Unpacker will close, install the verified update, and reopen automatically."
+  );
+  if (!confirmed) return;
+  try {
+    const result = await api.install_update();
+    if (result && result.ok === false) {
+      updateState = {
+        status: "error",
+        error: result.error ? String(result.error) : "",
+      };
+    } else {
+      updateState = { ...(updateState || {}), status: "installing" };
+    }
+    renderUpdateCard(updateState);
+    syncUpdatePolling();
+  } catch {
+    // Leave the card as-is; install can be retried.
+  }
+}
+
+function dismissUpdateCard() {
+  updateLaterDismissed = true;
+  renderUpdateCard(updateState);
+}
+
 function applyDevMode(license) {
   devMode = Boolean(license && license.auth_mode === "dev");
   for (const node of document.querySelectorAll(".dev-only")) {
     node.classList.toggle("hidden", !devMode);
   }
+  if (devMode) installDevUpdateMocks();
 }
 
 async function refreshAuthState() {
@@ -1315,6 +1569,13 @@ async function refreshAuthState() {
   const locked = !devMode && authState && !authState.signed_in;
   setAuthLocked(locked);
   renderQuotaBanner(authState);
+  if (isUpdateSignedIn()) {
+    scheduleUpdateChecks();
+  } else {
+    clearUpdateTimers();
+    updateState = null;
+    renderUpdateCard(null);
+  }
   if (!prevSigned && authState && authState.signed_in) {
     const api2 = desktopApi();
     if (api2 && api2.get_state) {
@@ -4388,7 +4649,10 @@ if (profileButtonEl && profilePanelEl) {
     const open = profilePanelEl.hidden;
     profilePanelEl.hidden = !open;
     profileButtonEl.setAttribute("aria-expanded", open ? "true" : "false");
-    if (open) positionProfilePanel();
+    if (open) {
+      positionProfilePanel();
+      refreshUpdateState(true);
+    }
   });
   document.addEventListener("click", (event) => {
     if (profilePanelEl.hidden) return;
@@ -4418,10 +4682,43 @@ if (authLogoutBtn) {
   authLogoutBtn.addEventListener("click", async () => {
     const api = desktopApi();
     if (!api || !api.logout) return;
+    clearUpdateTimers();
+    updateState = null;
+    updateLaterDismissed = false;
+    renderUpdateCard(null);
     closeProfilePanel();
     await api.logout();
     await ensurePostAuth();
   });
+}
+
+if (updateCheckBtn) {
+  updateCheckBtn.addEventListener("click", () => {
+    refreshUpdateState(true);
+  });
+}
+if (updateRetryBtn) {
+  updateRetryBtn.addEventListener("click", () => {
+    refreshUpdateState(true);
+  });
+}
+if (updateDownloadBtn) {
+  updateDownloadBtn.addEventListener("click", () => {
+    runUpdateAction("download_update");
+  });
+}
+if (updateCancelBtn) {
+  updateCancelBtn.addEventListener("click", () => {
+    runUpdateAction("cancel_update_download");
+  });
+}
+if (updateInstallBtn) {
+  updateInstallBtn.addEventListener("click", () => {
+    installUpdate();
+  });
+}
+if (updateLaterBtn) {
+  updateLaterBtn.addEventListener("click", dismissUpdateCard);
 }
 
 document.getElementById("license-open").addEventListener("click", () => {
