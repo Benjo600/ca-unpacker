@@ -348,6 +348,54 @@ html, body {
   text-transform: uppercase;
 }
 
+/* Floating "new update available" prompt over the workspace. */
+.update-popup {
+  position: fixed;
+  right: 18px;
+  bottom: 18px;
+  z-index: 320;
+  width: 300px;
+  padding: 12px 14px 11px;
+  background: #fffdf8;
+  border: 1px solid var(--line);
+  border-left: 4px solid var(--tab);
+  box-shadow: 0 10px 26px rgba(27, 30, 26, 0.28);
+}
+
+.update-popup-kicker {
+  margin: 0 0 4px;
+  color: var(--tab);
+  font-size: 10px;
+  font-weight: 600;
+  letter-spacing: 0.12em;
+  text-transform: uppercase;
+}
+
+.update-popup-line {
+  margin: 0 0 10px;
+  color: var(--ink);
+  font-size: 12px;
+  line-height: var(--line-height-snug);
+}
+
+.update-popup-actions {
+  display: flex;
+  gap: 6px;
+}
+
+.update-popup-actions button {
+  margin-top: 0;
+  padding: 6px 10px;
+  font-size: 11px;
+  font-weight: 600;
+}
+
+.update-popup-actions .terminal-btn {
+  background: var(--ink);
+  color: var(--paper);
+  border: 1px solid var(--ink);
+}
+
 body.auth-locked #desk,
 body.auth-locked #setup {
   pointer-events: none;
