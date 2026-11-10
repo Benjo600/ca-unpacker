@@ -1,0 +1,745 @@
+<!DOCTYPE html>
+<html lang="en" translate="no" class="notranslate">
+<head>
+<meta name="google" content="notranslate">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>A Cred state of mind — CA Unpacker desk explorations</title>
+<style>
+  /* Self-hosted faces from the product's own set — no CDN. */
+  @font-face{font-family:"Archivo";font-style:normal;font-weight:400 600;font-display:swap;
+    src:url("fonts/archivo-latin-ext.woff2") format("woff2");
+    unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+  @font-face{font-family:"Archivo";font-style:normal;font-weight:400 600;font-display:swap;
+    src:url("fonts/archivo-latin.woff2") format("woff2");
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+  @font-face{font-family:"Spline Sans Mono";font-style:normal;font-weight:400 600;font-display:swap;
+    src:url("fonts/splinemono-latin-ext.woff2") format("woff2");
+    unicode-range:U+0100-02BA,U+02BD-02C5,U+02C7-02CC,U+02CE-02D7,U+02DD-02FF,U+0304,U+0308,U+0329,U+1D00-1DBF,U+1E00-1E9F,U+1EF2-1EFF,U+2020,U+20A0-20AB,U+20AD-20C0,U+2113,U+2C60-2C7F,U+A720-A7FF}
+  @font-face{font-family:"Spline Sans Mono";font-style:normal;font-weight:400 600;font-display:swap;
+    src:url("fonts/splinemono-latin.woff2") format("woff2");
+    unicode-range:U+0000-00FF,U+0131,U+0152-0153,U+02BB-02BC,U+02C6,U+02DA,U+02DC,U+0304,U+0308,U+0329,U+2000-206F,U+20AC,U+2122,U+2191,U+2193,U+2212,U+2215,U+FEFF,U+FFFD}
+
+  :root{
+    --bg:#131211; --ink:#ece5d8; --ink2:#a79f92; --ink3:#87817a;
+    --line:rgba(236,229,216,.09); --line2:rgba(236,229,216,.16);
+    --gap1:6px; --gap2:12px; --gap3:20px; --gap4:32px; --gap5:56px; --gap6:88px;
+  }
+  *{box-sizing:border-box}
+  html{color-scheme:dark; scroll-behavior:smooth}
+  body{
+    margin:0; background:var(--bg); color:var(--ink);
+    font-family:Archivo, "Segoe UI", system-ui, sans-serif;
+    font-size:14px; line-height:1.55;
+    -webkit-font-smoothing:antialiased;
+  }
+  ::selection{background:rgba(236,229,216,.18); color:#fff}
+  ::-webkit-scrollbar{width:10px}
+  ::-webkit-scrollbar-thumb{background:rgba(236,229,216,.14); border:3px solid transparent; background-clip:content-box; border-radius:8px}
+  ::-webkit-scrollbar-thumb:hover{background:rgba(236,229,216,.26); background-clip:content-box}
+  .wrap{max-width:1080px; margin:0 auto; padding:64px 28px 120px}
+  .num{font-family:"Spline Sans Mono", ui-monospace, Consolas, monospace; font-variant-numeric:tabular-nums; font-feature-settings:"tnum" 1}
+  a{color:inherit; text-decoration:none; border-bottom:1px solid var(--line2)}
+  a:hover{border-color:var(--ink)}
+
+  /* ---------- board header ---------- */
+  .head{max-width:760px; margin-bottom:var(--gap6)}
+  .head h1{font-size:34px; font-weight:600; letter-spacing:-0.035em; line-height:1.12; margin:0 0 14px}
+  .head h1 em{font-style:normal; color:var(--ink2)}
+  .head p{color:var(--ink2); margin:0; font-size:14.5px}
+  .head p + p{margin-top:10px}
+  .factline{display:flex; gap:18px; flex-wrap:wrap; margin-top:22px; padding-top:14px; border-top:1px solid var(--line)}
+  .factline span{color:var(--ink3); font-size:12.5px}
+  .factline b{color:var(--ink); font-weight:600}
+
+  /* ---------- DNA decoded ---------- */
+  .dna{margin-bottom:var(--gap6)}
+  .dna h2, .dir h2{font-size:19px; font-weight:600; letter-spacing:-0.02em; margin:0 0 6px}
+  .dna .sub{color:var(--ink3); font-size:13px; margin:0 0 20px}
+  .law{display:grid; grid-template-columns:210px 1fr; gap:24px; padding:16px 0; border-top:1px solid var(--line)}
+  .law:last-child{border-bottom:1px solid var(--line)}
+  .law h3{margin:0; font-size:13.5px; font-weight:600}
+  .law p{margin:0; color:var(--ink2); font-size:13px}
+  .law p b{color:var(--ink); font-weight:600}
+
+  /* ---------- direction sections ---------- */
+  .dir{margin-bottom:var(--gap6); padding-top:var(--gap4)}
+  .dir-lede{color:var(--ink2); max-width:640px; font-size:14px; margin:0 0 20px}
+  .dir-tag{display:inline-block; font-size:12px; font-weight:600; letter-spacing:.02em; color:var(--ink3); border:1px solid var(--line2); border-radius:20px; padding:3px 10px; margin-bottom:12px}
+
+  .frame{border:1px solid var(--line2); border-radius:14px; overflow:hidden; background:#000; box-shadow:0 30px 70px -40px rgba(0,0,0,.85)}
+  .frame::before{content:""; display:block; height:26px; background:linear-gradient(180deg,#1c1b1a,#161514); border-bottom:1px solid rgba(255,255,255,.07)}
+  .mock{width:100%}
+
+  /* reveal: the board's one authored moment */
+  .rv{opacity:0; transform:translateY(14px)}
+  .rv.in{opacity:1; transform:none; transition:opacity .6s cubic-bezier(.22,.61,.2,1), transform .6s cubic-bezier(.22,.61,.2,1)}
+  .rv.in .mock{transition:transform 1.2s cubic-bezier(.22,.61,.2,1)}
+  @media (prefers-reduced-motion:reduce){.rv{opacity:1; transform:none} .rv.in *{transition:none !important}}
+
+  /* ---------- annotations ---------- */
+  .notes{display:grid; grid-template-columns:1fr 1fr .9fr; gap:28px; margin-top:26px}
+  .notes h3{font-size:11.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--ink3); margin:0 0 10px}
+  .notes ul{margin:0; padding:0; list-style:none}
+  .notes li{color:var(--ink2); font-size:13px; padding:7px 0 7px 16px; border-top:1px solid var(--line); position:relative}
+  .notes li::before{content:""; position:absolute; left:0; top:15px; width:6px; height:6px; border:1px solid var(--ink3); border-radius:1px}
+  .notes li b{color:var(--ink); font-weight:600}
+  .risk p{color:var(--ink2); font-size:13px; margin:0}
+  .pick{margin-top:26px; padding:16px 18px; border:1px solid var(--line2); border-radius:10px; display:flex; gap:18px; align-items:baseline; justify-content:space-between; flex-wrap:wrap}
+  .pick p{margin:0; color:var(--ink2); font-size:13.5px}
+  .pick b{color:var(--ink)}
+  .pick .keys{display:flex; gap:8px}
+  .kbd{font-family:"Spline Sans Mono", ui-monospace, monospace; font-size:11px; color:var(--ink2); border:1px solid var(--line2); border-bottom-width:2px; border-radius:5px; padding:2px 8px; background:#1a1918}
+
+  @media (max-width:880px){
+    .notes{grid-template-columns:1fr}
+    .law{grid-template-columns:1fr; gap:6px}
+  }
+
+  /* =================================================================
+     MOCK A — Restraint black. Warm-black layers, bone type, one gold.
+     ================================================================= */
+  .ma{--t-bg:#0a0908; --t-panel:#141210; --t-panel2:#1c1916; --t-up:#252219;
+      --t-hl:rgba(244,239,230,.06); --t-hl2:rgba(244,239,230,.12);
+      --t-ink:#f3efe7; --t-ink2:#a69f93; --t-ink3:#847d72;
+      --t-gold:#e2b04a; --t-ok:#5ca76a; --t-warn:#e0a33e; --t-bad:#d96355;
+      background:
+        radial-gradient(120% 90% at 50% -20%, rgba(244,239,230,.045), transparent 55%),
+        radial-gradient(70% 50% at 90% 110%, rgba(226,176,74,.05), transparent 60%),
+        var(--t-bg);
+      color:var(--t-ink); font-family:Archivo; direction:ltr}
+  .ma .top{display:flex; align-items:center; gap:14px; height:44px; padding:0 18px; border-bottom:1px solid var(--t-hl)}
+  .ma .mark{width:22px; height:22px; border-radius:7px; background:var(--t-up); display:grid; place-items:center;
+      box-shadow:inset 0 0 0 1px var(--t-hl2); color:var(--t-gold); font-size:10px; font-weight:600}
+  .ma .brand{font-size:12.5px; font-weight:600}
+  .ma .crumb{color:var(--t-ink3); font-size:11.5px}
+  .ma .crumb .mono, .ma .mono{font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .ma .pill{margin-left:auto; display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--t-ink3);
+      border:1px solid var(--t-hl2); border-radius:20px; padding:3px 10px}
+  .ma .pill i{width:6px; height:6px; border-radius:50%; background:var(--t-ok)}
+  .ma .body{display:grid; grid-template-columns:236px 1fr; min-height:520px}
+  .ma .rail{border-right:1px solid var(--t-hl); padding:14px 10px; background:rgba(0,0,0,.18)}
+  .ma .rail-h{display:flex; justify-content:space-between; align-items:baseline; padding:0 8px 10px; color:var(--t-ink3); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase}
+  .ma .rail-h b{color:var(--t-ink2); font-weight:600; letter-spacing:0; text-transform:none}
+  .ma .cl{border-radius:10px; padding:9px 10px; display:grid; grid-template-columns:9px 1fr auto; gap:10px; align-items:center}
+  .ma .cl:hover{background:var(--t-hl)}
+  .ma .cl[aria-current]{background:linear-gradient(180deg,#221f1c,#1a1816); box-shadow:inset 0 0 0 1px var(--t-hl2), 0 1px 0 rgba(0,0,0,.4)}
+  .ma .dot{width:8px; height:8px; border-radius:3px; background:#4a4640}
+  .ma .cl[data-s ready] .dot{background:var(--t)}
+  .ma .cl[data-s="ready"] .dot{background:var(--t-ok)}
+  .ma .cl[data-s="held"] .dot{background:var(--t-gold)}
+  .ma .cn{font-size:12.5px; font-weight:600; line-height:1.2}
+  .ma .cm{font-size:10.5px; color:var(--t-ink3)}
+  .ma .cf{font-size:10.5px; color:var(--t-ink3); text-align:right}
+  .ma .cf b{display:block; color:var(--t-ink2); font-weight:600}
+  .ma .work{padding:20px 24px 26px}
+  .ma .who{display:flex; align-items:baseline; gap:14px; flex-wrap:wrap}
+  .ma .who .hn{font-size:24px; font-weight:600; letter-spacing:-0.03em; margin:0}
+  .ma .who .period{color:var(--t-ink3); font-size:11.5px}
+  .ma .who .act{margin-left:auto; display:flex; gap:8px}
+  .ma .btn{border:0; border-radius:20px; height:30px; padding:0 16px; font-size:12px; font-weight:600; cursor:default}
+  .ma .btn.bone{background:var(--t-ink); color:#151310}
+  .ma .btn.bone:hover{background:#fff}
+  .ma .btn.quit{background:transparent; color:var(--t-ink2); box-shadow:inset 0 0 0 1px var(--t-hl2)}
+  .ma .btn.quit:hover{color:var(--t-ink); background:var(--t-hl)}
+  /* the pride moment: matched value, display scale, gold rule */
+  .ma .hero{display:grid; grid-template-columns:1fr auto auto; gap:0; margin:22px 0 18px; border:1px solid var(--t-hl); border-radius:14px; background:linear-gradient(180deg, rgba(244,239,230,.03), transparent), var(--t-panel); overflow:hidden}
+  .ma .hero > div{padding:18px 22px 16px; border-right:1px solid var(--t-hl)}
+  .ma .hero > div:last-child{border-right:0}
+  .ma .hero .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--t-ink3); margin-bottom:6px}
+  .ma .hero .v{font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; font-size:26px; font-weight:600; letter-spacing:-0.02em; line-height:1}
+  .ma .hero .s{font-size:11px; color:var(--t-ink3); margin-top:8px}
+  .ma .hero .gold .v{color:var(--t-gold)}
+  .ma .hero .gold .rule{height:2px; width:46px; margin-top:10px; background:linear-gradient(90deg, var(--t-gold), transparent); border-radius:1px}
+  .ma table{width:100%; border-collapse:collapse; table-layout:fixed}
+  .ma th{text-align:left; font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--t-ink3); padding:8px 10px; border-bottom:1px solid var(--t-hl2)}
+  .ma td{font-size:12.5px; padding:11px 10px; border-bottom:1px solid var(--t-hl); color:var(--t-ink2)}
+  .ma td.mono{color:var(--t-ink); font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .ma tr[data-state="ok"] td:first-child{position:relative}
+  .ma tr[data-state="warn"] td{color:#c9a26a}
+  .ma td .st{display:inline-flex; align-items:center; gap:6px; font-size:11.5px}
+  .ma td .st i{width:6px; height:6px; border-radius:2px}
+  .ma tr[data-state="ok"] .st i{background:var(--t-gold)}
+  .ma tr[data-state="warn"] .st i{background:var(--t-warn)}
+  .ma .foot{display:flex; gap:14px; padding:12px 18px; border-top:1px solid var(--t-hl); color:var(--t-ink3); font-size:11px}
+  .ma .foot b{color:var(--t-ink2)}
+
+  /* =================================================================
+     MOCK B — Member's green. Bottle-green felt, one cream ledger plate.
+     ================================================================= */
+  .mb{--g-felt:#0c1f19; --g-felt2:#123027; --g-hl:rgba(232,222,192,.08); --g-hl2:rgba(232,222,192,.14);
+      --g-ink:#e9e2cf; --g-ink2:#a4b3a4; --g-ink3:#85988d; --g-gold:#c9a45c;
+      --p-bg:#f2ead7; --p-ink:#22312b; --p-ink2:#44584d; --p-line:#d9cdb1; --p-line2:#c4b795;
+      --p-match:#2f6a4f; --p-bad:#93321f; --p-warn:#8a5a12;
+      background:
+        radial-gradient(110% 80% at 20% -10%, rgba(233,226,207,.05), transparent 55%),
+        radial-gradient(80% 60% at 100% 100%, rgba(201,164,92,.06), transparent 60%),
+        var(--g-felt);
+      color:var(--g-ink); font-family:Archivo}
+  .mb .top{display:flex; align-items:center; gap:14px; height:44px; padding:0 18px; border-bottom:1px solid var(--g-hl)}
+  .mb .mark{width:22px; height:22px; border-radius:7px; background:var(--g-felt2); box-shadow:inset 0 0 0 1px var(--g-hl2); color:var(--g-gold); display:grid; place-items:center; font-size:10px; font-weight:600}
+  .mb .brand{font-size:12.5px; font-weight:600}
+  .mb .crumb{color:var(--g-ink3); font-size:11.5px}
+  .mb .mono{font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .mb .pill{margin-left:auto; display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--g-ink2); border:1px solid var(--g-hl2); border-radius:20px; padding:3px 10px}
+  .mb .pill i{width:6px; height:6px; border-radius:50%; background:var(--g-gold)}
+  .mb .body{display:grid; grid-template-columns:236px 1fr; min-height:520px}
+  .mb .rail{border-right:1px solid var(--g-hl); padding:14px 10px; background:rgba(0,0,0,.16)}
+  .mb .rail-h{display:flex; justify-content:space-between; align-items:baseline; padding:0 8px 10px; color:var(--g-ink3); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase}
+  .mb .rail-h b{color:var(--g-ink2); font-weight:600; letter-spacing:0; text-transform:none}
+  .mb .cl{border-radius:10px; padding:9px 10px; display:grid; grid-template-columns:9px 1fr auto; gap:10px; align-items:center}
+  .mb .cl:hover{background:var(--g-hl)}
+  .mb .cl[aria-current]{background:var(--g-felt2); box-shadow:inset 0 0 0 1px var(--g-hl2)}
+  .mb .dot{width:8px; height:8px; border-radius:3px; background:#3d5148}
+  .mb .cl[data-s="ready"] .dot{background:#4f8a6a}
+  .mb .cl[data-s="held"] .dot{background:var(--g-gold)}
+  .mb .cn{font-size:12.5px; font-weight:600; line-height:1.2}
+  .mb .cm{font-size:10.5px; color:var(--g-ink3)}
+  .mb .cf{font-size:10.5px; color:var(--g-ink3); text-align:right}
+  .mb .cf b{display:block; color:var(--g-ink2); font-weight:600}
+  .mb .work{padding:26px 26px 30px}
+  /* the ledger plate */
+  .mb .plate{background:var(--p-bg); color:var(--p-ink); border-radius:16px;
+      box-shadow:0 24px 48px -24px rgba(0,0,0,.6), 0 1px 0 rgba(255,255,255,.14) inset; padding:22px 26px 20px}
+  .mb .plate .ph{display:flex; align-items:baseline; gap:12px; padding-bottom:12px; border-bottom:2px solid var(--p-ink)}
+  .mb .plate .ph .hn{font-size:21px; font-weight:600; letter-spacing:-0.02em; margin:0}
+  .mb .plate .ph .mono{font-size:11px; color:var(--p-ink2)}
+  .mb .plate .ph .act{margin-left:auto; background:var(--p-ink); color:var(--p-bg); border:0; border-radius:20px; height:28px; padding:0 14px; font-size:11.5px; font-weight:600}
+  .mb .stages{display:grid; grid-template-columns:repeat(4,1fr); border-bottom:1px solid var(--p-line); margin-top:0}
+  .mb .stg{padding:12px 12px 12px 2px; border-right:1px solid var(--p-line)}
+  .mb .stg:last-child{border-right:0}
+  .mb .stg .k{font-size:10px; letter-spacing:.09em; text-transform:uppercase; color:var(--p-ink2)}
+  .mb .stg .v{font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; font-size:15px; font-weight:600; margin-top:3px}
+  .mb .stg .v small{font-size:10px; font-weight:400; color:var(--p-ink2)}
+  .mb .stg[data-s="held"] .v{color:var(--p-warn)}
+  .mb table{width:100%; border-collapse:collapse; table-layout:fixed}
+  .mb th{text-align:left; font-size:10px; font-weight:600; letter-spacing:.09em; text-transform:uppercase; color:var(--p-ink2); padding:10px 10px 8px; border-bottom:1px solid var(--p-line2)}
+  .mb td{font-size:12.5px; padding:10px 10px; border-bottom:1px solid var(--p-line); color:var(--p-ink2)}
+  .mb td.mono{color:var(--p-ink); font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .mb tr[data-state="ok"] td .st{color:var(--p-match)}
+  .mb tr[data-state="warn"] td{color:var(--p-bad)}
+  .mb tr[data-state="warn"] td .st{color:var(--p-bad)}
+  .mb td .st{display:inline-flex; align-items:center; gap:6px; font-size:11.5px; font-weight:600}
+  .mb td .st svg{display:block}
+  .mb .platefoot{display:flex; gap:14px; padding-top:12px; color:var(--p-ink2); font-size:10.5px}
+  .mb .platefoot b{color:var(--p-ink); font-weight:600}
+  .mb .under{display:flex; gap:12px; margin-top:16px; color:var(--g-ink3); font-size:10.5px}
+  .mb .under b{color:var(--g-ink2)}
+
+  /* =================================================================
+     MOCK C — Scoreboard night. Carbon, one acid signal, giant figures.
+     ================================================================= */
+  .mc{--c-bg:#0e0e10; --c-panel:#17171b; --c-panel2:#1f1f24; --c-hl:rgba(255,255,255,.07); --c-hl2:rgba(255,255,255,.13);
+      --c-ink:#f2f2ef; --c-ink2:#a4a4b2; --c-ink3:#81818e; --c-acid:#cdf25e; --c-warn:#e0a33e; --c-bad:#f85149;
+      background:radial-gradient(100% 70% at 50% -10%, rgba(205,242,94,.04), transparent 55%), var(--c-bg);
+      color:var(--c-ink); font-family:Archivo}
+  .mc .top{display:flex; align-items:center; gap:14px; height:44px; padding:0 18px; border-bottom:1px solid var(--c-hl)}
+  .mc .mark{width:22px; height:22px; border-radius:7px; background:var(--c-acid); color:#101008; display:grid; place-items:center; font-size:11px; font-weight:600}
+  .mc .brand{font-size:12.5px; font-weight:600}
+  .mc .crumb{color:var(--c-ink3); font-size:11.5px}
+  .mc .mono{font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .mc .pill{margin-left:auto; display:flex; align-items:center; gap:6px; font-size:10.5px; color:var(--c-ink2); border:1px solid var(--c-hl2); border-radius:20px; padding:3px 10px}
+  .mc .pill i{width:6px; height:6px; border-radius:50%; background:var(--c-acid)}
+  .mc .body{display:grid; grid-template-columns:236px 1fr; min-height:520px}
+  .mc .rail{border-right:1px solid var(--c-hl); padding:14px 10px; background:rgba(0,0,0,.2)}
+  .mc .rail-h{display:flex; justify-content:space-between; align-items:baseline; padding:0 8px 10px; color:var(--c-ink3); font-size:10.5px; letter-spacing:.08em; text-transform:uppercase}
+  .mc .rail-h b{color:var(--c-ink2); font-weight:600; letter-spacing:0; text-transform:none}
+  .mc .cl{border-radius:10px; padding:9px 10px; display:grid; grid-template-columns:9px 1fr auto; gap:10px; align-items:center}
+  .mc .cl:hover{background:var(--c-hl)}
+  .mc .cl[aria-current]{background:var(--c-panel2); box-shadow:inset 0 0 0 1px var(--c-hl2), inset 2px 0 0 var(--c-acid); padding-left:10px}
+  .mc .dot{width:8px; height:8px; border-radius:50%; background:#3c3c44}
+  .mc .cl[data-s="ready"] .dot{background:#4ecf5e}
+  .mc .cl[data-s="held"] .dot{background:var(--c-warn)}
+  .mc .cn{font-size:12.5px; font-weight:600; line-height:1.2}
+  .mc .cm{font-size:10.5px; color:var(--c-ink3)}
+  .mc .cf{font-size:10.5px; color:var(--c-ink3); text-align:right}
+  .mc .cf b{display:block; color:var(--c-ink2); font-weight:600}
+  .mc .work{padding:22px 24px 26px}
+  /* scoreboard strip */
+  .mc .score{display:grid; grid-template-columns:repeat(4,1fr); border:1px solid var(--c-hl); border-radius:14px; background:linear-gradient(180deg, rgba(255,255,255,.02), transparent), var(--c-panel); margin-bottom:20px; overflow:hidden}
+  .mc .score > div{padding:16px 18px 14px; border-right:1px solid var(--c-hl)}
+  .mc .score > div:last-child{border-right:0}
+  .mc .score .k{font-size:10.5px; letter-spacing:.1em; text-transform:uppercase; color:var(--c-ink3)}
+  .mc .score .v{font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums; font-size:34px; font-weight:600; letter-spacing:-0.03em; line-height:1.15; margin-top:6px}
+  .mc .score .s{font-size:10.5px; color:var(--c-ink3); margin-top:6px}
+  .mc .score [data-s="done"] .v{color:var(--c-ink)}
+  .mc .score [data-s="held"] .v{color:var(--c-warn)}
+  .mc .score [data-s="idle"] .v{color:var(--c-ink3)}
+  .mc .score [data-s="acid"] .v{color:var(--c-acid)}
+  .mc .too{display:flex; align-items:baseline; gap:12px; margin:0 0 12px}
+  .mc .too .hn{font-size:16px; font-weight:600; margin:0}
+  .mc .too .act{margin-left:auto; background:var(--c-acid); color:#101008; border:0; border-radius:8px; height:30px; padding:0 15px; font-size:12px; font-weight:600}
+  .mc table{width:100%; border-collapse:collapse; table-layout:fixed}
+  .mc th{text-align:left; font-size:10.5px; font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:var(--c-ink3); padding:8px 10px; border-bottom:1px solid var(--c-hl2)}
+  .mc td{font-size:12.5px; padding:10px; border-bottom:1px solid var(--c-hl); color:var(--c-ink2)}
+  .mc td.mono{color:var(--c-ink); font-family:"Spline Sans Mono", ui-monospace, monospace; font-variant-numeric:tabular-nums}
+  .mc td .st{display:inline-flex; align-items:center; gap:6px; font-size:11.5px}
+  .mc td .st i{width:6px; height:6px; border-radius:50%}
+  .mc tr[data-state="ok"] .st i{background:var(--c-acid)}
+  .mc tr[data-state="warn"] .st{color:var(--c-warn)}
+  .mc tr[data-state="warn"] .st i{background:var(--c-warn)}
+  .mc .foot{display:flex; gap:14px; padding:12px 18px; border-top:1px solid var(--c-hl); color:var(--c-ink3); font-size:11px}
+  .mc .foot b{color:var(--c-ink2)}
+
+  /* board footer */
+  .fin{max-width:720px; padding-top:var(--gap4); border-top:1px solid var(--line)}
+  .fin h2{font-size:19px; font-weight:600; margin:0 0 10px}
+  .fin p{color:var(--ink2); font-size:14px; margin:0 0 10px}
+</style>
+</head>
+<body>
+<div class="wrap">
+
+  <header class="head">
+    <h1>A Cred state of mind, <em>rendered on your desk.</em></h1>
+    <p>Three directions that borrow what makes Cred feel expensive: the restraint, the numerals, the tactility,
+       applied to the CA Unpacker workbench. Every mock below is <b>live HTML</b>, drawn with Sree Traders'
+       real period data straight from the shell, not a picture of a design.</p>
+    <p>Premium-dark was your chosen leaning. That's load-bearing at Cred: the black does the luxury,
+       everything else stays quiet. All three directions keep the numbers tabular, the states in their
+       semantic lanes, and nothing leaves the browser.</p>
+    <div class="factline">
+      <span>Data <b>Sree Traders · Aug 2026 · synthetic</b></span>
+      <span>Scope <b>apps/ui/shell.html</b></span>
+      <span>Source <b>Cred app · premium-dark leaning</b></span>
+    </div>
+  </header>
+
+  <section class="dna">
+    <h2>What Cred actually does</h2>
+    <p class="sub">Four transferable laws, separated from what only works because Cred sells rewards.</p>
+    <div class="law rv">
+      <h3>Black does the luxury</h3>
+      <p>Cred's ground is <b>near-black with depth</b>, and its panels barely differ from it. Expensive surfaces come from layer tonality and hairlines, not from color variety. The lesson your incumbent graphite already half-knows, then goes further.</p>
+    </div>
+    <div class="law rv">
+      <h3>Numbers get display scale</h3>
+      <p>Ordinary tables get ordinary type; <b>the one number that matters tonight gets billboard size</b>. A reconciled figure at display scale is a moment, not a metric, and that is what makes data feel like pride.</p>
+    </div>
+    <div class="law rv">
+      <h3>One accent, spent rarely</h3>
+      <p>Cred holds a single precious accent in reserve and spends it <b>only on the thing worth touching</b>. Scarcity is what makes an accent read premium; spread across ten UI states, the same hue reads as decoration.</p>
+    </div>
+    <div class="law rv">
+      <h3>Every state feels physical</h3>
+      <p>Selection presses in, queued work settles with weight, progress lands — <b>motion confirms</b> rather than decorates. This is the piece a filing-week tool can borrow shamelessly: reassurance is a feeling, delivered 400 times a day.</p>
+    </div>
+  </section>
+
+  <!-- ============================ DIRECTION 1 ============================ -->
+  <section class="dir" id="d1">
+    <span class="dir-tag">Direction 1 · closest to Cred's core card</span>
+    <h2>Restraint black</h2>
+    <p class="dir-lede">Warm-black layers deeper than the incumbent graphite, bone-white type, exactly one gold
+       accent — spent only where trust is earned: matched lines and the reconciled total. Buttons are bone, not
+       color. The renderer's matched ₹ figure gets the display moment.</p>
+    <div class="frame rv">
+      <div class="mock ma">
+        <div class="top">
+          <span class="mark">CA</span>
+          <span class="brand">CA Unpacker</span>
+          <span class="crumb">Sree Traders · <span class="mono">D:\Clients\Sree_Traders\Aug2026</span></span>
+          <span class="pill"><i></i> Nothing leaves this PC</span>
+        </div>
+        <div class="body">
+          <div class="rail">
+            <div class="rail-h"><b>Clients</b><span>Aug period</span></div>
+            <div class="cl" aria-current="true" data-s="held">
+              <span class="dot"></span>
+              <span><span class="cn">Sree Traders</span><br><span class="cm mono">29ABCDE1234F1Z5</span></span>
+              <span class="cf"><b>8 files</b>2 to review</span>
+            </div>
+            <div class="cl" data-s="held">
+              <span class="dot"></span>
+              <span><span class="cn">Kaveri Agro Foods</span><br><span class="cm mono">29AAGCK7788C1Z3</span></span>
+              <span class="cf"><b>7 files</b>4 to review</span>
+            </div>
+            <div class="cl" data-s="ready">
+              <span class="dot"></span>
+              <span><span class="cn">Deccan Hardware &amp; Tools</span><br><span class="cm mono">29AADCD3344E1ZP</span></span>
+              <span class="cf"><b>5 files</b>Ready</span>
+            </div>
+            <div class="cl" data-s="ready">
+              <span class="dot"></span>
+              <span><span class="cn">Sri Lakshmi Jewellers</span><br><span class="cm mono">29AAJCS5566G1ZT</span></span>
+              <span class="cf"><b>3 files</b>Ready</span>
+            </div>
+          </div>
+          <div class="work">
+            <div class="who">
+              <p class="hn">Sree Traders</p>
+              <span class="period mono">Aug 2026</span>
+              <span class="act">
+                <button class="btn quit" tabindex="-1">Tie-out on</button>
+                <button class="btn bone" tabindex="-1">Export pack</button>
+              </span>
+            </div>
+            <div class="hero">
+              <div class="gold">
+                <div class="k">Matched value</div>
+                <div class="v num">2,36,900.00</div>
+                <div class="s">3 invoices reconciled clean · <span class="mono">Aug 2026</span></div>
+                <div class="rule"></div>
+              </div>
+              <div>
+                <div class="k">Books only</div>
+                <div class="v num" style="color:var(--t-ink2)">18,240.00</div>
+                <div class="s">1 invoice · Shakti Steels · <span class="mono">SS/778</span></div>
+              </div>
+              <div>
+                <div class="k">2B only</div>
+                <div class="v num" style="color:var(--t-ink2)">6,780.00</div>
+                <div class="s">1 invoice · Bharath Logistics · <span class="mono">BL-90114</span></div>
+              </div>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:21%">Supplier</th>
+                  <th style="width:17%">GSTIN</th>
+                  <th style="width:13%">Invoice</th>
+                  <th style="width:13%; text-align:right">2B value</th>
+                  <th style="width:13%; text-align:right">Books</th>
+                  <th style="width:23%">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-state="ok">
+                  <td>Anand Textiles</td><td class="mono">29AAACA1122B1ZQ</td><td class="mono">AT/2026/841</td>
+                  <td class="mono" style="text-align:right">1,18,000.00</td><td class="mono" style="text-align:right">1,18,000.00</td>
+                  <td><span class="st"><i></i>Matched</span></td>
+                </tr>
+                <tr data-state="ok">
+                  <td>Ganesh Packaging</td><td class="mono">29AAGCG4545K1Z9</td><td class="mono">GP-2291</td>
+                  <td class="mono" style="text-align:right">42,600.00</td><td class="mono" style="text-align:right">42,600.00</td>
+                  <td><span class="st"><i></i>Matched</span></td>
+                </tr>
+                <tr data-state="ok">
+                  <td>Sunrise Chemicals</td><td class="mono">29AACCS8899N1ZH</td><td class="mono">SC/117</td>
+                  <td class="mono" style="text-align:right">76,300.00</td><td class="mono" style="text-align:right">76,300.00</td>
+                  <td><span class="st"><i></i>Matched</span></td>
+                </tr>
+                <tr data-state="warn">
+                  <td>Shakti Steels</td><td class="mono">29AAJPS1120L1ZD</td><td class="mono">SS/778</td>
+                  <td class="mono" style="text-align:right">0.00</td><td class="mono" style="text-align:right">18,240.00</td>
+                  <td><span class="st"><i></i>In books only</span></td>
+                </tr>
+                <tr data-state="warn">
+                  <td>Bharath Logistics</td><td class="mono">29AABCB3344M1ZF</td><td class="mono">BL-90114</td>
+                  <td class="mono" style="text-align:right">6,780.00</td><td class="mono" style="text-align:right">0.00</td>
+                  <td><span class="st"><i></i>In 2B only</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="foot">
+          <span><b>7,412</b> rows parsed locally</span>
+          <span><b>3</b> held for review</span>
+          <span style="margin-left:auto">Read locally · no upload · original unchanged on disk</span>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div>
+        <h3>Stolen with intent</h3>
+        <ul>
+          <li><b>Warmer, deeper black</b> with a faint top-light; panels step down instead of stepping blue-gray.</li>
+          <li><b>Gold spent twice, not everywhere</b>: the matched thin-rule and the proud total. Scarcity reads expensive.</li>
+          <li><b>The matched-₹ hero cell</b>: Cred's "your number" moment, applied to reconciliation's win.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Left at Cred's door</h3>
+        <ul>
+          <li>Reward coins, cashback cards, the <b>pride-of-membership</b> upsell chrome. That sells; it does not work.</li>
+          <li>Pill buttons stay only on primary actions; row states remain squared.</li>
+          <li>Marketing numerals for <b>every</b> stat: only reconciliation's headline number earns display scale.</li>
+        </ul>
+      </div>
+      <div class="risk">
+        <h3>Honest risk</h3>
+        <p>It's the most obvious Cred borrowing of the three — informed eyes will name the parent at a glance. It is also the most shippable, because it changes tokens and two components, not the shell's bones.</p>
+      </div>
+    </div>
+    <div class="pick">
+      <p><b>Try this one?</b> It re-skins the shell, not its skeleton — a day-scale trial.</p>
+      <span class="keys"><span class="kbd">reply: direction 1</span></span>
+    </div>
+  </section>
+
+  <!-- ============================ DIRECTION 2 ============================ -->
+  <section class="dir" id="d2">
+    <span class="dir-tag">Direction 2 · Cred's member surfaces, ledger translation</span>
+    <h2>Member's green</h2>
+    <p class="dir-lede">Cred's paid-membership surfaces live on green felt. Yours could live on it honestly:
+       the work surface becomes one warm <b>paper ledger plate</b> — cream, ruled, ink-and-oxblood — floating on
+       bottle-green. The document finally looks like a document, and the felt around it is the desk.</p>
+    <div class="frame rv">
+      <div class="mock mb">
+        <div class="top">
+          <span class="mark">CA</span>
+          <span class="brand">CA Unpacker</span>
+          <span class="crumb">Sree Traders · <span class="mono">D:\Clients\Sree_Traders\Aug2026</span></span>
+          <span class="pill"><i></i> Nothing leaves this PC</span>
+        </div>
+        <div class="body">
+          <div class="rail">
+            <div class="rail-h"><b>Clients</b><span>Aug period</span></div>
+            <div class="cl" aria-current="true" data-s="held">
+              <span class="dot"></span>
+              <span><span class="cn">Sree Traders</span><br><span class="cm mono">29ABCDE1234F1Z5</span></span>
+              <span class="cf"><b>8 files</b>2 to review</span>
+            </div>
+            <div class="cl" data-s="held">
+              <span class="dot"></span>
+              <span><span class="cn">Kaveri Agro Foods</span><br><span class="cm mono">29AAGCK7788C1Z3</span></span>
+              <span class="cf"><b>7 files</b>4 to review</span>
+            </div>
+            <div class="cl" data-s="ready">
+              <span class="dot"></span>
+              <span><span class="cn">Deccan Hardware &amp; Tools</span><br><span class="cm mono">29AADCD3344E1ZP</span></span>
+              <span class="cf"><b>5 files</b>Ready</span>
+            </div>
+          </div>
+          <div class="work">
+            <div class="plate">
+              <div class="ph">
+                <p class="hn">Sree Traders</p>
+                <span class="mono">GSTR-2B vs books · Aug 2026</span>
+                <button class="act" tabindex="-1">Export pack</button>
+              </div>
+              <div class="stages">
+                <div class="stg"><div class="k">Intake</div><div class="v num">8 <small>files</small></div></div>
+                <div class="stg"><div class="k">Parsed</div><div class="v num">7,412 <small>rows</small></div></div>
+                <div class="stg" data-s="held"><div class="k">Reconcile</div><div class="v num">3 <small>open</small></div></div>
+                <div class="stg"><div class="k">Export</div><div class="v"><small>not started</small></div></div>
+              </div>
+              <table>
+                <thead>
+                  <tr>
+                    <th style="width:20%">Supplier</th>
+                    <th style="width:16%">Invoice</th>
+                    <th style="width:14%; text-align:right">2B value</th>
+                    <th style="width:14%; text-align:right">Books</th>
+                    <th style="width:12%; text-align:right">Difference</th>
+                    <th style="width:24%">Status</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  <tr data-state="ok">
+                    <td>Anand Textiles</td><td class="mono">AT/2026/841</td>
+                    <td class="mono" style="text-align:right">1,18,000.00</td><td class="mono" style="text-align:right">1,18,000.00</td>
+                    <td class="mono" style="text-align:right">0.00</td>
+                    <td><span class="st"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5.5L4 8L8.5 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Matched</span></td>
+                  </tr>
+                  <tr data-state="ok">
+                    <td>Ganesh Packaging</td><td class="mono">GP-2291</td>
+                    <td class="mono" style="text-align:right">42,600.00</td><td class="mono" style="text-align:right">42,600.00</td>
+                    <td class="mono" style="text-align:right">0.00</td>
+                    <td><span class="st"><svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M1.5 5.5L4 8L8.5 2.5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>Matched</span></td>
+                  </tr>
+                  <tr data-state="warn">
+                    <td>Shakti Steels</td><td class="mono">SS/778</td>
+                    <td class="mono" style="text-align:right">0.00</td><td class="mono" style="text-align:right">18,240.00</td>
+                    <td class="mono" style="text-align:right">18,240.00</td>
+                    <td><span class="st"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M4.5 1L8 7.5H1L4.5 1Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>In books only</span></td>
+                  </tr>
+                  <tr data-state="warn">
+                    <td>Bharath Logistics</td><td class="mono">BL-90114</td>
+                    <td class="mono" style="text-align:right">6,780.00</td><td class="mono" style="text-align:right">0.00</td>
+                    <td class="mono" style="text-align:right">6,780.00</td>
+                    <td><span class="st"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M4.5 1L8 7.5H1L4.5 1Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>In 2B only</span></td>
+                  </tr>
+                  <tr data-state="warn">
+                    <td>Royal Papers</td><td class="mono">RP-3390</td>
+                    <td class="mono" style="text-align:right">23,140.00</td><td class="mono" style="text-align:right">23,100.00</td>
+                    <td class="mono" style="text-align:right">40.00</td>
+                    <td><span class="st"><svg width="9" height="9" viewBox="0 0 9 9" fill="none"><path d="M4.5 1L8 7.5H1L4.5 1Z" stroke="currentColor" stroke-width="1.4" stroke-linejoin="round"/></svg>Rate mismatch</span></td>
+                  </tr>
+                </tbody>
+              </table>
+              <div class="platefoot">
+                <span><b>Read from</b> 6 files on disk</span>
+                <span><b>Rule</b> <span class="mono">gstr2b-v1</span> · tolerance <b>₹1</b></span>
+                <span style="margin-left:auto"><b>Originals unchanged</b></span>
+              </div>
+            </div>
+            <div class="under">
+              <span>The cream plate is <b>output-as-document</b></span>
+              <span>felt holds the chrome</span>
+              <span style="margin-left:auto"><b>exam pad = the desk</b>, DVD-in-wrapper = never again</span>
+            </div>
+          </div>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div>
+        <h3>Stolen with intent</h3>
+        <ul>
+          <li><b>Felt + paper materials</b>: Cred's richest surfaces are materials, not glow. Book-cloth green purchases weight.</li>
+          <li><b>The document-as-plate composition</b>: your output becomes a beautiful object on the desk, which is the promise the product makes.</li>
+          <li><b>Ink semantics on paper</b>: matched ticks in ink-green, exceptions in oxblood, the way a CA marks sheets by hand.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Left at Cred's door</h3>
+        <ul>
+          <li><b>Membership blues</b>: gold plating and "exclusive" framing. Green here means books and money, not elite access.</li>
+          <li>Campaign <b>photographic glamour</b> — no models, no gloss, no cinematic light; felt is a texture, not a shoot.</li>
+        </ul>
+      </div>
+      <div class="risk">
+        <h3>Honest risk</h3>
+        <p>The most beautiful and the most radical: your incumbent is dark-first, and this asks the light-theme paper world to become the hero. Needs both themes decided at once, or the luxury half-lands.</p>
+      </div>
+    </div>
+    <div class="pick">
+      <p><b>Try this one?</b> Bigger move — one full screen of the shell committed to felt-and-paper scale.</p>
+      <span class="keys"><span class="kbd">reply: direction 2</span></span>
+    </div>
+  </section>
+
+  <!-- ============================ DIRECTION 3 ============================ -->
+  <section class="dir" id="d3">
+    <span class="dir-tag">Direction 3 · campaign-Cred, proudest option</span>
+    <h2>Scoreboard night</h2>
+    <p class="dir-lede">Cred's campaign voice at 34px: the period's counts become a scoreboard. Eight files in,
+       7,412 rows parsed, 3 decisions left. The acid signal exists only to mark work that is done and ready to
+       act on — everything else stays carbon.</p>
+    <div class="frame rv">
+      <div class="mock mc">
+        <div class="top">
+          <span class="mark">CA</span>
+          <span class="brand">CA Unpacker</span>
+          <span class="crumb">Sree Traders · <span class="mono">D:\Clients\Sree_Traders\Aug2026</span></span>
+          <span class="pill"><i></i> Nothing leaves this PC</span>
+        </div>
+        <div class="body">
+          <div class="rail">
+            <div class="rail-h"><b>Clients</b><span>Aug period</span></div>
+            <div class="cl" aria-current="true" data-s="held">
+              <span class="dot"></span>
+              <span><span class="cn">Sree Traders</span><br><span class="cm mono">29ABCDE1234F1Z5</span></span>
+              <span class="cf"><b>8 files</b>2 to review</span>
+            </div>
+            <div class="cl" data-s="held">
+              <span class="dot"></span>
+              <span><span class="cn">Kaveri Agro Foods</span><br><span class="cm mono">29AAGCK7788C1Z3</span></span>
+              <span class="cf"><b>7 files</b>4 to review</span>
+            </div>
+            <div class="cl" data-s="ready">
+              <span class="dot"></span>
+              <span><span class="cn">Deccan Hardware &amp; Tools</span><br><span class="cm mono">29AADCD3344E1ZP</span></span>
+              <span class="cf"><b>5 files</b>Ready</span>
+            </div>
+          </div>
+          <div class="work">
+            <div class="score">
+              <div data-s="done"><div class="k">Intake</div><div class="v num">8</div><div class="s">files in the period</div></div>
+              <div data-s="acid"><div class="k">Parsed</div><div class="v num">7,412</div><div class="s">rows, read locally</div></div>
+              <div data-s="held"><div class="k">Reconcile</div><div class="v num">3</div><div class="s">rows still open</div></div>
+              <div data-s="idle"><div class="k">Export</div><div class="v num">—</div><div class="s">not started</div></div>
+            </div>
+            <div class="too">
+              <p class="hn">Reconcile — Sree Traders, Aug 2026</p>
+              <button class="act" tabindex="-1">Export pack</button>
+            </div>
+            <table>
+              <thead>
+                <tr>
+                  <th style="width:21%">Supplier</th>
+                  <th style="width:15%">Invoice</th>
+                  <th style="width:13%; text-align:right">2B value</th>
+                  <th style="width:13%; text-align:right">Books</th>
+                  <th style="width:38%">Status</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr data-state="ok">
+                  <td>Anand Textiles</td><td class="mono">AT/2026/841</td>
+                  <td class="mono" style="text-align:right">1,18,000.00</td><td class="mono" style="text-align:right">1,18,000.00</td>
+                  <td><span class="st"><i></i>Matched · <span class="mono">rule gstr2b-v1</span></span></td>
+                </tr>
+                <tr data-state="ok">
+                  <td>Ganesh Packaging</td><td class="mono">GP-2291</td>
+                  <td class="mono" style="text-align:right">42,600.00</td><td class="mono" style="text-align:right">42,600.00</td>
+                  <td><span class="st"><i></i>Matched · <span class="mono">Δ 0.00</span></span></td>
+                </tr>
+                <tr data-state="warn">
+                  <td>Shakti Steels</td><td class="mono">SS/778</td>
+                  <td class="mono" style="text-align:right">0.00</td><td class="mono" style="text-align:right">18,240.00</td>
+                  <td><span class="st"><i></i>In books only · tie out against page 3</span></td>
+                </tr>
+                <tr data-state="warn">
+                  <td>Royal Papers</td><td class="mono">RP-3390</td>
+                  <td class="mono" style="text-align:right">23,140.00</td><td class="mono" style="text-align:right">23,100.00</td>
+                  <td><span class="st"><i></i>Rate mismatch · Δ 40.00</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </div>
+        <div class="foot">
+          <span><b>7,412</b> rows parsed locally</span>
+          <span><b>3</b> held for review</span>
+          <span style="margin-left:auto">Ctrl K · command field · T tie-out</span>
+        </div>
+      </div>
+    </div>
+    <div class="notes">
+      <div>
+        <h3>Stolen with intent</h3>
+        <ul>
+          <li><b>Giant progress numerals</b>: the scoreboard answers "how far am I?" with numbers you can read across the room.</li>
+          <li><b>Acid as a completion color</b>: the one loud hue belongs to "done, ready to act", never to chrome.</li>
+          <li><b>Status lines that speak</b>: "tie out against page 3" is instruction, not decoration; Cred copy acts.</li>
+        </ul>
+      </div>
+      <div>
+        <h3>Left at Cred's door</h3>
+        <ul>
+          <li><b>Streaks and applause</b>: a filing-week tool celebrates quietly; confetti at 9 AM is noise.</li>
+          <li><b>The oversell</b>: no neon chrome, no hype banners; the scoreboard is a status, not a poster.</li>
+        </ul>
+      </div>
+      <div class="risk">
+        <h3>Honest risk</h3>
+        <p>The boldest and the least conservative: hero-metric territory is adjacent to the KPI-card SaaS default your PRODUCT.md rejects. It works here only because the numbers are literal work counts, and it must stay numbers-only.</p>
+      </div>
+    </div>
+    <div class="pick">
+      <p><b>Try this one?</b> The stage strip on the real shell becomes the scoreboard — a component-scale trial.</p>
+      <span class="keys"><span class="kbd">reply: direction 3</span></span>
+    </div>
+  </section>
+
+  <footer class="fin">
+    <h2>How this round closes</h2>
+    <p>Say a number and that direction gets one committed trial on the real shell — a single screen or component
+       rebuilt at full fidelity, dark and light, before anything else moves. Or ask for a fusion; Cred's own best
+       moves are combinations — the felt depth of 2 with the restraint of 1 is a natural offspring.</p>
+    <p style="color:var(--ink3)">Mock data is synthetic (the shell's sample corpus). Fonts: the product's own
+       Archivo + Spline Sans Mono, self-hosted. Nothing in these mocks is an image — if you can read it, it's text.</p>
+  </footer>
+
+</div>
+
+<script>
+  // The board's single authored moment: staggered reveal per section.
+  const obs = new IntersectionObserver((entries) => {
+    for (const e of entries) {
+      if (!e.isIntersecting) continue;
+      e.target.classList.add("in");
+      obs.unobserve(e.target);
+    }
+  }, { threshold: 0.12 });
+  document.querySelectorAll(".rv").forEach((el, i) => {
+    el.style.transitionDelay = `${(i % 4) * 70}ms`;
+    obs.observe(el);
+  });
+</script>
+</body>
+</html>
+
