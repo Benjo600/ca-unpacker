@@ -151,6 +151,10 @@ const updateCancelBtn = document.getElementById("update-cancel");
 const updateInstallBtn = document.getElementById("update-install");
 const updateRetryBtn = document.getElementById("update-retry");
 const updateLaterBtn = document.getElementById("update-later");
+const updatePopupEl = document.getElementById("update-popup");
+const updatePopupLineEl = document.getElementById("update-popup-line");
+const updatePopupInstallBtn = document.getElementById("update-popup-install");
+const updatePopupLaterBtn = document.getElementById("update-popup-later");
 const authErrorEl = document.getElementById("auth-error");
 const authNoticeEl = document.getElementById("auth-notice");
 
@@ -207,6 +211,8 @@ let updateState = null;
 let updatePollTimer = null;
 let updateCheckTimer = null;
 let updateLaterDismissed = false;
+let updateAutoInstallPending = false;
+let updatePopupDismissedVersion = "";
 
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
@@ -1460,6 +1466,34 @@ function renderUpdateCard(update) {
   setUpdateButton(updateInstallBtn, view.canInstall);
   setUpdateButton(updateRetryBtn, view.canRetry);
   setUpdateButton(updateLaterBtn, view.canLater);
+  renderUpdatePopup(view);
+}
+
+// The floating prompt: asks "new update available" out in the open instead of
+// hiding the offer inside the account panel. Once the user picks Later for a
+// version, that same version stops popping up until a different one arrives.
+function renderUpdatePopup(view) {
+  if (!updatePopupEl) return;
+  const popupEligible =
+    (view.status === "available" || view.status === "ready") &&
+    !updateAutoInstallPending &&
+    (view.mandatory || view.version !== updatePopupDismissedVersion);
+  if (!popupEligible) {
+    updatePopupEl.classList.add("hidden");
+    return;
+  }
+  const line =
+    view.status === "ready"
+      ? "Downloaded and verified. Install it now and the app will restart."
+      : `Version ${view.version || ""} is ready to download.`;
+  if (updatePopupLineEl) updatePopupLineEl.textContent = line.trim();
+  if (updatePopupLaterBtn) {
+    setUpdateButton(updatePopupLaterBtn, !view.mandatory);
+  }
+  if (updatePopupInstallBtn) {
+    updatePopupInstallBtn.disabled = updateAutoInstallPending;
+  }
+  updatePopupEl.classList.remove("hidden");
 }
 
 function applyUpdateResult(result) {
@@ -1472,6 +1506,7 @@ function applyUpdateResult(result) {
     updateState = (result && result.update) || null;
   }
   renderUpdateCard(updateState);
+  considerAutoInstall();
   syncUpdatePolling();
 }
 
@@ -1500,6 +1535,7 @@ async function refreshUpdateState(force) {
     updateLaterDismissed = false;
     updateState = result.update || null;
     renderUpdateCard(updateState);
+    considerAutoInstall();
     syncUpdatePolling();
     return updateState;
   } catch {
@@ -1521,11 +1557,19 @@ async function runUpdateAction(method) {
 }
 
 async function installUpdate() {
+  return installUpdateWithConfirm(true);
+}
+
+// The floating prompt already counts as consent, so it skips the dialog.
+async function installUpdateWithConfirm(confirmFirst) {
   const api = desktopApi();
   if (!api || typeof api.install_update !== "function") return;
-  const confirmed = window.confirm(
-    "CA Unpacker will close, install the verified update, and reopen automatically."
-  );
+  let confirmed = true;
+  if (confirmFirst) {
+    confirmed = window.confirm(
+      "CA Unpacker will close, install the verified update, and reopen automatically."
+    );
+  }
   if (!confirmed) return;
   try {
     const result = await api.install_update();
@@ -1541,6 +1585,17 @@ async function installUpdate() {
     syncUpdatePolling();
   } catch {
     // Leave the card as-is; install can be retried.
+  }
+}
+
+function considerAutoInstall() {
+  if (
+    updateAutoInstallPending &&
+    updateState &&
+    updateState.status === "ready"
+  ) {
+    updateAutoInstallPending = false;
+    installUpdateWithConfirm(false);
   }
 }
 
@@ -1571,6 +1626,9 @@ async function refreshAuthState() {
   renderQuotaBanner(authState);
   if (isUpdateSignedIn()) {
     scheduleUpdateChecks();
+    // Immediate snapshot so a startup check result surfaces without making
+    // the user open the account panel.
+    refreshUpdateState(false);
   } else {
     clearUpdateTimers();
     updateState = null;
@@ -4719,6 +4777,24 @@ if (updateInstallBtn) {
 }
 if (updateLaterBtn) {
   updateLaterBtn.addEventListener("click", dismissUpdateCard);
+}
+if (updatePopupInstallBtn) {
+  updatePopupInstallBtn.addEventListener("click", () => {
+    if (!updateState || updateState.status !== "ready") {
+      updateAutoInstallPending = true;
+      runUpdateAction("download_update");
+      return;
+    }
+    installUpdateWithConfirm(false);
+  });
+}
+if (updatePopupLaterBtn) {
+  updatePopupLaterBtn.addEventListener("click", () => {
+    updateLaterDismissed = true;
+    updatePopupDismissedVersion =
+      (updateState && updateState.version) || "";
+    renderUpdateCard(updateState);
+  });
 }
 
 document.getElementById("license-open").addEventListener("click", () => {
