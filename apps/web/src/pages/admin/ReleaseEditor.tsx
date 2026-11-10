@@ -1,5 +1,5 @@
 import { FormEvent, useEffect, useState } from "react";
-import { Link, useNavigate, useParams } from "react-router-dom";
+import { Link, useLocation, useNavigate, useParams } from "react-router-dom";
 import {
   ReleaseConflictError,
   fetchReleases,
@@ -145,7 +145,15 @@ export default function ReleaseEditor() {
   const { id } = useParams<{ id: string }>();
   const isNew = !id;
   const navigate = useNavigate();
-  const [form, setForm] = useState<FormState>(EMPTY_FORM);
+  const location = useLocation();
+  const [form, setForm] = useState<FormState>(() => {
+    const state = location.state as
+      | { prefill?: Partial<Pick<FormState, "release_notes">> }
+      | null;
+    const prefill = state?.prefill;
+    if (!isNew || !prefill) return EMPTY_FORM;
+    return { ...EMPTY_FORM, release_notes: prefill.release_notes ?? "" };
+  });
   const [release, setRelease] = useState<AppRelease | null>(null);
   const [loading, setLoading] = useState(!isNew);
   const [error, setError] = useState<string | null>(null);
@@ -157,7 +165,6 @@ export default function ReleaseEditor() {
 
   useEffect(() => {
     if (!id) {
-      setForm(EMPTY_FORM);
       setRelease(null);
       setLoading(false);
       return;
