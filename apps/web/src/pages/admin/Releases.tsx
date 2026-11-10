@@ -1,4 +1,4 @@
-import { useCallback, useEffect, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Link, useLocation, useNavigate } from "react-router-dom";
 import {
   ReleaseConflictError,
@@ -12,6 +12,14 @@ import {
   type AppRelease,
   type ReleaseStatus,
 } from "../../lib/admin";
+import {
+  commitUrl,
+  commitsToReleaseNotes,
+  fetchRecentCommits,
+  formatCommitDate,
+  shortSha,
+  type GitHubCommit,
+} from "../../lib/github";
 
 export function StatusBadge({ status }: { status: ReleaseStatus }) {
   return <span className={`badge badge-${status}`}>{status}</span>;
@@ -132,6 +140,12 @@ export default function Releases() {
   const [publishTarget, setPublishTarget] = useState<AppRelease | null>(null);
   const [withdrawTarget, setWithdrawTarget] = useState<AppRelease | null>(null);
   const [busy, setBusy] = useState(false);
+  const [commits, setCommits] = useState<GitHubCommit[] | null>(null);
+  const [commitsLoading, setCommitsLoading] = useState(true);
+  const [commitsError, setCommitsError] = useState<string | null>(null);
+  const [copyState, setCopyState] = useState<"idle" | "copied" | "failed">(
+    "idle",
+  );
   const location = useLocation();
   const navigate = useNavigate();
 
@@ -158,6 +172,54 @@ export default function Releases() {
       navigate(location.pathname, { replace: true, state: null });
     }
   }, [location, navigate]);
+
+  // Commits land after the releases list because the cutoff is the last
+  // published release; with nothing published yet we show recent activity.
+  const lastPublishedAt = useMemo(() => {
+    const published = releases
+      .filter((r) => r.status === "published" && r.published_at)
+      .map((r) => r.published_at as string)
+      .sort();
+    return published.pop() ?? null;
+  }, [releases]);
+
+  useEffect(() => {
+    if (loading) return;
+    let cancelled = false;
+    setCommitsLoading(true);
+    setCommitsError(null);
+
+    fetchRecentCommits(lastPublishedAt)
+      .then((data) => {
+        if (!cancelled) setCommits(data);
+      })
+      .catch((err) => {
+        if (!cancelled) {
+          setCommitsError(
+            err instanceof Error ? err.message : "Failed to load commits",
+          );
+        }
+      })
+      .finally(() => {
+        if (!cancelled) setCommitsLoading(false);
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [loading, lastPublishedAt]);
+
+  async function handleCopyNotes() {
+    if (!commits || commits.length === 0) return;
+    const notes = commitsToReleaseNotes(commits);
+    try {
+      await navigator.clipboard.writeText(notes);
+      setCopyState("copied");
+    } catch {
+      setCopyState("failed");
+    }
+    setTimeout(() => setCopyState("idle"), 2000);
+  }
 
   async function handlePublish() {
     if (!publishTarget) return;
@@ -240,6 +302,94 @@ export default function Releases() {
       {message && <p className="success">{message}</p>}
       {error && <p className="error">{error}</p>}
       {actionError && <p className="error">{actionError}</p>}
+
+      <section className="docket docket-wide" style={{ margin: "24px 0" }}>
+        <div className="page-head" style={{ marginBottom: 12 }}>
+          <div>
+            <h2 style={{ margin: 0 }}>What's new on GitHub</h2>
+            <p className="muted">
+              {lastPublishedAt
+                ? "Commits pushed to main since the last published release."
+                : "Latest commits pushed to main. Nothing published yet."}
+            </p>
+          </div>
+          <div className="row-actions">
+            <button
+              type="button"
+              className="btn btn-tab btn-small"
+              onClick={handleCopyNotes}
+              disabled={commitsLoading || !commits || commits.length === 0}
+            >
+              {copyState === "copied"
+                ? "Copied!"
+                : copyState === "failed"
+                  ? "Copy failed"
+                  : "Copy release notes"}
+            </button>
+            <Link
+              to="/admin/releases/new"
+              className="btn btn-ink btn-small"
+              state={
+                commits && commits.length > 0
+                  ? { prefill: { release_notes: commitsToReleaseNotes(commits) } }
+                  : undefined
+              }
+            >
+              Start a draft
+            </Link>
+          </div>
+        </div>
+
+        {commitsLoading && <p className="muted">Loading commits from GitHub…</p>}
+        {commitsError && (
+          <p className="error" style={{ margin: 0 }}>
+            {commitsError}
+          </p>
+        )}
+        {!commitsLoading && !commitsError && commits?.length === 0 && (
+          <p className="muted" style={{ margin: 0 }}>
+            No new commits since the last published release — everything pushed
+            is already shipped or waiting in a draft.
+          </p>
+        )}
+        {!commitsLoading && commits && commits.length > 0 && (
+          <table className="data-table">
+            <thead>
+              <tr>
+                <th>Commit</th>
+                <th>Author</th>
+                <th>Pushed</th>
+                <th className="mono">SHA</th>
+              </tr>
+            </thead>
+            <tbody>
+              {commits.map((commit) => (
+                <tr key={commit.sha}>
+                  <td>
+                    {commit.message || "(no message)"}
+                    {commit.isMerge && (
+                      <span className="badge badge-draft" style={{ marginLeft: 8 }}>
+                        merge
+                      </span>
+                    )}
+                  </td>
+                  <td>{commit.author}</td>
+                  <td>{formatCommitDate(commit.date)}</td>
+                  <td className="mono">
+                    <a
+                      href={commitUrl(commit.sha)}
+                      target="_blank"
+                      rel="noreferrer"
+                    >
+                      {shortSha(commit.sha)}
+                    </a>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+      </section>
 
       <div className="docket docket-wide" style={{ margin: "24px 0 0", padding: 0 }}>
         <table className="data-table">
