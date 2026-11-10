@@ -12,13 +12,59 @@ export interface GitHubCommit {
   author: string;
   date: string;
   isMerge: boolean;
+  kind: CommitKind;
 }
+
+export type CommitKind = "feature" | "fix" | "small";
+
+export const KIND_LABELS: Record<CommitKind, string> = {
+  feature: "New feature",
+  fix: "Existing feature update",
+  small: "Small update",
+};
+
+/**
+ * Pushes are "tagged" by their conventional-commit prefix in the subject:
+ *   feat: / feat(scope)   -> New feature
+ *   fix:  / fix(scope)    -> Existing feature update
+ *   anything else         -> Small update (the popup with Install now / Later)
+ */
+export function classifyCommit(message: string): CommitKind {
+  const subject = parseMessage(message);
+  if (/^feat(\([^)]*\))?[!:]/i.test(subject)) return "feature";
+  if (/^fix(\([^)]*\))?[!:]/i.test(subject)) return "fix";
+  return "small";
+}
+
+export interface GitHubBranch {
+  name: string;
+  sha: string;
+  kind: "feature" | "fix" | "small";
+}
+
+export interface GitHubBuild {
+  tagName: string;
+  version: string;
+  url: string;
+  htmlUrl: string;
+  size: number;
+  sha256: string;
+  createdAt: string;
+  isPrerelease: boolean;
+}
+
 
 function parseMessage(raw: string): string {
   return String(raw ?? "")
     .split("\n")
     .map((line) => line.trim())
     .find((line) => line.length > 0) ?? "";
+}
+
+function classifyBranchName(name: string): "feature" | "fix" | "small" {
+  if (/^feat\//i.test(name)) return "feature";
+  if (/^fix\//i.test(name)) return "fix";
+  return "small";
 }
 
 function sanitiseAuthor(commit: {
@@ -76,15 +122,110 @@ export async function fetchRecentCommits(
       | undefined;
     const sha = String((entry as { sha?: unknown }).sha ?? "");
     const parents = (entry as { parents?: unknown[] }).parents;
+    const subject = parseMessage(commit?.message ?? "");
 
     return {
       sha,
-      message: parseMessage(commit?.message ?? ""),
+      message: subject,
       author: sanitiseAuthor(entry as never),
       date: String(commit?.author?.date ?? ""),
       isMerge: Array.isArray(parents) && parents.length > 1,
+      kind: classifyCommit(subject),
     } satisfies GitHubCommit;
   });
+}
+
+export async function fetchBranches(limit = 30): Promise<GitHubBranch[]> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/branches?per_page=100`,
+      { headers: { Accept: "application/vnd.github+json" } },
+    );
+  } catch {
+    throw new Error("Could not reach GitHub. Check your connection.");
+  }
+  if (!res.ok) throw new Error(`GitHub returned ${res.status}.`);
+
+  const data: unknown = await res.json();
+  if (!Array.isArray(data)) throw new Error("Unexpected response from GitHub.");
+
+  return data
+    .map((entry) => {
+      const name = String((entry as { name?: unknown }).name ?? "");
+      const commit = (entry as { commit?: { sha?: unknown } }).commit;
+      return {
+        name,
+        sha: String(commit?.sha ?? ""),
+        kind: classifyBranchName(name),
+      } satisfies GitHubBranch;
+    })
+    .filter((b) => b.name.toLowerCase() !== "main")
+    .slice(0, limit);
+}
+
+/**
+ * Public repo: prereleases land here from the CI builder. The workflow writes
+ * the exact size and SHA-256 into the release body so the dashboard can prefill
+ * a Supabase draft without ever holding a repo token.
+ */
+export async function fetchCiBuilds(limit = 5): Promise<GitHubBuild[]> {
+  let res: Response;
+  try {
+    res = await fetch(
+      `https://api.github.com/repos/${REPO_OWNER}/${REPO_NAME}/releases?per_page=20`,
+      { headers: { Accept: "application/vnd.github+json" } },
+    );
+  } catch {
+    throw new Error("Could not reach GitHub. Check your connection.");
+  }
+  if (!res.ok) throw new Error(`GitHub returned ${res.status}.`);
+
+  const data: unknown = await res.json();
+  if (!Array.isArray(data)) throw new Error("Unexpected response from GitHub.");
+
+  const builds: GitHubBuild[] = [];
+  for (const entry of data) {
+    const release = entry as {
+      tag_name?: unknown;
+      prerelease?: unknown;
+      draft?: unknown;
+      html_url?: unknown;
+      body?: unknown;
+      created_at?: unknown;
+      assets?: Array<{ browser_download_url?: unknown; size?: unknown }>;
+    };
+    if (release.draft) continue;
+
+    const tagName = String(release.tag_name ?? "");
+    if (!/^v\d+\.\d+\.\d+$/.test(tagName)) continue;
+
+    const asset = release.assets?.[0];
+    const body = String(release.body ?? "");
+    const shaMatch = body.match(/sha256:\s*([0-9a-f]{64})/i);
+    const sizeMatch = body.match(/size:\s*(\d+)/i);
+
+    builds.push({
+      tagName,
+      version: tagName.slice(1),
+      url: String(asset?.browser_download_url ?? ""),
+      htmlUrl: String(release.html_url ?? ""),
+      size: asset?.size ? Number(asset.size) : sizeMatch ? Number(sizeMatch[1]) : 0,
+      sha256: shaMatch ? shaMatch[1].toLowerCase() : "",
+      createdAt: String(release.created_at ?? ""),
+      isPrerelease: Boolean(release.prerelease),
+    });
+    if (builds.length >= limit) break;
+  }
+  return builds;
+}
+
+export function buildLooksComplete(build: GitHubBuild): boolean {
+  return (
+    Boolean(build.url) &&
+    /^[0-9a-f]{64}$/.test(build.sha256) &&
+    build.size > 0
+  );
 }
 
 export function formatCommitDate(iso: string): string {

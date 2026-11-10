@@ -1,5 +1,5 @@
 import { Link, NavLink, Outlet, useNavigate } from "react-router-dom";
-import { LayoutDashboard, LogOut, Rocket, Users } from "lucide-react";
+import { LayoutDashboard, LogOut, Rocket, Sparkles, Users } from "lucide-react";
 import { supabase } from "../lib/supabase";
 
 const NAV: Array<{
@@ -9,6 +9,7 @@ const NAV: Array<{
   icon: typeof LayoutDashboard;
 }> = [
   { to: "/admin", end: true, label: "Overview", icon: LayoutDashboard },
+  { to: "/admin/features", label: "New features", icon: Sparkles },
   { to: "/admin/users", label: "Firms", icon: Users },
   { to: "/admin/releases", label: "Releases", icon: Rocket },
 ];
