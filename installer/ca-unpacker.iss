@@ -1,5 +1,8 @@
 #define AppName "CA Unpacker"
-#define AppVersion "0.10.0"
+; AppVersion is supplied by build_installer.bat from apps.version.APP_VERSION.
+#ifndef AppVersion
+#error AppVersion must be supplied by build_installer.bat
+#endif
 #define AppPublisher "CA Unpacker"
 #define AppExeName "CAUnpacker.exe"
 

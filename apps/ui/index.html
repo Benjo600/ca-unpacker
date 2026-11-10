@@ -221,6 +221,23 @@
                 <div class="profile-meter-fill" id="profile-meter-fill"></div>
               </div>
               <p id="quota-text" class="profile-quota"></p>
+              <section id="update-card" class="update-card hidden" aria-live="polite">
+                <p class="update-card-kicker">APP UPDATE</p>
+                <p id="update-banner" class="update-banner hidden"></p>
+                <p id="update-title" class="update-title"></p>
+                <p id="update-progress" class="update-progress"></p>
+                <p id="update-error" class="update-error hidden"></p>
+                <div id="update-notes" class="update-notes"></div>
+                <div class="update-actions">
+                  <button type="button" id="update-check" class="ghost">Check</button>
+                  <button type="button" id="update-download" class="terminal-btn">Download update</button>
+                  <button type="button" id="update-cancel" class="ghost">Cancel</button>
+                  <button type="button" id="update-install" class="terminal-btn">Install and restart</button>
+                  <button type="button" id="update-retry" class="ghost">Retry</button>
+                  <button type="button" id="update-later" class="ghost">Later</button>
+                </div>
+                <p class="update-version-line">Version <span id="update-version"></span></p>
+              </section>
               <p class="profile-privacy">Financial data transmitted: <strong>NONE</strong></p>
               <button type="button" class="ghost profile-account" id="auth-account">Usage dashboard</button>
               <button type="button" class="ghost profile-logout" id="auth-logout">Log out</button>
@@ -764,6 +781,7 @@
   <script src="practice-summary.js"></script>
   <script src="remove-file.js"></script>
   <script src="recon-centre.js"></script>
+  <script src="update-state.js"></script>
   <script src="app.js"></script>
 </body>
 </html>
