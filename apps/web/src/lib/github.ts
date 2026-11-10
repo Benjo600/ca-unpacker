@@ -196,6 +196,9 @@ export async function fetchCiBuilds(limit = 5): Promise<GitHubBuild[]> {
       assets?: Array<{ browser_download_url?: unknown; size?: unknown }>;
     };
     if (release.draft) continue;
+    // Only CI auto-builds are actionable here; hand-published stable
+    // releases have no sha/size lines and never reach users' apps.
+    if (!release.prerelease) continue;
 
     const tagName = String(release.tag_name ?? "");
     if (!/^v\d+\.\d+\.\d+$/.test(tagName)) continue;
