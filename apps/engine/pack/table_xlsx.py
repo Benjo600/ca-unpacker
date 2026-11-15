@@ -6,6 +6,8 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
+from apps.engine.pack.formatting import guard_sheet_capacity, money_format
+
 MONEY_FORMAT = "#,##0.00"
 MONEY_KEYS = {
     "taxable",
@@ -77,10 +79,12 @@ def write_purchase_workbook(
 
 
 def _fill_sheet(sheet, sheet_name: str, rows: list[dict], columns: list[tuple[str, str]]) -> None:
+    guard_sheet_capacity(rows, sheet_name)
     sheet.title = sheet_name[:31]
     sheet.append([title for title, _key in columns])
     for cell in sheet[1]:
         cell.font = Font(bold=True)
+    format_string = money_format(rows)
     flag_col = next(
         (index for index, (title, key) in enumerate(columns, start=1) if key == "flags" or title == "Flags"),
         None,
@@ -90,7 +94,7 @@ def _fill_sheet(sheet, sheet_name: str, rows: list[dict], columns: list[tuple[st
         excel_row = sheet.max_row
         for index, (_title, key) in enumerate(columns, start=1):
             if key in MONEY_KEYS:
-                sheet.cell(excel_row, index).number_format = MONEY_FORMAT
+                sheet.cell(excel_row, index).number_format = format_string
         if flag_col is not None:
             flag_text = str(sheet.cell(excel_row, flag_col).value or "")
             if any(marker in flag_text for marker in FLAG_MARKERS):

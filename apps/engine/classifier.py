@@ -12,6 +12,45 @@ from apps.engine.parsers.sap.tables import read_table_samples
 
 GSTIN_RE = re.compile(r"\b[0-9]{2}[A-Z]{5}[0-9]{4}[A-Z][A-Z0-9]Z[A-Z0-9]\b", re.I)
 
+# Magic-byte signatures.  A file's extension is a claim; its first bytes are
+# evidence.  (Phase 2: do not trust file extensions alone.)
+_SNIFF_LENGTH = 16
+_SIGNATURES = (
+    (b"%PDF", "pdf"),
+    (b"PK\x03\x04", "zip"),
+    (b"\xd0\xcf\x11\xe0\xa1\xb1\x1a\xe1", "ole"),  # legacy .xls / .doc
+    (b"\xff\xd8\xff", "image"),
+    (b"\x89PNG\r\n\x1a\n", "image"),
+    (b"II*\x00", "image"),
+    (b"MM\x00*", "image"),
+    (b"GIF8", "image"),
+    (b"\x1f\x8b", "gzip"),
+)
+
+
+def sniff_file_kind(path: Path) -> str:
+    """Identify the actual content type from magic bytes, never the extension.
+
+    Returns one of ``pdf``, ``zip``, ``ole``, ``image``, ``webp``, ``gzip``,
+    ``text``, or ``unknown``.  Read failures return ``unknown`` — callers keep
+    their extension-based fallback in that case.
+    """
+    try:
+        with open(path, "rb") as handle:
+            head = handle.read(_SNIFF_LENGTH)
+    except OSError:
+        return "unknown"
+    if not head:
+        return "unknown"
+    if head[:4] == b"RIFF" and head[8:12] == b"WEBP":
+        return "webp"
+    for signature, kind in _SIGNATURES:
+        if head.startswith(signature):
+            return kind
+    if b"\x00" not in head[:512]:
+        return "text"
+    return "unknown"
+
 BANK_HINTS = (
     "opening balance",
     "closing balance",
@@ -68,25 +107,70 @@ def classify_path(path: Path) -> Classification:
     name = path.name.lower()
     suffix = path.suffix.lower()
 
-    if suffix == ".json":
-        return _classify_json(path, name)
-    if suffix == ".zip":
-        return _classify_zip(path, name)
-    if suffix in TALLY_SUFFIXES:
-        return _classify_tally_text(path, name)
+    # Legacy .xls is rejected outright, whatever its content: a real .xls is
+    # OLE binary, and a zip-content ".xls" is a renamed .xlsx at best.
     if suffix == ".xls":
         return Classification(
             "unknown",
             0.9,
             "legacy .xls is not supported — export .xlsx or .csv",
         )
+
+    # Content first: a renamed file is classified by what it actually is.
+    content = sniff_file_kind(path)
+    mismatch = ""
+    if content not in {"unknown", "text"} and not _content_matches_suffix(content, suffix):
+        mismatch = f" · content is {content}, extension was {suffix or 'missing'}"
+
+    if content == "pdf":
+        return _classify_pdf(path, name, mismatch)
+    if content == "zip":
+        if suffix == ".xlsx":
+            return _classify_spreadsheet(path, name, mismatch)
+        if suffix == ".zip":
+            return _classify_zip(path, name, mismatch)
+        return Classification(
+            "unknown", 0.2, f"zip archive content with a {suffix or 'missing'} extension{mismatch}"
+        )
+    if content == "ole":
+        return Classification(
+            "unknown", 0.9, f"legacy .xls/.doc binary is not supported — export .xlsx or .csv{mismatch}"
+        )
+    if content in {"image", "webp"}:
+        return _classify_image(path, name, mismatch)
+    if content == "gzip":
+        return Classification(
+            "unknown", 0.2, f"gzip archive content with a {suffix or 'missing'} extension{mismatch}"
+        )
+
+    if suffix == ".json":
+        return _classify_json(path, name)
+    if suffix == ".zip":
+        return _classify_zip(path, name)
+    if suffix in TALLY_SUFFIXES:
+        return _classify_tally_text(path, name)
     if suffix in SPREADSHEET_SUFFIXES:
         return _classify_spreadsheet(path, name)
     if suffix in IMAGE_SUFFIXES:
         return _classify_image(path, name)
     if suffix == ".pdf":
-        return _classify_pdf(path, name)
+        # Text content carrying a .pdf name cannot be parsed as a PDF.
+        return Classification(
+            "unknown", 0.2, f"text content with a .pdf extension; not a PDF document"
+        )
     return Classification("unknown", 0.2, "no matching file type")
+
+
+def _content_matches_suffix(content: str, suffix: str) -> bool:
+    matches = {
+        "pdf": {".pdf"},
+        "zip": {".zip", ".xlsx", ".docx", ".jar"},
+        "ole": {".xls", ".doc", ".msi"},
+        "image": {".jpg", ".jpeg", ".png", ".tif", ".tiff", ".bmp", ".gif"},
+        "webp": {".webp"},
+        "gzip": {".gz", ".tgz"},
+    }
+    return suffix in matches.get(content, set())
 
 
 def classify_from_text(name: str, page_count: int, text: str) -> Classification:
@@ -168,7 +252,7 @@ def _classify_tally_text(path: Path, name: str) -> Classification:
     return Classification("unknown", 0.3, "text/xml did not look like Tally")
 
 
-def _classify_zip(path: Path, name: str) -> Classification:
+def _classify_zip(path: Path, name: str, mismatch: str = "") -> Classification:
     if "tally" in name or "daybook" in name or "backup" in name:
         guessed = "tally"
     else:
@@ -183,38 +267,40 @@ def _classify_zip(path: Path, name: str) -> Classification:
                 with archive.open(inner) as handle:
                     sample = handle.read(6000).decode("utf-8", errors="ignore").lower()
                 if any(marker in sample for marker in TALLY_MARKERS):
-                    return Classification("tally", 0.92, f"zip contains Tally export ({Path(inner).name})")
+                    return Classification(
+                        "tally", 0.92, f"zip contains Tally export ({Path(inner).name}){mismatch}"
+                    )
     except (OSError, zipfile.BadZipFile):
-        return Classification("unknown", 0.2, "zip could not be read")
+        return Classification("unknown", 0.2, f"zip could not be read{mismatch}")
     if guessed:
-        return Classification("tally", 0.55, "zip name looks like a Tally backup")
-    return Classification("unknown", 0.3, "zip did not contain a Tally export")
+        return Classification("tally", 0.55, f"zip name looks like a Tally backup{mismatch}")
+    return Classification("unknown", 0.3, f"zip did not contain a Tally export{mismatch}")
 
 
-def _classify_spreadsheet(path: Path, name: str) -> Classification:
+def _classify_spreadsheet(path: Path, name: str, mismatch: str = "") -> Classification:
     name_words = name.replace("_", " ").replace("-", " ")
     if any(hint in name_words for hint in VENDOR_STATEMENT_HINTS):
         return Classification(
-            "vendor_statement", 0.88, "filename looks like a vendor/supplier statement"
+            "vendor_statement", 0.88, f"filename looks like a vendor/supplier statement{mismatch}"
         )
     if "zoho" in name or "books" in name:
-        return Classification("zoho", 0.8, "filename looks like a Zoho export")
+        return Classification("zoho", 0.8, f"filename looks like a Zoho export{mismatch}")
     suffix = path.suffix.lower()
     if suffix not in {".csv", ".xlsx", ".xls"}:
-        return Classification("unknown", 0.35, "spreadsheet is not a supported export")
+        return Classification("unknown", 0.35, f"spreadsheet is not a supported export{mismatch}")
     samples = read_table_samples(path)
     if not samples:
-        return Classification("unknown", 0.2, "spreadsheet could not be read")
+        return Classification("unknown", 0.2, f"spreadsheet could not be read{mismatch}")
     first_row = samples[0][1][0] if samples[0][1] else []
     cells = {str(cell).strip().lower() for cell in first_row if str(cell).strip()}
     if _zoho_header_match(cells):
-        return Classification("zoho", 0.88, "Spreadsheet headers look like Zoho Books")
+        return Classification("zoho", 0.88, f"Spreadsheet headers look like Zoho Books{mismatch}")
     sap = _sap_spreadsheet_signature(samples, name)
     if sap is not None:
-        return Classification("sap", sap.confidence, sap.reason)
+        return Classification("sap", sap.confidence, f"{sap.reason}{mismatch}")
     if suffix == ".csv":
-        return Classification("unknown", 0.3, "CSV headers did not match a supported export")
-    return Classification("unknown", 0.35, "spreadsheet is not a supported export")
+        return Classification("unknown", 0.3, f"CSV headers did not match a supported export{mismatch}")
+    return Classification("unknown", 0.35, f"spreadsheet is not a supported export{mismatch}")
 
 
 def _sap_spreadsheet_signature(
@@ -285,41 +371,51 @@ def _ocr_image_text(path: Path) -> str:
     return "\n".join(page.text for page in extracted.pages if page.text).strip()
 
 
-def _classify_image(path: Path, name: str) -> Classification:
+def _classify_image(path: Path, name: str, mismatch: str = "") -> Classification:
     # 1x1 / tiny bitmaps cannot hold printed GST invoice text.
     if _image_too_small(path):
-        return Classification("unknown", 0.4, "image; no printed invoice text")
+        return Classification("unknown", 0.4, f"image; no printed invoice text{mismatch}")
 
     if _ocr_available():
         text = _ocr_image_text(path)
         result = classify_from_text(name, 1, text)
         if result.kind == "bank":
+            if mismatch:
+                return Classification(result.kind, result.confidence, f"{result.reason}{mismatch}")
             return result
         if _has_printed_invoice_text(text):
             if result.kind == "invoice":
                 return result
-            return Classification("invoice", 0.85, "invoice wording or GSTIN on a short document")
+            return Classification("invoice", 0.85, f"invoice wording or GSTIN on a short document{mismatch}")
         # OCR ran: filename must not promote junk/handwritten photos to invoice.
         if result.kind == "invoice" or not text.strip():
-            return Classification("unknown", 0.4, "image; no printed invoice text")
+            return Classification("unknown", 0.4, f"image; no printed invoice text{mismatch}")
+        if mismatch:
+            return Classification(result.kind, result.confidence, f"{result.reason}{mismatch}")
         return result
 
     if _filename_invoice_hint(name):
-        return Classification("invoice", 0.6, "image name looks like an invoice")
-    return Classification("unknown", 0.4, "image; cannot read GSTIN without OCR yet")
+        return Classification("invoice", 0.6, f"image name looks like an invoice{mismatch}")
+    return Classification("unknown", 0.4, f"image; cannot read GSTIN without OCR yet{mismatch}")
 
 
-def _classify_pdf(path: Path, name: str) -> Classification:
+def _classify_pdf(path: Path, name: str, mismatch: str = "") -> Classification:
     from apps.engine.pdf_extract import extract_pdf
 
     extracted = extract_pdf(path)
     if extracted.pdf_type == "encrypted":
-        return Classification("unknown", 0.5, "password-protected PDF")
+        return Classification("unknown", 0.5, f"password-protected PDF{mismatch}")
     text = "\n".join(page.text or "" for page in extracted.pages[:4]).strip()
     if not text:
         text = "\n".join(line.text for line in extracted.lines[:30]).strip()
     if text:
         # Scanned PDFs already carry OCR text when a local engine is present.
-        return classify_from_text(name, extracted.page_count, text)
+        result = classify_from_text(name, extracted.page_count, text)
+        if mismatch:
+            return Classification(result.kind, result.confidence, f"{result.reason}{mismatch}")
+        return result
     # No digital or OCR text: the filename is the only remaining signal.
-    return classify_from_text(name, extracted.page_count, name)
+    result = classify_from_text(name, extracted.page_count, name)
+    if mismatch:
+        return Classification(result.kind, result.confidence, f"{result.reason}{mismatch}")
+    return result

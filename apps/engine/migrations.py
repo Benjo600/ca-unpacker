@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.sql.schema import MetaData
 
 BASELINE_SCHEMA_VERSION = 1
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 4
 
 _log = logging.getLogger(__name__)
 
@@ -60,9 +60,29 @@ def _migrate_v2_to_v3(connection: Connection) -> None:
         connection.exec_driver_sql(statement)
 
 
+def _migrate_v3_to_v4(connection: Connection) -> None:
+    """Scanning/OCR evidence columns (additive only).
+
+    ``files.content_sha256`` supports duplicate-content detection and copy
+    verification.  ``extracted_rows.extraction_confidence`` stores a 0..1
+    quality score derived from OCR/word confidence where available, and
+    ``extraction_method`` records which extraction path produced the row
+    (native text layer vs OCR engine).  Both stay nullable: text-layer rows
+    legitimately have no OCR confidence.
+    """
+    statements = (
+        "ALTER TABLE files ADD COLUMN content_sha256 VARCHAR(64)",
+        "ALTER TABLE extracted_rows ADD COLUMN extraction_confidence FLOAT",
+        "ALTER TABLE extracted_rows ADD COLUMN extraction_method VARCHAR(40)",
+    )
+    for statement in statements:
+        connection.exec_driver_sql(statement)
+
+
 MIGRATION_STEPS: Mapping[int, Migration] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
+    4: _migrate_v3_to_v4,
 }
 
 
@@ -122,6 +142,12 @@ def _create_version_table(connection: Connection) -> None:
 
 def _column_default_literal(column) -> str | None:
     """A literal SQLite accepts in ADD COLUMN ... NOT NULL DEFAULT <here>."""
+    # Model-driven first: the SQLAlchemy default tells us the real shape
+    # ("[]" for list-typed JSON columns, "{}" for mappings), so a repaired
+    # list column is never backfilled with a dict.
+    default = getattr(getattr(column, "default", None), "arg", None)
+    if isinstance(default, str) and default.strip() in {"[]", "{}"}:
+        return f"'{default.strip()}'"
     name = column.name.lower()
     if name.endswith("_json"):
         return "'{}'"
@@ -143,6 +169,20 @@ def _column_default_literal(column) -> str | None:
 def _add_column_statement(connection: Connection, table_name: str, column) -> str:
     type_sql = column.type.compile(dialect=connection.dialect)
     literal = _column_default_literal(column)
+    if literal is None or literal == "''":
+        # The model may declare a literal server-side default ("unclassified")
+        # even when the python-side default is dynamic; reuse it verbatim so a
+        # repaired column keeps the model's semantics.
+        server_default = getattr(getattr(column, "server_default", None), "arg", None)
+        text_default = ""
+        if server_default is not None:
+            text_default = str(server_default).strip()
+        if (
+            text_default
+            and not text_default.startswith("(")
+            and all(ch.isalnum() or ch in {"'", "-", " ", "_", "."} for ch in text_default)
+        ):
+            literal = text_default if text_default.startswith("'") else f"'{text_default}'"
     if not column.nullable and literal is not None:
         tail = f" NOT NULL DEFAULT {literal}"
     else:

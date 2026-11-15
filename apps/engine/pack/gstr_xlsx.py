@@ -6,7 +6,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-MONEY_FORMAT = "#,##0.00"
+from apps.engine.pack.formatting import guard_sheet_capacity, money_format
+
+# GSTR portal data is INR by definition; keep the Indian lakh/crore format.
+MONEY_FORMAT = money_format([])
 RED_FILL = PatternFill("solid", fgColor="FFCDD2")
 
 B2B_HEADERS = [
@@ -129,6 +132,7 @@ def _write_cover(sheet, title: str, rows: list[dict], meta: dict | None, counts:
 
 
 def _write_b2b_sheet(sheet, rows: list[dict], default_type: str) -> None:
+    guard_sheet_capacity(rows, sheet.title)
     _write_header(sheet, B2B_HEADERS)
     for row in rows:
         values = _b2b_values(row, _row_type(row, default_type))
@@ -144,6 +148,7 @@ def _write_b2b_sheet(sheet, rows: list[dict], default_type: str) -> None:
 
 
 def _write_hsn_sheet(sheet, rows: list[dict]) -> None:
+    guard_sheet_capacity(rows, sheet.title)
     _write_header(sheet, HSN_HEADERS)
     for row in rows:
         sheet.append(
@@ -165,6 +170,7 @@ def _write_hsn_sheet(sheet, rows: list[dict]) -> None:
 
 
 def _write_summary_sheet(sheet, rows: list[dict]) -> None:
+    guard_sheet_capacity(rows, sheet.title)
     _write_header(sheet, SUMMARY_HEADERS)
     for row in rows:
         sheet.append(
@@ -187,6 +193,7 @@ def _write_summary_sheet(sheet, rows: list[dict]) -> None:
 
 
 def _write_flags_sheet(sheet, rows: list[dict]) -> None:
+    guard_sheet_capacity(rows, sheet.title)
     _write_header(sheet, B2B_HEADERS)
     if not rows:
         sheet.append(["none"])

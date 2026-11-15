@@ -1065,6 +1065,8 @@ function setDumpBusy(busy) {
   const authLocked = !devMode && authState && !authState.signed_in;
   addFilesBtn.disabled = busy || authLocked;
   addFolderBtn.disabled = busy || authLocked;
+  const cancelBtn = document.getElementById("dump-cancel");
+  if (cancelBtn) cancelBtn.classList.toggle("hidden", !busy);
 }
 
 function setDumpStatus(summary) {
@@ -3618,13 +3620,15 @@ function pollJob(jobId) {
       return;
     }
     const job = result.job;
-    if (job.status === "routing" || job.status === "queued" || job.status === "parsing") {
+    if (job.status === "routing" || job.status === "queued" || job.status === "parsing" || job.status === "cancel_requested") {
       renderFiles(job.files || []);
       setDumpStatus({
         tone: "progress",
-        text: job.status === "parsing"
-          ? "Reading bank PDF…"
-          : `Sorting ${(job.files || []).length}…`,
+        text: job.status === "cancel_requested"
+          ? "Cancelling after the current file…"
+          : job.status === "parsing"
+            ? "Reading bank PDF…"
+            : `Sorting ${(job.files || []).length}…`,
       });
       return;
     }
@@ -3634,10 +3638,13 @@ function pollJob(jobId) {
     activeJobId = null;
     setDumpBusy(false);
     const failed = job.status === "failed";
+    const cancelled = job.status === "cancelled";
     const jobError = job.error_message || "Could not sort those files.";
     const passwordFail = failed && /password/i.test(job.error_message || "");
     if (failed) {
       showError(dumpErrorEl, jobError);
+    } else if (cancelled) {
+      setDumpStatus({ tone: "warning", text: jobError || "Import cancelled. Files already read were kept." });
     }
     const dumpVisible = !paneDump.classList.contains("hidden");
     if (dumpVisible && currentPeriod && currentPeriod.id === job.period_id) {
@@ -4199,6 +4206,21 @@ addFolderBtn.addEventListener("click", async () => {
   if (!picked.paths.length) return;
   await startDump(picked.paths);
 });
+
+const dumpCancelBtn = document.getElementById("dump-cancel");
+if (dumpCancelBtn) {
+  dumpCancelBtn.addEventListener("click", async () => {
+    if (!activeJobId) return;
+    dumpCancelBtn.disabled = true;
+    try {
+      await window.pywebview.api.cancel_job(activeJobId);
+    } catch (err) {
+      // Polling will surface the final state either way.
+    } finally {
+      dumpCancelBtn.disabled = false;
+    }
+  });
+}
 
 document.addEventListener("dragover", (event) => {
   event.preventDefault();

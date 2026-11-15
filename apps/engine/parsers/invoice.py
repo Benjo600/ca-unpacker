@@ -117,6 +117,8 @@ _METADATA_PREFIXES = (
     "contact",
     "regd",
     "registered",
+    "hsn",
+    "sac",
 )
 _ADDRESS_HINTS = (
     "road",
@@ -957,6 +959,49 @@ def _column_for(token: _Token, columns: list[_Column]) -> _Column | None:
     return None
 
 
+def _is_contiguous_money_run(tokens: list[_Token], numeric_columns: list[_Column]) -> bool:
+    """True when a row's money values form one packed run filling every column.
+
+    Simple invoices are printed as a single left-aligned text line: the amounts
+    follow each other with ordinary word spacing, so x-band mapping is
+    meaningless (a wide amount's centre drifts left of its own column).  When
+    the run fills all numeric columns, document order is the layout — assign
+    values in order exactly like the sequential mapper does.  Real columnar
+    tables (visible gaps between cells) keep the positional path.
+    """
+    run = _packed_money_run(tokens)
+    if run is None:
+        return False
+    money_tokens, hsn_token = run
+    body = money_tokens[1:] if hsn_token else money_tokens
+    return len(body) == len(numeric_columns)
+
+
+def _packed_money_run(
+    tokens: list[_Token],
+) -> tuple[list[_Token], _Token | None] | None:
+    """Detect a packed run of money-like tokens with ordinary word spacing.
+
+    Returns ``(money_tokens, hsn_token)`` where ``hsn_token`` is a leading
+    token that looks like an HSN/SAC code (a bare integer that would otherwise
+    be mistaken for an amount).  ``None`` when the values are column-separated
+    (visible gaps) or there is no run of at least two.
+    """
+    money_tokens = [token for token in tokens if _money(token.text) is not None]
+    if len(money_tokens) < 2:
+        return None
+    # Ordinary word spacing is a few points; real column gaps are several
+    # times that.  Six points separates the two reliably across font sizes.
+    tolerance = 6.0
+    for previous, nxt in zip(money_tokens, money_tokens[1:]):
+        if nxt.x0 - previous.x1 > tolerance:
+            return None
+    hsn_token: _Token | None = None
+    if money_tokens and _HSN_TOKEN_RE.match(money_tokens[0].text):
+        hsn_token = money_tokens[0]
+    return money_tokens, hsn_token
+
+
 def _positional_values(tokens: list[_Token], header: _Header, text: str) -> _Values:
     result = _Values()
     numeric_columns = [column for column in header.columns if column.field in _NUMERIC_FIELDS]
@@ -966,6 +1011,56 @@ def _positional_values(tokens: list[_Token], header: _Header, text: str) -> _Val
     last_numeric = max(column.center for column in numeric_columns)
     span = max(40.0, (last_numeric - first_numeric) / max(1, len(numeric_columns)))
     description_parts: list[str] = []
+
+    packed = _packed_money_run(tokens)
+    if packed is not None:
+        money_tokens, hsn_token = packed
+        body = money_tokens[1:] if hsn_token else money_tokens
+        if len(body) == len(numeric_columns):
+            ordered = sorted(numeric_columns, key=lambda column: column.center)
+            for token, column in zip(body, ordered):
+                money = _money(token.text)
+                if money is None:
+                    continue
+                result.values[column.field] = money
+            if hsn_token is not None:
+                result.hsn = hsn_token.text
+            first_money_center = money_tokens[0].center
+            for token in tokens:
+                if _money(token.text) is not None:
+                    continue
+                if token.center < first_money_center:
+                    description_parts.append(token.text)
+            result.description = _strip_hsn(_join_description(description_parts))
+            inline_hsn = _hsn_from_text(text)
+            if inline_hsn:
+                result.hsn = inline_hsn
+            return result
+        if len(body) < len(numeric_columns) and len(body) >= 2:
+            # Packed but sparse row: real invoices fill the trailing numeric
+            # columns (taxable, amount) and leave the leading ones empty.
+            # Right-aligning matches that convention; guessing a leading
+            # column for a single stray value stays forbidden.
+            trailing = sorted(numeric_columns, key=lambda column: column.center)
+            trailing = trailing[-len(body):]
+            for token, column in zip(body, trailing):
+                money = _money(token.text)
+                if money is None:
+                    continue
+                result.values[column.field] = money
+            if hsn_token is not None:
+                result.hsn = hsn_token.text
+            first_money_center = money_tokens[0].center
+            for token in tokens:
+                if _money(token.text) is not None:
+                    continue
+                if token.center < first_money_center:
+                    description_parts.append(token.text)
+            result.description = _strip_hsn(_join_description(description_parts))
+            inline_hsn = _hsn_from_text(text)
+            if inline_hsn:
+                result.hsn = inline_hsn
+            return result
 
     for token in tokens:
         target = _column_for(token, header.columns)
@@ -1157,6 +1252,11 @@ def _line_items(
             # later page may continue the table (repeated header) - only then
             # do we resume item extraction.
             if int(line.page or 1) <= (footer_page or 0):
+                # Record the line instead of dropping it silently: content
+                # after the totals row is still part of the source document.
+                skipped.append(
+                    {"page": int(line.page), "text": text[:240], "reason": "after_footer"}
+                )
                 index += 1
                 continue
             next_header = _find_header(record, index, line_words)
@@ -1167,6 +1267,19 @@ def _line_items(
                 current = None
                 index = header.end + 1
                 continue
+            # No repeated header on a later page: the item table is over, but
+            # the remaining lines are still source content — record them.
+            while index < len(record.lines):
+                remaining = _clean(record.lines[index].text)
+                if remaining:
+                    skipped.append(
+                        {
+                            "page": int(record.lines[index].page or 1),
+                            "text": remaining[:240],
+                            "reason": "after_footer",
+                        }
+                    )
+                index += 1
             break
 
         if _is_item_header_repeat(text, tokens, header):
@@ -1211,6 +1324,15 @@ def _line_items(
                 index += 1
                 continue
             if header.positioned and values.description and not values.values:
+                if any(_money(token.text) is not None for token in tokens):
+                    # The line carries amounts that could not be mapped to any
+                    # column — record it instead of folding it into the
+                    # description of the item above (or dropping it silently).
+                    skipped.append(
+                        {"page": int(line.page), "text": text[:240], "reason": "no amount columns"}
+                    )
+                    index += 1
+                    continue
                 if current is None or _numeric_row_soon(record, index, line_words):
                     pending_description.append(_strip_hsn(values.description))
                 else:
@@ -1410,7 +1532,8 @@ def _metadata_phrase(text: str) -> bool:
     return bool(
         re.search(
             r"\b(?:imei|sr\s*no|serial\s*(?:no|number)|warranty\s*:|"
-            r"\d+\s*(?:months?|years?)\s+(?:manufacturer\s+)?warranty|in\s+the\s+box)\b",
+            r"\d+\s*(?:months?|years?)\s+(?:manufacturer\s+)?warranty|in\s+the\s+box|"
+            r"hsn\s*[/:]|sac\s*[/:])\b",
             text.lower(),
         )
     )
@@ -1785,9 +1908,11 @@ def _build_row(
     # Advisory only: never blocks the row, just annotates the Flags column.
     flags.extend(hsn_rate_flags(hsn, taxable=taxable, tax=tax))
 
-    currency = _detect_currency(text)
+    currency, currency_ambiguous = _detect_currency(text)
     if currency is None:
         flags.append("currency_unknown")
+    elif currency_ambiguous:
+        flags.append("currency_ambiguous")
 
     fields, located = _locate_fields(
         record.lines,
@@ -2125,15 +2250,25 @@ def _checks(
     return checks
 
 
-def _detect_currency(text: str) -> str | None:
+def _detect_currency(text: str) -> tuple[str | None, bool]:
+    """Detect the invoice currency plus whether the evidence is ambiguous.
+
+    ``$`` also appears in "US$" style totals and ₹ invoices sometimes quote an
+    equivalent; when two currencies score within one hit of each other the
+    caller flags ``currency_ambiguous`` instead of guessing silently.
+    """
     scores = {
         "INR": len(re.findall(r"₹|\bINR\b|\bRs\.?\b", text, re.I)),
         "USD": len(re.findall(r"\$|\bUSD\b", text)),
         "EUR": len(re.findall(r"€|\bEUR\b", text)),
         "GBP": len(re.findall(r"£|\bGBP\b", text)),
     }
-    best = max(scores, key=lambda code: scores[code])
-    return best if scores[best] else None
+    ordered = sorted(scores.items(), key=lambda item: item[1], reverse=True)
+    best_code, best_score = ordered[0]
+    if not best_score:
+        return None, False
+    ambiguous = len(ordered) > 1 and ordered[1][1] >= best_score - 1
+    return best_code, ambiguous
 
 
 def _fallback_invoice_number(text: str) -> str | None:
@@ -2302,7 +2437,7 @@ def _customer_details(
         header_words = [
             word
             for word in _words_for_line(line, line_words)
-            if re.search(r"bill\s+to|billing\s+address|buyer|customer", _clean(word.text), re.I)
+            if re.search(r"\b(?:bill|billing|billed|buyer|customer)\b", _clean(word.text), re.I)
         ]
         if not header_words:
             continue

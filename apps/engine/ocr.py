@@ -1,18 +1,32 @@
 from __future__ import annotations
 
 import os
+import re
 import shutil
 import tempfile
+import threading
 from pathlib import Path
 
+from apps.engine.imageprep import (
+    assess as _assess_image,
+    deskew as _deskew_image,
+    resolution_scale as _resolution_scale,
+    variant_sequence as _variant_sequence,
+)
 from apps.engine.pdf_extract import ExtractedPdf, LineBox, PageText, WordBox
 
 _REPO_ROOT = Path(__file__).resolve().parents[2]
 _MIN_WORD_CONF = 40.0
+_MIN_RAPID_SCORE = 0.35
 _RENDER_SCALE = 2.0
+_RETRY_SCALE = 3.0
 _MAX_OCR_IMAGE_SIDE = 4500
 _MIN_OCR_IMAGE_SIDE = 1200
+# OCR result quality targets used to decide whether a better variant or a
+# higher-resolution retry is worth trying (Phase 3/4 quality selection).
+_GOOD_ENOUGH_MEAN_CONF = 0.86
 _rapidocr_singleton = None
+_rapidocr_lock = threading.Lock()
 
 
 def _rapidocr_engine():
@@ -21,14 +35,20 @@ def _rapidocr_engine():
         return None
     if _rapidocr_singleton is not None:
         return _rapidocr_singleton
-    try:
-        from rapidocr import RapidOCR
+    with _rapidocr_lock:
+        # Re-check inside the lock: two threads can pass the fast path.
+        if _rapidocr_singleton is False:
+            return None
+        if _rapidocr_singleton is not None:
+            return _rapidocr_singleton
+        try:
+            from rapidocr import RapidOCR
 
-        _rapidocr_singleton = RapidOCR()
-    except Exception:
-        _rapidocr_singleton = False
-        return None
-    return _rapidocr_singleton
+            _rapidocr_singleton = RapidOCR()
+        except Exception:
+            _rapidocr_singleton = False
+            return None
+        return _rapidocr_singleton
 
 
 def ocr_available() -> bool:
@@ -126,21 +146,118 @@ def ocr_image_page(
     page_height_pts: float,
     scale: float,
 ) -> tuple[list[LineBox], list[WordBox], str]:
-    words, engine = _rapidocr_words(image_path, page_width_pts, page_height_pts, scale)
-    if not words:
-        words, engine = _tesseract_words(image_path, page_width_pts, page_height_pts, scale)
+    """OCR one page image with preprocessing-variant selection.
+
+    A small set of candidate preprocessing variants (original, contrast,
+    denoise, local threshold) is OCR'd and the variant whose result carries
+    the best *measured* recognition quality wins.  This is the controlled
+    fallback from the scanning plan: no aggressive transform is applied
+    blindly, and the winner is recorded.
+    """
+    from apps.engine.evidence import summarise_word_confidence
+
+    best_words: list[tuple[float, float, float, float, str, float | None]] = []
+    best_engine = "none"
+    best_quality = -1.0
+    best_variant = "original"
+
+    def score(words: list[tuple[float, float, float, float, str, float | None]]) -> float:
+        scores = [c for c in (item[5] for item in words) if c is not None]
+        if not scores:
+            return 0.0
+        mean = sum(scores) / len(scores)
+        # Too few recognised words means the variant destroyed content even if
+        # the survivors look confident.  Scale quality down towards zero.
+        if len(words) < 5:
+            mean *= len(words) / 5.0
+        # A digit run broken by a non-standard separator ("00·00086" for
+        # "98,000.00") is a recognition failure the engine is confident about;
+        # penalise it so another preprocessing variant gets a chance.
+        if _has_suspicious_amount_token(item[4] for item in words):
+            mean *= 0.5
+        return mean
+
+    variants = _variant_sequence_for(image_path)
+    for variant_name, variant_path in variants:
+        words: list[tuple[float, float, float, float, str, float | None]] = []
+        engine = "none"
+        words, engine = _rapidocr_words(variant_path, page_width_pts, page_height_pts, scale)
+        if not words:
+            words, engine = _tesseract_words(variant_path, page_width_pts, page_height_pts, scale)
+        if not words:
+            continue
+        quality = score(words)
+        if quality > best_quality:
+            best_words = words
+            best_engine = engine
+            best_quality = quality
+            best_variant = variant_name
+        if quality >= _GOOD_ENOUGH_MEAN_CONF and not _has_suspicious_amount_token(
+            item[4] for item in words
+        ):
+            break
+
     page_no = page + 1 if page <= 0 else page
-    lines = _lines_from_words(words, page_no)
+    lines = _lines_from_words(best_words, page_no)
     boxes = [
-        WordBox(page=page_no, text=item[4], x=item[0], y=item[1], width=item[2], height=item[3])
-        for item in words
+        WordBox(
+            page=page_no,
+            text=item[4],
+            x=item[0],
+            y=item[1],
+            width=item[2],
+            height=item[3],
+            confidence=item[5],
+        )
+        for item in best_words
     ]
-    return lines, boxes, engine
+    engine_label = best_engine if best_words else "none"
+    if best_variant != "original" and best_words:
+        engine_label = f"{best_engine}:{best_variant}"
+    return lines, boxes, engine_label
+
+
+_SUSPICIOUS_AMOUNT_RE = re.compile(r"\d\s*[·•▪◦‣·]\s*\d")
+
+
+def _has_suspicious_amount_token(tokens) -> bool:
+    """True when any token looks like a broken amount (digits split by a
+    bullet/separator glyph instead of a decimal point or comma)."""
+    for token in tokens:
+        text = str(token or "")
+        if _SUSPICIOUS_AMOUNT_RE.search(text):
+            return True
+    return False
+
+
+def _variant_sequence_for(image_path: Path) -> list[tuple[str, Path]]:
+    """Build preprocessing variants next to the source image (best effort)."""
+    try:
+        from PIL import Image
+
+        with Image.open(image_path) as source:
+            image = source.convert("RGB")
+        faint = bool(_assess_image(image).get("faint", False))
+        variants = _variant_sequence(image, faint=faint)
+    except Exception:
+        return [("original", image_path)]
+    out: list[tuple[str, Path]] = []
+    for name, variant in variants:
+        if name == "original":
+            out.append((name, image_path))
+            continue
+        path = image_path.with_name(f"{image_path.stem}-{name}.png")
+        try:
+            variant.save(path, "PNG")
+        except Exception:
+            continue
+        out.append((name, path))
+    return out
 
 
 def _rapidocr_words(
     image_path: Path, page_width_pts: float, page_height_pts: float, scale: float
-) -> tuple[list[tuple[float, float, float, float, str]], str]:
+) -> tuple[list[tuple[float, float, float, float, str, float | None]], str]:
     engine = _rapidocr_engine()
     if engine is None or scale <= 0:
         return [], "none"
@@ -153,17 +270,21 @@ def _rapidocr_words(
     scores = getattr(result, "scores", None)
     if boxes is None or txts is None:
         return [], "none"
-    words: list[tuple[float, float, float, float, str]] = []
+    words: list[tuple[float, float, float, float, str, float | None]] = []
     for index, text in enumerate(txts):
         token = (text or "").strip()
         if not token:
             continue
+        confidence: float | None = None
         if scores is not None:
             try:
-                if float(scores[index]) < 0.35:
-                    continue
+                score = float(scores[index])
             except (TypeError, ValueError, IndexError):
-                pass
+                score = None
+            if score is not None:
+                if score < _MIN_RAPID_SCORE:
+                    continue
+                confidence = score
         try:
             pts = boxes[index]
             xs = [float(pt[0]) for pt in pts]
@@ -182,14 +303,14 @@ def _rapidocr_words(
         width = width_px / scale
         height = height_px / scale
         y = page_height_pts - bottom / scale
-        words.append((x, y, width, height, token))
+        words.append((x, y, width, height, token, confidence))
     words.sort(key=lambda item: (-(item[1] + item[3] / 2.0), item[0]))
     return words, "rapidocr"
 
 
 def _tesseract_words(
     image_path: Path, page_width_pts: float, page_height_pts: float, scale: float
-) -> tuple[list[tuple[float, float, float, float, str]], str]:
+) -> tuple[list[tuple[float, float, float, float, str, float | None]], str]:
     exe = find_tesseract()
     if exe is None:
         return [], "none"
@@ -207,7 +328,7 @@ def _tesseract_words(
     except Exception:
         return [], "none"
 
-    words: list[tuple[float, float, float, float, str]] = []
+    words: list[tuple[float, float, float, float, str, float | None]] = []
     n = len(data.get("text") or [])
     for index in range(n):
         if data.get("level") is not None:
@@ -235,15 +356,15 @@ def _tesseract_words(
         width = width_px / scale
         height = height_px / scale
         y = page_height_pts - (top + height_px) / scale
-        words.append((x, y, width, height, text))
+        words.append((x, y, width, height, text, conf / 100.0))
     words.sort(key=lambda item: (-(item[1] + item[3] / 2.0), item[0]))
     return words, "tesseract"
 
 
 def _lines_from_words(
-    words: list[tuple[float, float, float, float, str]], page_no: int
+    words: list[tuple[float, float, float, float, str, float | None]], page_no: int
 ) -> list[LineBox]:
-    bands: list[list[tuple[float, float, float, float, str]]] = []
+    bands: list[list[tuple[float, float, float, float, str, float | None]]] = []
     for word in words:
         placed = False
         for band in bands:
@@ -303,6 +424,7 @@ def extract_image(path: Path) -> ExtractedPdf:
         lines=lines,
         words=words,
         engine=engine if lines else "none",
+        page_methods={1: engine} if lines else {},
     )
 
 
@@ -340,11 +462,29 @@ def _prepare_image(path: Path, tmp_dir: Path) -> tuple[Path, float, float, float
                     max(1, int(round(height * scale))),
                 )
                 image = image.resize(target, Image.Resampling.LANCZOS)
+            # Skewed phone photos band into wrong OCR lines; level the page
+            # when the measured skew is meaningful.  The display grid is the
+            # original orientation, so crops keep working either way.
+            angle = _estimate_skew_safe(image)
+            if angle:
+                image, _applied = _deskew_image(image, angle)
             dest = tmp_dir / "page.png"
             image.save(dest, "PNG")
     except Exception:
         return None
     return dest, float(width), float(height), float(scale)
+
+
+def _estimate_skew_safe(image) -> float:
+    try:
+        from apps.engine.imageprep import estimate_skew
+
+        angle = estimate_skew(image)
+        # Only rotate on meaningful skews — sub-degree estimates are noise,
+        # and rotating for nothing costs accuracy on clean pages.
+        return angle if abs(angle) >= 1.0 else 0.0
+    except Exception:
+        return 0.0
 
 
 def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
@@ -366,6 +506,8 @@ def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
     lines: list[LineBox] = []
     words: list[WordBox] = []
     pages: list[PageText] = []
+    page_methods: dict[int, str] = {}
+    warnings: list[str] = []
     engine_name = "none"
     try:
         with tempfile.TemporaryDirectory(prefix="caunpacker_ocr_") as tmp:
@@ -376,23 +518,18 @@ def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
                 try:
                     width = float(page.get_width())
                     height = float(page.get_height())
-                    bitmap = page.render(scale=_RENDER_SCALE)
-                    try:
-                        image = bitmap.to_pil()
-                        if image.mode not in {"RGB", "L"}:
-                            image = image.convert("RGB")
-                        png_path = tmp_dir / f"page-{page_no}.png"
-                        image.save(png_path, "PNG")
-                    finally:
-                        bitmap.close()
-                    page_lines, page_words, used = ocr_image_page(
-                        png_path, page_no, width, height, _RENDER_SCALE
+                    page_lines, page_words, used = _ocr_rendered_page(
+                        page, page_no, width, height, tmp_dir
                     )
                     if used != "none":
-                        engine_name = used
+                        engine_name = used.split(":", 1)[0]
+                        page_methods[page_no] = used
+                    elif not page_lines:
+                        warnings.append(f"page {page_no} could not be OCR read")
                 except Exception:
                     page_lines = []
                     page_words = []
+                    warnings.append(f"page {page_no} could not be OCR read")
                 finally:
                     page.close()
                 lines.extend(page_lines)
@@ -414,6 +551,167 @@ def ocr_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
         lines=lines,
         words=words,
         engine=engine_name if lines else "none",
+        page_methods=page_methods,
+        warnings=warnings,
+    )
+
+
+def _ocr_rendered_page(
+    page,
+    page_no: int,
+    width: float,
+    height: float,
+    tmp_dir: Path,
+) -> tuple[list[LineBox], list[WordBox], str]:
+    """OCR one rendered PDF page, with a measured quality-based retry.
+
+    First pass renders at the standard scale.  When recognition quality is
+    poor (few words or low mean confidence) the page is retried at a higher
+    render scale with preprocessing variants and the better result wins.
+    """
+    from apps.engine.evidence import summarise_word_confidence
+
+    def render(scale: float) -> Path | None:
+        bitmap = page.render(scale=scale)
+        try:
+            image = bitmap.to_pil()
+            if image.mode not in {"RGB", "L"}:
+                image = image.convert("RGB")
+            png_path = tmp_dir / f"page-{page_no}-{int(scale * 100)}.png"
+            image.save(png_path, "PNG")
+            return png_path
+        finally:
+            bitmap.close()
+
+    first_path = render(_RENDER_SCALE)
+    if first_path is None:
+        return [], [], "none"
+    lines, words, engine = ocr_image_page(first_path, page_no, width, height, _RENDER_SCALE)
+
+    summary = summarise_word_confidence(words)
+    weak = not words or (
+        summary is not None and summary["mean_confidence"] < _GOOD_ENOUGH_MEAN_CONF
+    ) or len(words) < 12
+    if weak:
+        try:
+            retry_path = render(_RETRY_SCALE)
+        except Exception:
+            retry_path = None
+        if retry_path is not None:
+            retry_lines, retry_words, retry_engine = ocr_image_page(
+                retry_path, page_no, width, height, _RETRY_SCALE
+            )
+            retry_summary = summarise_word_confidence(retry_words)
+            if _better_result(retry_summary, summary, retry_lines, lines):
+                lines, words, engine = retry_lines, retry_words, retry_engine
+
+    if not (lines or words):
+        return [], [], "none"
+    return lines, words, engine
+
+
+def _better_result(
+    candidate, current, candidate_lines: list[LineBox], current_lines: list[LineBox]
+) -> bool:
+    """Quality comparison between two OCR passes over the same page.
+
+    A retry must beat the current result on mean confidence *and* recognise a
+    comparable number of words — a confident-but-empty pass is not better.
+    """
+    if candidate is None:
+        return False
+    if current is None:
+        current = {"mean_confidence": 0.0, "word_count": 0}
+    cand_words = candidate.get("word_count", 0) or 0
+    cur_words = current.get("word_count", 0) or 0
+    cand_conf = candidate.get("mean_confidence", 0.0) or 0.0
+    cur_conf = current.get("mean_confidence", 0.0) or 0.0
+    if cand_words * 4 < cur_words:
+        return False
+    if not current_lines:
+        return bool(candidate_lines)
+    return cand_conf > cur_conf
+
+
+def ocr_pdf_pages(
+    path: Path,
+    page_numbers: list[int],
+    password: str | None = None,
+) -> ExtractedPdf:
+    """OCR only the requested pages of a PDF (used by hybrid per-page routing).
+
+    Returns an ExtractedPdf whose page numbering matches ``page_numbers``
+    (1-based).  Never uploads anything.
+    """
+    wanted = sorted({int(n) for n in page_numbers if int(n) >= 1})
+    empty = ExtractedPdf(pdf_type="scanned", page_count=0, engine="none")
+    if not wanted or not ocr_available():
+        return empty
+    try:
+        import pypdfium2
+    except ImportError:
+        return empty
+
+    try:
+        document = pypdfium2.PdfDocument(str(path), password=password or None)
+    except Exception:
+        return empty
+
+    lines: list[LineBox] = []
+    words: list[WordBox] = []
+    pages: list[PageText] = []
+    page_methods: dict[int, str] = {}
+    warnings: list[str] = []
+    engine_name = "none"
+    total_pages = 0
+    try:
+        total_pages = len(document)
+        with tempfile.TemporaryDirectory(prefix="caunpacker_ocr_") as tmp:
+            tmp_dir = Path(tmp)
+            for index in wanted:
+                if index > len(document):
+                    warnings.append(f"page {index} does not exist in this document")
+                    continue
+                page = document[index - 1]
+                page_no = index
+                try:
+                    width = float(page.get_width())
+                    height = float(page.get_height())
+                    page_lines, page_words, used = _ocr_rendered_page(
+                        page, page_no, width, height, tmp_dir
+                    )
+                    if used != "none":
+                        engine_name = used.split(":", 1)[0]
+                        page_methods[page_no] = used
+                    elif not page_lines:
+                        warnings.append(f"page {page_no} could not be OCR read")
+                except Exception:
+                    page_lines = []
+                    page_words = []
+                    warnings.append(f"page {page_no} could not be OCR read")
+                finally:
+                    page.close()
+                lines.extend(page_lines)
+                words.extend(page_words)
+                pages.append(
+                    PageText(
+                        page=page_no,
+                        text="\n".join(line.text for line in page_lines),
+                        needs_ocr=False,
+                    )
+                )
+    finally:
+        document.close()
+
+    return ExtractedPdf(
+        pdf_type="scanned",
+        page_count=total_pages,
+        pages=pages,
+        lines=lines,
+        words=words,
+        engine=engine_name if lines else "none",
+        page_methods=page_methods,
+        warnings=warnings,
     )
 
 

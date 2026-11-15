@@ -4,7 +4,14 @@ import re
 from decimal import Decimal
 
 from apps.engine.parsers.bank.layout import _debit_credit
-from apps.engine.parsers.bank.money import DATE_RE, amounts_in, is_plausible_iso_date, normalize_date, parse_amount
+from apps.engine.parsers.bank.money import (
+    DATE_RE,
+    amounts_in,
+    is_plausible_iso_date,
+    normalize_date,
+    parse_amount,
+    parse_amount_with_evidence,
+)
 from apps.engine.parsers.bank.patterns import OPENING_RE, clean_text, is_boilerplate
 from apps.engine.parsers.bank.profiles import BankProfile
 
@@ -17,6 +24,8 @@ HEADER = (
     ("balance", ("balance",)),
 )
 
+_SKIPPED_ROW_LIMIT = 200
+
 
 def rows_from_cell_tables(
     tables: list[list[list[str | None]]],
@@ -25,14 +34,171 @@ def rows_from_cell_tables(
     page: int = 1,
     bbox: str | None = None,
 ) -> list[dict]:
-    rows: list[dict] = []
+    """Convenience wrapper: parse tables that share one page."""
+    session = TableSession(profile, filename)
     for table in tables:
-        rows.extend(_table_to_rows(table, profile, filename, page, bbox))
-    return rows
+        session.feed(table, page, bbox)
+    return session.finish()[0]
+
+
+class TableSession:
+    """Parse cell tables page by page, threading transaction state across pages.
+
+    A transaction whose narration wraps onto the next page used to be split at
+    the table boundary and silently dropped (the fragment lacked a date or a
+    balance).  The session keeps ``pending`` state across tables and records
+    anything it cannot complete as an explicit skipped row instead of losing
+    it.
+    """
+
+    def __init__(self, profile: BankProfile, filename: str) -> None:
+        self.profile = profile
+        self.filename = filename
+        self.rows: list[dict] = []
+        self.pending: dict | None = None
+        self.skipped: list[dict] = []
+
+    def feed(self, table: list[list[str | None]], page: int, bbox: str | None) -> None:
+        header_at = None
+        mapping: dict[int, str] = {}
+        for i, raw in enumerate(table[:8]):
+            mapped = _map_header(raw)
+            if mapped:
+                header_at = i
+                mapping = mapped
+                break
+        body = table[header_at + 1 :] if header_at is not None else table
+        for raw in body:
+            cells = [clean_text(value or "") for value in raw]
+            joined = clean_text(" ".join(cells))
+            if not joined:
+                continue
+            if _looks_like_header_row(cells, mapping):
+                self._skip(page, joined, "repeated_header")
+                continue
+            if OPENING_RE.search(joined) or is_boilerplate(joined):
+                if self.pending and not DATE_RE.search(joined) and joined:
+                    self._append_narration(joined)
+                continue
+            if _row_has_txn_date(cells, mapping, joined):
+                if self.pending is not None:
+                    self._settle_pending()
+                self.pending = _cells_to_row(
+                    cells, mapping, self.profile, self.filename, page, bbox
+                )
+                continue
+            if self.pending is not None:
+                debit = _mapped_amount(cells, mapping, "debit")
+                credit = _mapped_amount(cells, mapping, "credit")
+                balance = _mapped_amount(cells, mapping, "balance")
+                if _row_complete(self.pending) and _looks_like_own_amounts(
+                    debit, credit, balance, joined, self.profile
+                ):
+                    previous = self.pending
+                    self._settle_pending()
+                    self.pending = _cells_to_row(
+                        cells,
+                        mapping,
+                        self.profile,
+                        self.filename,
+                        page,
+                        bbox,
+                        inherit_date=previous.get("date") if previous else None,
+                    )
+                    continue
+                extra = _mapped_cell(cells, mapping, "narration") or joined
+                if extra:
+                    self._append_narration(extra)
+                self._backfill_amounts(debit, credit, balance, joined)
+            else:
+                # No open transaction: an amount-only fragment with no date and
+                # no narration owner cannot be attributed — record it.
+                if joined and amounts_in(joined):
+                    self._skip(page, joined, "orphan_amount_row")
+
+    def _append_narration(self, extra: str) -> None:
+        pending = self.pending
+        if pending is None:
+            return
+        pending["description"] = f"{pending['description']} {extra}".strip()
+        pending["raw_text"] = f"{pending['raw_text']} | {extra}"
+
+    def _backfill_amounts(
+        self,
+        debit: Decimal | None,
+        credit: Decimal | None,
+        balance: Decimal | None,
+        joined: str,
+    ) -> None:
+        pending = self.pending
+        if pending is None:
+            return
+        if pending.get("debit") is None and debit is not None:
+            pending["debit"] = float(debit)
+        if pending.get("credit") is None and credit is not None:
+            pending["credit"] = float(credit)
+        if pending.get("balance") is None and balance is not None:
+            pending["balance"] = float(balance)
+        if pending.get("debit") is None and pending.get("credit") is None:
+            amounts = amounts_in(joined)
+            if len(amounts) >= 2:
+                pending["balance"] = float(amounts[-1])
+                debit_v, credit_v = _debit_credit(amounts, joined, self.profile)
+                pending["debit"] = float(debit_v) if debit_v is not None else None
+                pending["credit"] = float(credit_v) if credit_v is not None else None
+
+    def _settle_pending(self) -> None:
+        """Move ``pending`` into rows or skipped, then clear it."""
+        pending = self.pending
+        self.pending = None
+        if pending is None:
+            return
+        if _row_ok(pending):
+            self.rows.append(pending)
+        else:
+            self._skip(
+                pending.get("source_page") or 1,
+                pending.get("raw_text") or pending.get("description") or "",
+                "incomplete_transaction_row",
+            )
+
+    def _skip(self, page: int, text: str, reason: str) -> None:
+        if len(self.skipped) >= _SKIPPED_ROW_LIMIT:
+            return
+        self.skipped.append(
+            {
+                "source_page": page,
+                "raw_text": (text or "")[:240],
+                "reason": reason,
+            }
+        )
+
+    def finish(self) -> tuple[list[dict], list[dict]]:
+        self._settle_pending()
+        return self.rows, self.skipped
+
+
+def _looks_like_header_row(cells: list[str], mapping: dict[int, str]) -> bool:
+    """A repeated header row: header-shaped labels, no transaction content."""
+    if not cells:
+        return False
+    joined = clean_text(" ".join(cells)).lower()
+    if not joined or DATE_RE.search(joined) or amounts_in(joined):
+        return False
+    mapped = _map_header(cells)
+    if mapped:
+        return True
+    header_words = {"date", "narration", "particulars", "description", "debit", "credit",
+                    "withdrawal", "deposit", "balance", "chq", "cheque", "ref"}
+    hits = sum(1 for word in re.split(r"[\s/]+", joined) if word.strip(":.") in header_words)
+    return hits >= 2
 
 
 def rows_from_markdown(text: str, profile: BankProfile, filename: str, page: int = 1) -> list[dict]:
-    return rows_from_cell_tables(_markdown_tables(text), profile, filename, page)
+    session = TableSession(profile, filename)
+    for table in _markdown_tables(text):
+        session.feed(table, page, None)
+    return session.finish()[0]
 
 
 def _markdown_tables(text: str) -> list[list[list[str | None]]]:
@@ -53,76 +219,6 @@ def _markdown_tables(text: str) -> list[list[list[str | None]]]:
     if len(current) >= 2:
         tables.append(current)
     return tables
-
-
-def _table_to_rows(
-    table: list[list[str | None]],
-    profile: BankProfile,
-    filename: str,
-    page: int,
-    bbox: str | None,
-) -> list[dict]:
-    header_at = None
-    mapping: dict[int, str] = {}
-    for i, raw in enumerate(table[:8]):
-        mapped = _map_header(raw)
-        if mapped:
-            header_at = i
-            mapping = mapped
-            break
-    body = table[header_at + 1 :] if header_at is not None else table
-    rows: list[dict] = []
-    pending: dict | None = None
-    for raw in body:
-        cells = [clean_text(value or "") for value in raw]
-        joined = clean_text(" ".join(cells))
-        if not joined or OPENING_RE.search(joined) or is_boilerplate(joined):
-            if pending and not DATE_RE.search(joined) and joined:
-                pending["description"] = f"{pending['description']} {joined}".strip()
-                pending["raw_text"] = f"{pending['raw_text']} | {joined}"
-            continue
-        if _row_has_txn_date(cells, mapping, joined):
-            if pending is not None:
-                rows.append(pending)
-            pending = _cells_to_row(cells, mapping, profile, filename, page, bbox)
-        elif pending is not None:
-            debit = _mapped_amount(cells, mapping, "debit")
-            credit = _mapped_amount(cells, mapping, "credit")
-            balance = _mapped_amount(cells, mapping, "balance")
-            if _row_complete(pending) and _looks_like_own_amounts(
-                debit, credit, balance, joined, profile
-            ):
-                rows.append(pending)
-                pending = _cells_to_row(
-                    cells,
-                    mapping,
-                    profile,
-                    filename,
-                    page,
-                    bbox,
-                    inherit_date=pending.get("date"),
-                )
-                continue
-            extra = _mapped_cell(cells, mapping, "narration") or joined
-            if extra:
-                pending["description"] = f"{pending['description']} {extra}".strip()
-                pending["raw_text"] = f"{pending['raw_text']} | {extra}"
-            if pending.get("debit") is None and debit is not None:
-                pending["debit"] = float(debit)
-            if pending.get("credit") is None and credit is not None:
-                pending["credit"] = float(credit)
-            if pending.get("balance") is None and balance is not None:
-                pending["balance"] = float(balance)
-            if pending.get("debit") is None and pending.get("credit") is None:
-                amounts = amounts_in(joined)
-                if len(amounts) >= 2:
-                    pending["balance"] = float(amounts[-1])
-                    debit_v, credit_v = _debit_credit(amounts, joined, profile)
-                    pending["debit"] = float(debit_v) if debit_v is not None else None
-                    pending["credit"] = float(credit_v) if credit_v is not None else None
-    if pending is not None:
-        rows.append(pending)
-    return [row for row in rows if _row_ok(row)]
 
 
 def _row_has_txn_date(cells: list[str], mapping: dict[int, str], joined: str) -> bool:
@@ -165,7 +261,7 @@ def _map_header(raw: list[str | None]) -> dict[int, str]:
     mapping: dict[int, str] = {}
     used: set[str] = set()
     for index, value in enumerate(raw):
-        lowered = clean_text(value or "").lower().strip(":.")
+        lowered = clean_text(value or "").lower().strip(":.") if value else ""
         if not lowered:
             continue
         for key, hints in HEADER:
@@ -192,14 +288,10 @@ def _mapped_amount(cells: list[str], mapping: dict[int, str], key: str) -> Decim
     text = _mapped_cell(cells, mapping, key)
     if not text:
         return None
-    found = amounts_in(text)
-    if found:
-        value = found[0]
-    else:
-        value = parse_amount(text)
-    if value == 0:
+    evidence = parse_amount_with_evidence(text)
+    if evidence.value == 0:
         return None
-    return value
+    return evidence.value
 
 
 def _cells_to_row(
