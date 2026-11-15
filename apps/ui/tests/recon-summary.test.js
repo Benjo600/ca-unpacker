@@ -2,11 +2,25 @@
 
 const assert = require("node:assert/strict");
 const {
+  DECISION_REASONS,
+  decisionLabel,
+  decisionReasonLabel,
+  decisionCountsText,
+  decisionMoneyText,
+  isDecidedRow,
   hasRecon,
   reconCountsText,
   reconStatusLabel,
   reconInvoiceDisplay,
+  toleranceText,
   filterReconRows,
+  sortReconRows,
+  reconReason,
+  formatINR,
+  reconMoneyChips,
+  reconTotalsText,
+  hasReconMissing,
+  reconMissingText,
   gstrPreviewNote,
 } = require("../recon-summary.js");
 
@@ -46,11 +60,59 @@ assert.equal(
   "Matched 3 · Only in books 1 · Only in 2B 2 · Amount mismatch 1 · Likely 0"
 );
 
+// --- the four newer statuses only appear when they actually happened ---
+assert.equal(
+  reconCountsText({
+    matched: 3,
+    books_only: 1,
+    portal_only: 2,
+    amount_mismatch: 1,
+    likely: 0,
+    tax_mismatch: 0,
+    duplicate: 0,
+    split_merged: 0,
+    credit_note: 0,
+  }),
+  "Matched 3 · Only in books 1 · Only in 2B 2 · Amount mismatch 1 · Likely 0"
+);
+assert.equal(
+  reconCountsText({
+    matched: 3,
+    books_only: 1,
+    portal_only: 2,
+    amount_mismatch: 1,
+    likely: 2,
+    tax_mismatch: 4,
+    duplicate: 1,
+    split_merged: 2,
+    credit_note: 3,
+  }),
+  "Matched 3 · Only in books 1 · Only in 2B 2 · Amount mismatch 1 · Likely 2 · Tax differs 4 · Duplicate 1 · Split or merged 2 · Credit notes 3"
+);
+assert.equal(
+  reconCountsText({ matched: 1, credit_note: 2 }),
+  "Matched 1 · Only in books 0 · Only in 2B 0 · Amount mismatch 0 · Likely 0 · Credit notes 2"
+);
+assert.equal(
+  reconCountsText(null),
+  "Matched 0 · Only in books 0 · Only in 2B 0 · Amount mismatch 0 · Likely 0"
+);
+
+// --- allowance wording ---
+assert.equal(toleranceText({ days: 0, amount: 1 }), "Dates same day · Amounts ₹1.00");
+assert.equal(toleranceText({ days: 3, amount: 25.5 }), "Dates ±3 days · Amounts ₹25.50");
+assert.equal(toleranceText({ days: 0, amount: 0 }), "Dates same day · Amounts ₹0.00");
+assert.equal(toleranceText(null), "Dates same day · Amounts ₹—");
+
 assert.equal(reconStatusLabel("matched"), "Matched");
 assert.equal(reconStatusLabel("books_only"), "Only in books");
 assert.equal(reconStatusLabel("portal_only"), "Only in 2B");
 assert.equal(reconStatusLabel("amount_mismatch"), "Amount mismatch");
 assert.equal(reconStatusLabel("likely"), "Likely (confirm)");
+assert.equal(reconStatusLabel("tax_mismatch"), "Tax differs");
+assert.equal(reconStatusLabel("duplicate"), "Duplicate");
+assert.equal(reconStatusLabel("split_merged"), "Split or merged");
+assert.equal(reconStatusLabel("credit_note"), "Credit note");
 
 assert.equal(reconInvoiceDisplay({ invoice_2b: "2B-9", invoice_books: "BK-1" }), "2B-9");
 assert.equal(reconInvoiceDisplay({ invoice_2b: "", invoice_books: "BK-1" }), "BK-1");
@@ -62,15 +124,29 @@ const rows = [
   { status: "portal_only" },
   { status: "amount_mismatch" },
   { status: "likely" },
+  { status: "tax_mismatch" },
+  { status: "duplicate" },
+  { status: "split_merged" },
+  { status: "credit_note" },
 ];
-assert.equal(filterReconRows(rows, "all").length, 5);
+assert.equal(filterReconRows(rows, "all").length, 9);
 assert.deepEqual(
   filterReconRows(rows, "matched").map((row) => row.status),
   ["matched"]
 );
+// "unmatched" now means everything that is not a clean match.
 assert.deepEqual(
   filterReconRows(rows, "unmatched").map((row) => row.status),
-  ["books_only", "portal_only"]
+  [
+    "books_only",
+    "portal_only",
+    "amount_mismatch",
+    "likely",
+    "tax_mismatch",
+    "duplicate",
+    "split_merged",
+    "credit_note",
+  ]
 );
 assert.deepEqual(
   filterReconRows(rows, "amount_mismatch").map((row) => row.status),
@@ -80,6 +156,29 @@ assert.deepEqual(
   filterReconRows(rows, "likely").map((row) => row.status),
   ["likely"]
 );
+// Each new status has its own narrow view.
+assert.deepEqual(
+  filterReconRows(rows, "tax_mismatch").map((row) => row.status),
+  ["tax_mismatch"]
+);
+assert.deepEqual(
+  filterReconRows(rows, "duplicate").map((row) => row.status),
+  ["duplicate"]
+);
+assert.deepEqual(
+  filterReconRows(rows, "split_merged").map((row) => row.status),
+  ["split_merged"]
+);
+assert.deepEqual(
+  filterReconRows(rows, "credit_note").map((row) => row.status),
+  ["credit_note"]
+);
+// An unknown status is not swept into any narrow view.
+assert.deepEqual(
+  filterReconRows([{ status: "something_new" }, ...rows], "duplicate").map((row) => row.status),
+  ["duplicate"]
+);
+assert.equal(filterReconRows([{ status: "something_new" }], "unmatched").length, 0);
 
 assert.equal(
   gstrPreviewNote(false),
@@ -89,5 +188,187 @@ assert.equal(
   gstrPreviewNote(true),
   "Open the GSTR Excel for the full register. Match columns filled in GSTR Excel when a master grid exists."
 );
+
+// --- search narrows rows on party, GSTIN or invoice number ---
+const searchable = [
+  { party: "Shakti Steels", gstin: "29AAJPS1120L1ZD", invoice_2b: "SS/778", invoice_books: "", status: "books_only" },
+  { party: "Ganesh Packaging", gstin: "29AAGCG4545K1Z9", invoice_2b: "GP-2291", invoice_books: "GP2291", status: "matched" },
+];
+assert.equal(filterReconRows(searchable, "all", "shakti").length, 1);
+assert.equal(filterReconRows(searchable, "all", "GP-2291")[0].party, "Ganesh Packaging");
+assert.equal(filterReconRows(searchable, "all", "29AAJPS")[0].status, "books_only");
+assert.equal(filterReconRows(searchable, "all", "   ").length, 2);
+assert.equal(filterReconRows(searchable, "matched", "shakti").length, 0);
+
+// --- exceptions sort by money, biggest first ---
+const mixed = [
+  { status: "amount_mismatch", amount_diff: 40, amount_2b: 23140, amount_books: 23100, party: "Royal Papers" },
+  { status: "books_only", amount_diff: null, amount_2b: null, amount_books: 18240, party: "Shakti Steels" },
+  { status: "portal_only", amount_diff: null, amount_2b: 6780, amount_books: null, party: "Bharath Logistics" },
+  { status: "matched", amount_diff: 0, amount_2b: 118000, amount_books: 118000, party: "Anand Textiles" },
+];
+// --- exceptions sort by money, biggest first (matched rows stay in the list) ---
+assert.deepEqual(
+  sortReconRows(filterReconRows(mixed, "all", "")).map((row) => row.party),
+  ["Shakti Steels", "Bharath Logistics", "Royal Papers", "Anand Textiles"]
+);
+assert.deepEqual(
+  sortReconRows(filterReconRows(mixed, "unmatched", "")).map((row) => row.party),
+  ["Shakti Steels", "Bharath Logistics", "Royal Papers"]
+);
+
+// --- reasons flow through as-is ---
+assert.equal(reconReason({ reason: " amounts differ by 40.00 " }), "amounts differ by 40.00");
+assert.equal(reconReason(null), "");
+assert.equal(reconReason({}), "");
+
+// --- rupees, Indian grouping ---
+assert.equal(formatINR(0), "₹0.00");
+assert.equal(formatINR(1180), "₹1,180.00");
+assert.equal(formatINR(11800000), "₹1,18,00,000.00");
+assert.equal(formatINR(-42.5), "-₹42.50");
+assert.equal(formatINR("not-a-number"), "₹—");
+
+// --- money chips: five figures, diff + credit figures clickable ---
+const chips = reconMoneyChips({
+  portal_total: 600,
+  books_total: 300,
+  gap: 300,
+  credit_at_risk: 300,
+  unsupported_credit: 0,
+});
+assert.equal(chips.length, 5);
+assert.deepEqual(
+  chips.map((chip) => chip.filter),
+  ["all", "all", "amount_mismatch", "unmatched", "unmatched"]
+);
+assert.deepEqual(
+  chips.map((chip) => formatINR(chip.value)),
+  ["₹600.00", "₹300.00", "₹300.00", "₹300.00", "₹0.00"]
+);
+assert.equal(
+  reconTotalsText({ portal_total: 600, books_total: 300, gap: 300, credit_at_risk: 300 }),
+  "On portal ₹600.00 · In books ₹300.00 · Difference ₹300.00 · Credit at risk ₹300.00"
+);
+
+// --- missing recon explains itself ---
+assert.equal(hasReconMissing({}), false);
+assert.equal(hasReconMissing({ recon_missing: "no_gstr_2b" }), true);
+assert.match(
+  reconMissingText({ recon_missing: "no_gstr_2b" }),
+  /GSTR-2B JSON is missing/
+);
+assert.match(
+  reconMissingText({ recon_missing: "no_purchase_rows" }),
+  /purchase register/
+);
+assert.equal(reconMissingText({ recon_missing: "something-else" }), "");
+assert.equal(reconMissingText(null), "");
+
+// --- ready-made decision reasons, in the shipped order ---
+assert.deepEqual(
+  DECISION_REASONS.map((reason) => reason.code),
+  ["rate_difference", "credit_note_pending", "supplier_not_filed", "wrong_gstin", "other"]
+);
+assert.deepEqual(
+  DECISION_REASONS.map((reason) => reason.label),
+  ["Rate difference", "Credit note pending", "Supplier has not filed", "Wrong GSTIN", "Something else"]
+);
+assert.equal(decisionReasonLabel("wrong_gstin"), "Wrong GSTIN");
+assert.equal(decisionReasonLabel("nope"), "");
+
+// --- decision labels ---
+assert.equal(decisionLabel("accepted"), "Accepted");
+assert.equal(decisionLabel("rejected"), "Rejected");
+assert.equal(decisionLabel("noted"), "Noted");
+assert.equal(decisionLabel(""), "Not decided");
+assert.equal(decisionLabel(null), "Not decided");
+assert.equal(decisionLabel("something-else"), "Not decided");
+
+// --- who still owes a decision ---
+assert.equal(isDecidedRow({ decision: "accepted" }), true);
+assert.equal(isDecidedRow({ decision: "noted" }), true);
+assert.equal(isDecidedRow({ decision: "" }), false);
+assert.equal(isDecidedRow({ decision: "   " }), false);
+assert.equal(isDecidedRow({}), false);
+assert.equal(isDecidedRow(null), false);
+
+// --- decision counts line ---
+assert.equal(
+  decisionCountsText({
+    counts: { accepted: 3, rejected: 1, noted: 2, undecided: 5, new: 1, exceptions: 6 },
+  }),
+  "Accepted 3 · Rejected 1 · Noted 2 · Still to decide 5 · New 1"
+);
+assert.equal(
+  decisionCountsText({ counts: { accepted: 0, rejected: 0, noted: 0, undecided: 0, new: 0 } }),
+  "Accepted 0 · Rejected 0 · Noted 0 · Still to decide 0"
+);
+assert.equal(
+  decisionCountsText({ counts: { accepted: 0, rejected: 0, noted: 0, undecided: 0, new: 4 } }),
+  "Accepted 0 · Rejected 0 · Noted 0 · Still to decide 0 · New 4"
+);
+assert.equal(
+  decisionCountsText(null),
+  "Accepted 0 · Rejected 0 · Noted 0 · Still to decide 0"
+);
+
+// --- money already decided vs money still at stake ---
+assert.equal(
+  decisionMoneyText({
+    money: { accepted: 1000, rejected: 500, noted: 500, undecided: 2000, at_stake: 4000 },
+  }),
+  "Decided ₹2,000.00 of ₹4,000.00 still worth deciding"
+);
+assert.equal(
+  decisionMoneyText({ money: { accepted: 0, rejected: 0, noted: 0, at_stake: 0 } }),
+  "Decided ₹0.00 · nothing still worth deciding"
+);
+assert.match(decisionMoneyText(null), /^Decided ₹0\.00/);
+
+// --- to_do and decided filters ---
+const decisionRows = [
+  { status: "amount_mismatch", invoice_2b: "A-1", needs_decision: true, decision: "" },
+  { status: "books_only", invoice_2b: "A-2", needs_decision: true, decision: "accepted" },
+  { status: "portal_only", invoice_2b: "A-3", needs_decision: true, decision: "rejected" },
+  { status: "matched", invoice_2b: "A-4", needs_decision: false, decision: "" },
+  { status: "likely", invoice_2b: "A-5", needs_decision: true, decision: "noted" },
+  { status: "matched", invoice_2b: "A-6", needs_decision: false, decision: "" },
+];
+assert.deepEqual(
+  filterReconRows(decisionRows, "to_do").map((row) => row.invoice_2b),
+  ["A-1"]
+);
+assert.deepEqual(
+  filterReconRows(decisionRows, "decided").map((row) => row.invoice_2b),
+  ["A-2", "A-3", "A-5"]
+);
+assert.deepEqual(
+  filterReconRows(decisionRows, "decided", "a-3").map((row) => row.invoice_2b),
+  ["A-3"]
+);
+assert.equal(filterReconRows(decisionRows, "to_do", "a-4").length, 0);
+assert.equal(filterReconRows(decisionRows, "all").length, 6);
+// "unmatched" now also covers amount mismatch and likely rows.
+assert.deepEqual(
+  filterReconRows(decisionRows, "unmatched").map((row) => row.invoice_2b),
+  ["A-1", "A-2", "A-3", "A-5"]
+);
+
+// --- credit notes keep their invoice number on screen ---
+const creditRow = {
+  status: "credit_note",
+  party: "Shakti Steels",
+  invoice_2b: "CN/2026/14",
+  invoice_books: "",
+  needs_decision: true,
+  decision: "",
+};
+assert.equal(reconInvoiceDisplay(creditRow), "CN/2026/14");
+assert.deepEqual(
+  filterReconRows([creditRow, ...decisionRows], "credit_note").map((row) => row.invoice_2b),
+  ["CN/2026/14"]
+);
+assert.equal(filterReconRows([creditRow, ...decisionRows], "unmatched").length, 5);
 
 console.log("recon-summary behavior tests passed");

@@ -123,14 +123,18 @@ class ReconMatcherTests(unittest.TestCase):
         self.assertEqual(result["counts"]["matched"], 0)
         self.assertNotIn("matched", _statuses(result))
 
-    def test_cdn_2b_row_is_ignored(self) -> None:
+    def test_cdn_2b_row_is_kept_in_its_own_group(self) -> None:
         from apps.engine.recon import reconcile
 
         cdn = _gstr(document_type="CDNR", invoice_number="CN-9")
         result = reconcile([_books()], [cdn])
         self.assertEqual(result["counts"]["portal_only"], 0)
         self.assertEqual(result["counts"]["matched"], 0)
-        self.assertEqual(_statuses(result), ["books_only"])
+        self.assertEqual(result["counts"]["credit_note"], 1)
+        self.assertEqual(_statuses(result), ["books_only", "credit_note"])
+        self.assertGreater(result["totals"]["credit_note_total"], 0)
+        note = next(row for row in result["rows"] if row["status"] == "credit_note")
+        self.assertIn("credit is not lost", note["reason"])
 
     def test_recon_module_has_no_network_imports(self) -> None:
         self.assertTrue(RECON_PY.is_file(), "apps/engine/recon.py missing")
@@ -147,6 +151,106 @@ class ReconMatcherTests(unittest.TestCase):
                 if root in _NETWORK_ROOTS:
                     hits.append(root)
         self.assertEqual(hits, [], f"recon.py must stay offline: {hits}")
+
+
+class ReconRupeeTotalsTests(unittest.TestCase):
+    def test_totals_report_rupees_not_rows(self) -> None:
+        from apps.engine.recon import reconcile
+
+        books = [
+            _books(),
+            _books(invoice_number="INV/002", invoice_value=200, supplier_name="Beta Traders"),
+        ]
+        gstr = [
+            _gstr(invoice_value=100),
+            _gstr(invoice_number="INV-2", invoice_value=Decimal("200.00")),
+            _gstr(invoice_number="PORTAL-ONLY", invoice_value=Decimal("300.00")),
+        ]
+        result = reconcile(books, gstr)
+        totals = result["totals"]
+        self.assertEqual(totals["portal_total"], 600.0)
+        self.assertEqual(totals["books_total"], 300.0)
+        self.assertEqual(totals["gap"], 300.0)
+        self.assertEqual(totals["credit_at_risk"], 300.0)
+        self.assertEqual(totals["unsupported_credit"], 0.0)
+        self.assertEqual(result["counts"]["matched"], 2)
+        self.assertEqual(result["counts"]["portal_only"], 1)
+
+    def test_books_only_credit_is_unsupported_credit(self) -> None:
+        from apps.engine.recon import reconcile
+
+        books = [
+            _books(),
+            _books(
+                invoice_number="X-BILL",
+                invoice_value=Decimal("500.50"),
+                invoice_date="2026-07-14",
+                supplier_name="Extra Traders",
+            ),
+        ]
+        result = reconcile(books, [_gstr(invoice_value=100)])
+        totals = result["totals"]
+        self.assertEqual(totals["portal_total"], 100.0)
+        self.assertEqual(totals["books_total"], 600.50)
+        self.assertEqual(totals["gap"], -500.50)
+        self.assertEqual(totals["credit_at_risk"], 0.0)
+        self.assertEqual(totals["unsupported_credit"], 500.50)
+        self.assertEqual(result["counts"]["books_only"], 1)
+
+    def test_rows_without_amounts_do_not_break_totals(self) -> None:
+        from apps.engine.recon import reconcile
+
+        result = reconcile([{"supplier_name": "No amount"}], [_gstr(invoice_value=Decimal("75.00"))])
+        totals = result["totals"]
+        self.assertEqual(totals["portal_total"], 75.0)
+        self.assertEqual(totals["books_total"], 0.0)
+        self.assertEqual(totals["gap"], 75.0)
+
+    def test_matched_month_totals_to_zero_gap(self) -> None:
+        from apps.engine.recon import reconcile
+
+        result = reconcile([_books()], [_gstr(invoice_value=Decimal("100.40"))])
+        totals = result["totals"]
+        self.assertAlmostEqual(round(totals["gap"], 2), 0.40)
+        self.assertEqual(totals["credit_at_risk"], 0.0)
+        self.assertEqual(totals["unsupported_credit"], 0.0)
+
+
+class ReconReasonTests(unittest.TestCase):
+    def test_amount_mismatch_reason_names_the_difference(self) -> None:
+        from apps.engine.recon import reconcile
+
+        result = reconcile([_books(invoice_value=100)], [_gstr(invoice_value=250)])
+        row = result["rows"][0]
+        self.assertIn("differ by 150.00", row["reason"])
+
+    def test_likely_reason_shows_both_invoice_numbers(self) -> None:
+        from apps.engine.recon import reconcile
+
+        result = reconcile(
+            [_books(invoice_number="AB12")],
+            [_gstr(invoice_number="AB12345", invoice_value=100)],
+        )
+        row = result["rows"][0]
+        self.assertEqual(row["status"], "likely")
+        self.assertIn("AB12", row["reason"])
+        self.assertIn("AB12345", row["reason"])
+        self.assertIn("confirm", row["reason"].lower())
+
+    def test_matched_reason_is_plain(self) -> None:
+        from apps.engine.recon import reconcile
+
+        result = reconcile([_books()], [_gstr()])
+        self.assertIn("agree", result["rows"][0]["reason"])
+
+    def test_unmatched_reasons_are_populated(self) -> None:
+        from apps.engine.recon import reconcile
+
+        result = reconcile([_books()], [])
+        self.assertTrue(result["rows"][0]["reason"].strip())
+
+        result = reconcile([], [_gstr()])
+        self.assertTrue(result["rows"][0]["reason"].strip())
 
 
 if __name__ == "__main__":

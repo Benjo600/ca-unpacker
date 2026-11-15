@@ -12,12 +12,21 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.sql.schema import MetaData
 
 BASELINE_SCHEMA_VERSION = 1
-LATEST_SCHEMA_VERSION = 3
+LATEST_SCHEMA_VERSION = 5
 
 _log = logging.getLogger(__name__)
 
 APP_TABLES = frozenset(
-    {"firms", "clients", "periods", "jobs", "files", "extracted_rows", "data_packs"}
+    {
+        "firms",
+        "clients",
+        "periods",
+        "jobs",
+        "files",
+        "extracted_rows",
+        "data_packs",
+        "recon_decisions",
+    }
 )
 VERSION_TABLE = "schema_version"
 Migration = Callable[[Connection], None]
@@ -60,9 +69,56 @@ def _migrate_v2_to_v3(connection: Connection) -> None:
         connection.exec_driver_sql(statement)
 
 
-MIGRATION_STEPS: Mapping[int, Migration] = {
+def _migrate_v3_to_v4(connection: Connection) -> None:
+    connection.exec_driver_sql(        """
+        CREATE TABLE recon_decisions (
+            id INTEGER NOT NULL PRIMARY KEY,
+            period_id INTEGER NOT NULL,
+            row_key VARCHAR(320) NOT NULL,
+            decision VARCHAR(20) NOT NULL DEFAULT '',
+            reason_code VARCHAR(40),
+            reason_label VARCHAR(120),
+            note VARCHAR(1000),
+            decided_by VARCHAR(200),
+            decided_at DATETIME,
+            first_seen_at DATETIME NOT NULL,
+            updated_at DATETIME NOT NULL,
+            CONSTRAINT uq_recon_decision_row UNIQUE (period_id, row_key),
+            FOREIGN KEY(period_id) REFERENCES periods (id)
+        )
+        """
+    )
+
+
+def _migrate_v4_to_v5(connection: Connection) -> None:
+    existing = {
+        row[0]
+        for row in connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    statements = (
+        ("clients", "tolerance_days", "ALTER TABLE clients ADD COLUMN tolerance_days INTEGER NOT NULL DEFAULT 0"),
+        ("clients", "tolerance_amount", "ALTER TABLE clients ADD COLUMN tolerance_amount FLOAT NOT NULL DEFAULT 1.0"),
+        ("periods", "tolerance_days_override", "ALTER TABLE periods ADD COLUMN tolerance_days_override INTEGER"),
+        ("periods", "tolerance_amount_override", "ALTER TABLE periods ADD COLUMN tolerance_amount_override FLOAT"),
+    )
+    for table, column, statement in statements:
+        if table not in existing:
+            continue
+        present = {
+            row[1] for row in connection.exec_driver_sql(f"PRAGMA table_info({table})")
+        }
+        if column in present:
+            continue
+        connection.exec_driver_sql(statement)
+
+
+MIGRATION_STEPS = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
+    4: _migrate_v3_to_v4,
+    5: _migrate_v4_to_v5,
 }
 
 

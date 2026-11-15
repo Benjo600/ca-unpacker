@@ -24,6 +24,7 @@ RECON_TABLES = {
     "recon_record_links",
     "recon_exceptions",
     "recon_audit_events",
+    "recon_decisions",
 }
 
 
@@ -79,7 +80,9 @@ class ReconSchemaTests(unittest.TestCase):
         reset_engine()
         engine = get_engine()
         tables = set(inspect(engine).get_table_names())
-        self.assertEqual(len([name for name in tables if name.startswith("recon_")]), 6)
+        self.assertEqual(
+            len([name for name in tables if name.startswith("recon_")]), len(RECON_TABLES)
+        )
         with closing(sqlite3.connect(self.db_path)) as connection:
             count = connection.execute(
                 "SELECT COUNT(*) FROM sqlite_master WHERE type='table' AND name='recon_runs'"

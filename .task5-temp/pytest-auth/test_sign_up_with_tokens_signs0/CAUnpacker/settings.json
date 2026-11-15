@@ -1,0 +1,6 @@
+{
+  "auth_salt": "372ecaa011726aa0b134679945ee3746",
+  "auth_access_token": "header.eyJlbWFpbCI6ICJuZXdAZXhhbXBsZS5jb20ifQ.sig",
+  "auth_refresh_token_enc": "gAAAAABqo_rXSA0YKr918vdosuMpqlKeh63LhZVcse7CHP0dFFrhmxwXj4R-UQgC6weaNm5To0TdEsnbD7hERctB9asphZ2lL3dJFvHnSLleYvi-nnGtqnQ=",
+  "auth_email": "new@example.com"
+}
