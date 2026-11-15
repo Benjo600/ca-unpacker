@@ -468,6 +468,21 @@
         <p class="eyebrow">Books vs 2B</p>
         <h2>Reconciliation</h2>
         <p id="recon-counts"></p>
+        <div id="recon-month" class="recon-month hidden">
+          <div id="recon-money" class="recon-money"></div>
+          <div class="recon-tolerance">
+            <label class="recon-tol-field">Dates ± <input id="recon-tol-days" type="number" min="0" max="30" step="1" value="0" /></label>
+            <label class="recon-tol-field">Amounts ₹ <input id="recon-tol-amount" type="number" min="0" max="1000" step="0.01" value="1" /></label>
+            <label class="recon-tol-field"><input id="recon-tol-monthly" type="checkbox" /> This month only</label>
+            <button type="button" class="ghost" id="recon-tol-save">Save allowance</button>
+            <span id="recon-tol-note" class="recon-note" role="status" aria-live="polite"></span>
+          </div>
+          <div class="recon-exports">
+            <button type="button" class="ghost" id="recon-export-exceptions">Export exceptions</button>
+            <button type="button" class="ghost" id="recon-export-summary">One-page summary</button>
+            <span id="recon-export-note" class="recon-note" role="status" aria-live="polite"></span>
+          </div>
+        </div>
         <div id="recon-filters" class="drop-actions recon-filters">
           <button type="button" data-recon-filter="all">All</button>
           <button type="button" class="ghost" data-recon-filter="matched">Matched</button>

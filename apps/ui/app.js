@@ -69,6 +69,16 @@ const fileReviewNoteEl = document.getElementById("file-review-note");
 const reconBlock = document.getElementById("recon-block");
 const reconCountsEl = document.getElementById("recon-counts");
 const reconTableEl = document.getElementById("recon-table");
+const reconMonthEl = document.getElementById("recon-month");
+const reconMoneyEl = document.getElementById("recon-money");
+const reconTolDaysEl = document.getElementById("recon-tol-days");
+const reconTolAmountEl = document.getElementById("recon-tol-amount");
+const reconTolMonthlyEl = document.getElementById("recon-tol-monthly");
+const reconTolSaveEl = document.getElementById("recon-tol-save");
+const reconTolNoteEl = document.getElementById("recon-tol-note");
+const reconExportExceptionsEl = document.getElementById("recon-export-exceptions");
+const reconExportSummaryEl = document.getElementById("recon-export-summary");
+const reconExportNoteEl = document.getElementById("recon-export-note");
 const reconFiltersEl = document.getElementById("recon-filters");
 const dashboardLoadingEl = document.getElementById("dashboard-loading");
 const dashboardContentEl = document.getElementById("dashboard-content");
@@ -1899,8 +1909,9 @@ function renderRecon(pack) {
   const table = document.createElement("table");
   table.className = "preview-table";
   table.innerHTML =
-    "<thead><tr><th>Status</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th></tr></thead>";
+    "<thead><tr><th>Status</th><th>Party</th><th>GSTIN</th><th>Invoice</th><th>Amount (2B)</th><th>Amount (books)</th><th>Bank hint</th><th>Why</th><th>Decision</th></tr></thead>";
   const body = document.createElement("tbody");
+  const periodId = pack.period_id;
   const rows = api.filterReconRows(pack.recon.rows || [], reconFilter);
   for (const row of rows) {
     const tr = document.createElement("tr");
@@ -1916,12 +1927,185 @@ function renderRecon(pack) {
       textCell(api.reconInvoiceDisplay(row)),
       moneyCell(row.amount_2b),
       moneyCell(row.amount_books),
-      textCell(row.bank_hint)
+      textCell(row.bank_hint),
+      textCell(row.decision_reason || row.reason || ""),
+      reconDecisionCell(row, periodId)
     );
     body.append(tr);
   }
   table.append(body);
   reconTableEl.append(table);
+  renderReconMonth(pack);
+}
+
+function reconDecisionCell(row, periodId) {
+  const td = document.createElement("td");
+  td.className = "recon-decision-cell";
+  if (!row.row_key) {
+    td.textContent = dash("");
+    return td;
+  }
+  if (row.decision) {
+    const pillEl = document.createElement("span");
+    pillEl.className = "recon-decision-pill";
+    pillEl.textContent = row.decision_label || row.decision;
+    const clearBtn = document.createElement("button");
+    clearBtn.type = "button";
+    clearBtn.className = "ghost recon-decision-clear";
+    clearBtn.textContent = "Undo";
+    clearBtn.addEventListener("click", () =>
+      saveReconDecision(periodId, row.row_key, "")
+    );
+    td.append(pillEl, clearBtn);
+    return td;
+  }
+  for (const [value, label] of [
+    ["accepted", "Accept"],
+    ["rejected", "Reject"],
+    ["noted", "Note"],
+  ]) {
+    const btn = document.createElement("button");
+    btn.type = "button";
+    btn.className = "ghost recon-decision-btn";
+    btn.textContent = label;
+    btn.addEventListener("click", () =>
+      saveReconDecision(periodId, row.row_key, value)
+    );
+    td.append(btn);
+  }
+  return td;
+}
+
+async function saveReconDecision(periodId, rowKey, decision) {
+  const bridge = window.pywebview && window.pywebview.api;
+  if (!bridge || typeof bridge.set_recon_decision !== "function") {
+    setReconNote(reconTolNoteEl, "This build cannot save decisions yet.");
+    return;
+  }
+  const result = await bridge.set_recon_decision(periodId, rowKey, decision);
+  if (!result || !result.ok) {
+    setReconNote(reconTolNoteEl, (result && result.error) || "Could not save that decision.");
+    return;
+  }
+  if (result.pack) renderRecon(result.pack);
+  setReconNote(
+    reconTolNoteEl,
+    decision ? "Decision saved with this month." : "Decision cleared."
+  );
+}
+
+function setReconNote(el, message) {
+  if (!el) return;
+  el.textContent = message || "";
+}
+
+function renderReconMonth(pack) {
+  if (!reconMonthEl) return;
+  reconMonthEl.classList.remove("hidden");
+  const totals = (pack.recon && pack.recon.totals) || {};
+  if (reconMoneyEl) {
+    reconMoneyEl.innerHTML = "";
+    const figures = [
+      ["On the portal (2B)", totals.portal_total],
+      ["In the books", totals.books_total],
+      ["Difference", totals.gap],
+      ["Credit at risk", totals.credit_at_risk],
+      ["Credit without support", totals.unsupported_credit],
+      ["Credit notes", totals.credit_note_total],
+    ];
+    for (const [label, value] of figures) {
+      const cell = document.createElement("div");
+      cell.className = "recon-money-cell";
+      const k = document.createElement("span");
+      k.className = "recon-money-label";
+      k.textContent = label;
+      const v = document.createElement("strong");
+      v.className = "recon-money-value";
+      v.textContent = formatReconMoney(value);
+      cell.append(k, v);
+      reconMoneyEl.append(cell);
+    }
+  }
+  loadReconTolerances(pack.period_id);
+}
+
+function formatReconMoney(value) {
+  const num = Number(value || 0);
+  if (!Number.isFinite(num)) return "₹0.00";
+  return "₹" + num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+}
+
+let reconToleranceCache = { periodId: null, clientId: null };
+
+async function loadReconTolerances(periodId) {
+  if (!periodId || reconToleranceCache.periodId === periodId) return;
+  const bridge = window.pywebview && window.pywebview.api;
+  if (!bridge || typeof bridge.get_period_desk !== "function") return;
+  const desk = await bridge.get_period_desk(periodId);
+  if (!desk || !desk.ok) return;
+  const client = desk.client || {};
+  const period = desk.period || {};
+  const days =
+    period.tolerance_days_override ?? client.tolerance_days ?? 0;
+  const amount =
+    period.tolerance_amount_override ?? client.tolerance_amount ?? 1;
+  reconToleranceCache = { periodId, clientId: client.id ?? null };
+  if (reconTolDaysEl) reconTolDaysEl.value = String(days);
+  if (reconTolAmountEl) reconTolAmountEl.value = String(amount);
+  if (reconTolMonthlyEl) reconTolMonthlyEl.checked = period.tolerance_days_override != null;
+}
+
+async function saveReconTolerances() {
+  const bridge = window.pywebview && window.pywebview.api;
+  const periodId = reconToleranceCache.periodId;
+  if (!bridge || !periodId) {
+    setReconNote(reconTolNoteEl, "Open a month first.");
+    return;
+  }
+  const days = Number((reconTolDaysEl && reconTolDaysEl.value) || 0);
+  const amount = Number((reconTolAmountEl && reconTolAmountEl.value) || 0);
+  const monthly = Boolean(reconTolMonthlyEl && reconTolMonthlyEl.checked);
+  let result;
+  if (monthly) {
+    result = await bridge.set_period_tolerances(periodId, days, amount);
+  } else {
+    const clientId = reconToleranceCache.clientId;
+    if (clientId == null) {
+      setReconNote(reconTolNoteEl, "This month has no client yet.");
+      return;
+    }
+    result = await bridge.set_client_tolerances(clientId, days, amount);
+  }
+  if (!result || !result.ok) {
+    setReconNote(reconTolNoteEl, (result && result.error) || "Could not save the allowance.");
+    return;
+  }
+  setReconNote(
+    reconTolNoteEl,
+    monthly ? "Saved for this month only." : "Saved as this client's usual allowance."
+  );
+  if (result.pack) renderRecon(result.pack);
+}
+
+async function exportReconFile(kind) {
+  const bridge = window.pywebview && window.pywebview.api;
+  const periodId = reconToleranceCache.periodId;
+  if (!bridge || !periodId) {
+    setReconNote(reconExportNoteEl, "Open a month first.");
+    return;
+  }
+  const fn =
+    kind === "exceptions" ? bridge.export_recon_exceptions : bridge.export_recon_audit_summary;
+  if (typeof fn !== "function") {
+    setReconNote(reconExportNoteEl, "This build cannot export yet.");
+    return;
+  }
+  const result = await fn(periodId);
+  if (!result || !result.ok) {
+    setReconNote(reconExportNoteEl, (result && result.error) || "Could not write the file.");
+    return;
+  }
+  setReconNote(reconExportNoteEl, "Saved and opened: " + (result.path || ""));
 }
 
 /* ------------------------------------------------------------------ */
@@ -4565,6 +4749,16 @@ if (reconFiltersEl) {
     reconFilter = btn.getAttribute("data-recon-filter") || "all";
     renderRecon(lastPack);
   });
+}
+
+if (reconTolSaveEl) {
+  reconTolSaveEl.addEventListener("click", () => saveReconTolerances());
+}
+if (reconExportExceptionsEl) {
+  reconExportExceptionsEl.addEventListener("click", () => exportReconFile("exceptions"));
+}
+if (reconExportSummaryEl) {
+  reconExportSummaryEl.addEventListener("click", () => exportReconFile("summary"));
 }
 
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
