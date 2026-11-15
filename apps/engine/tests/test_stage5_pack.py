@@ -13,6 +13,7 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from apps.engine.pack.formatting import INR_MONEY_FORMAT
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.pipeline import LINE_COLS, PURCHASE_COLS, get_source_crop
 
@@ -90,7 +91,7 @@ class PurchaseTableTests(unittest.TestCase):
             self.assertTrue(any("FFCDD2" in value for value in flagged), flagged)
             self.assertFalse(any("FFCDD2" in value for value in clean), clean)
             tax_col = [cell.value for cell in sheet[1]].index("Taxable") + 1
-            self.assertEqual(sheet.cell(2, tax_col).number_format, "#,##0.00")
+            self.assertEqual(sheet.cell(2, tax_col).number_format, INR_MONEY_FORMAT)
 
     def test_purchase_workbook_has_invoice_and_line_item_sheets(self) -> None:
         invoices = [

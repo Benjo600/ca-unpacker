@@ -34,9 +34,15 @@ def parse_vendor_statement_file(path: Path, filename: str | None = None) -> dict
         amount = _first(row, "amount")
         debit = _first(row, "debit")
         credit = _first(row, "credit")
+        direction = None
         if amount is None:
             try:
-                amount = abs(float(debit or 0) - float(credit or 0))
+                net = float(debit or 0) - float(credit or 0)
+                # Direction is real evidence; the magnitude keeps reconciliation
+                # working without inventing a sign the source never showed.
+                if net:
+                    direction = "dr" if net > 0 else "cr"
+                amount = abs(net) or None
             except (TypeError, ValueError):
                 amount = None
         adapted = dict(row)
@@ -52,6 +58,7 @@ def parse_vendor_statement_file(path: Path, filename: str | None = None) -> dict
                 "date": invoice_date,
                 "invoice_value": amount,
                 "amount": amount,
+                "direction": direction,
                 "debit": debit,
                 "credit": credit,
                 "balance": _first(row, "balance", "closing_balance"),

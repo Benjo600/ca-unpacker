@@ -3,7 +3,7 @@ from __future__ import annotations
 from pathlib import Path
 
 from apps.engine.parsers.bank.profiles import BankProfile
-from apps.engine.parsers.bank.tables import _map_header, rows_from_cell_tables
+from apps.engine.parsers.bank.tables import TableSession, _map_header
 
 _TABLE_SETTINGS = (
     {
@@ -21,7 +21,18 @@ _TABLE_SETTINGS = (
 )
 
 
-def rows_from_pdfplumber(path: Path, profile: BankProfile, filename: str) -> list[dict]:
+def rows_from_pdfplumber(
+    path: Path,
+    profile: BankProfile,
+    filename: str,
+    skipped_out: list[dict] | None = None,
+) -> list[dict]:
+    """Extract bank rows from pdfplumber tables, threading state across pages.
+
+    ``skipped_out`` receives the rows the session could not complete
+    (incomplete transaction fragments, repeated headers) so nothing is lost
+    silently.
+    """
     try:
         import pdfplumber
     except ImportError:
@@ -34,11 +45,14 @@ def rows_from_pdfplumber(path: Path, profile: BankProfile, filename: str) -> lis
         kwargs["password"] = password
     try:
         with pdfplumber.open(str(path), **kwargs) as pdf:
-            rows: list[dict] = []
+            session = TableSession(profile, filename)
             for index, page in enumerate(pdf.pages, start=1):
                 bbox = _page_bbox(page)
                 for table in _page_tables(page):
-                    rows.extend(rows_from_cell_tables([table], profile, filename, index, bbox))
+                    session.feed(table, index, bbox)
+            rows, skipped = session.finish()
+            if skipped_out is not None:
+                skipped_out.extend(skipped)
             return rows
     except Exception:
         return []

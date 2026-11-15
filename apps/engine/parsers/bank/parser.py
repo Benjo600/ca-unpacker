@@ -6,6 +6,10 @@ from decimal import Decimal
 from pathlib import Path
 
 from apps.engine.currency import detect_currency
+from apps.engine.evidence import (
+    attach_extraction_evidence as attach_row_evidence,
+    confidence_for_bbox,
+)
 from apps.engine.kinds import IMAGE_SUFFIXES
 from apps.engine.parsers.bank.docling_tables import rows_from_docling
 from apps.engine.parsers.bank.layout import _debit_credit, rows_from_words
@@ -17,6 +21,7 @@ from apps.engine.parsers.bank.money import (
     is_plausible_iso_date,
     normalize_date,
     parse_amount,
+    parse_amount_with_evidence,
     strip_amount_tokens,
 )
 from apps.engine.parsers.bank.patterns import (
@@ -32,7 +37,7 @@ from apps.engine.parsers.bank.patterns import (
 )
 from apps.engine.parsers.bank.plumber import rows_from_pdfplumber
 from apps.engine.parsers.bank.profiles import BankProfile, detect_profile
-from apps.engine.parsers.bank.tables import rows_from_cell_tables, rows_from_markdown
+from apps.engine.parsers.bank.tables import TableSession, rows_from_markdown
 from apps.engine.pdf_extract import ExtractedPdf, LineBox, WordBox, extract_pdf
 
 # Safeguards.  These are deliberately far above ordinary statements but keep
@@ -96,18 +101,15 @@ def parse_bank_statement(
             getattr(extracted, "words", []),
         )
         word_rows, word_candidates = _rows_from_extracted_words(extracted, profile, name)
-        table_rows = _rows_from_extracted_tables(
+        table_rows, table_skipped = _rows_from_extracted_tables(
             getattr(extracted, "tables", []), profile, name
         )
-        plumber_rows = table_rows
-        if (
-            not plumber_rows
-            and not is_image
-            and extracted.pdf_type not in {"scanned", "image_based", "encrypted"}
-        ):
-            # The inspector already produced text/positions.  pdfplumber is a
-            # second pass only for text PDFs where table columns may be exact.
-            plumber_rows = rows_from_pdfplumber(path, profile, name)
+        plumber_rows: list[dict] = []
+        plumber_skipped = list(table_skipped)
+        # The extractor's own tables (already computed — free to re-read) are
+        # the "pdfplumber" table strategy here; the dedicated re-pass below is
+        # the expensive second opinion.
+        finished_table_rows = _finish_rows(table_rows, opening, account, ifsc, profile)
 
         markdown_rows = rows_from_markdown(
             "\n".join(page.text or "" for page in extracted.pages),
@@ -119,7 +121,7 @@ def parse_bank_statement(
         if (
             not is_image
             and extracted.pdf_type in {"scanned", "image_based", "mixed"}
-            and not (line_rows or word_rows or markdown_rows or plumber_rows)
+            and not (line_rows or word_rows or markdown_rows or table_rows)
             and len(extracted.lines) < 5
             and len(extracted.words or []) < 10
         ):
@@ -129,18 +131,42 @@ def parse_bank_statement(
 
         finished_lines = _finish_rows(line_rows, opening, account, ifsc, profile)
         finished_words = _finish_rows(word_rows, opening, account, ifsc, profile)
-        finished_plumber = _finish_rows(plumber_rows, opening, account, ifsc, profile)
         finished_markdown = _finish_rows(markdown_rows, opening, account, ifsc, profile)
         finished_docling = _finish_rows(docling_rows, opening, account, ifsc, profile)
         rows, candidate_count, strategy = _choose_rows(
             opening,
             closing,
             ("docling", finished_docling, len(docling_rows)),
-            ("pdfplumber", finished_plumber, len(plumber_rows)),
+            ("pdfplumber", finished_table_rows, len(table_rows)),
             ("markdown", finished_markdown, len(markdown_rows)),
             ("columns", finished_words, word_candidates),
             ("lines", finished_lines, line_candidates),
         )
+        # The dedicated pdfplumber re-pass re-parses the whole document (the
+        # most expensive strategy after Docling).  Run it only when the
+        # already-computed strategies did not produce a balance-verified
+        # ledger; a verified line/column ledger needs no second opinion, and
+        # the extractor's own tables were already ranked above.
+        if (
+            not rows
+            or (
+                _quality(rows, opening, closing)[0] < 3
+                and not is_image
+                and extracted.pdf_type not in {"scanned", "image_based", "encrypted"}
+            )
+        ):
+            plumber_rows = rows_from_pdfplumber(
+                path, profile, name, skipped_out=plumber_skipped
+            )
+            finished_plumber = _finish_rows(plumber_rows, opening, account, ifsc, profile)
+            rows, candidate_count, strategy = _choose_rows(
+                opening,
+                closing,
+                ("pdfplumber", finished_plumber, len(plumber_rows)),
+                ("markdown", finished_markdown, len(markdown_rows)),
+                ("columns", finished_words, word_candidates),
+                ("lines", finished_lines, line_candidates),
+            )
 
     if len(rows) > MAX_BANK_TRANSACTIONS:
         raise ValueError(
@@ -149,7 +175,31 @@ def parse_bank_statement(
             "Split the statement into smaller date ranges and re-import it."
         )
 
+    # A mislabelled document (an invoice forced to "bank") used to have its
+    # header totals accepted as a transaction and reported as processed.
+    # Without printed statement context — no opening and no closing balance —
+    # a handful of candidates is not a verified ledger: refuse it honestly.
+    if len(rows) <= 2 and opening is None and closing is None and not is_image:
+        for row in rows:
+            flags = list(row.get("flags") or [])
+            flags.append("no_statement_context")
+            row["flags"] = flags
+            row["validation_flags"] = flags
+        return {
+            **_empty_bank_result(extracted, profile, name, is_image, strategy),
+            "candidate_count": candidate_count,
+            "dropped_count": max(candidate_count - len(rows), 0),
+            "skipped_rows": plumber_skipped[:50],
+            "rejected_rows": rows,
+            "reason": (
+                "recognised as bank but no statement context (no opening or "
+                "closing balance) to verify the extracted rows"
+            ),
+            "warnings": warnings + ["no_statement_context"],
+        }
+
     attach_currency(rows, decision)
+    _stamp_extraction_evidence(rows, extracted)
     duplicate_count = _flag_duplicate_source_rows(rows)
     inferred_count = sum(
         1 for row in rows if "inferred_from_balance" in (row.get("flags") or [])
@@ -160,6 +210,19 @@ def parse_bank_statement(
             "No local OCR engine could read this image. Install the bundled "
             "Tesseract or enable RapidOCR, then re-import the image."
         )
+    warnings = list(getattr(extracted, "warnings", None) or [])
+    repair_count = sum(
+        1 for row in rows if "ocr_digit_repair" in (row.get("flags") or [])
+    )
+    if repair_count:
+        warnings.append(
+            f"ocr_digit_repair: {repair_count} amount(s) needed OCR digit repairs; check them"
+        )
+    if plumber_skipped:
+        warnings.append(
+            f"table_rows_skipped: {len(plumber_skipped)} incomplete/repeated table row(s) "
+            "recorded but not treated as transactions"
+        )
 
     return {
         "profile": profile.key,
@@ -169,6 +232,7 @@ def parse_bank_statement(
         "input_type": "image" if is_image else "pdf",
         "parse_strategy": strategy,
         "page_count": extracted.page_count,
+        "page_methods": dict(getattr(extracted, "page_methods", None) or {}),
         "opening_balance": _dec(opening),
         "stated_closing": _dec(closing),
         "account_number": account,
@@ -177,9 +241,43 @@ def parse_bank_statement(
         "dropped_count": max(candidate_count - len(rows), 0),
         "inferred_count": inferred_count,
         "duplicate_count": duplicate_count,
+        "skipped_rows": plumber_skipped[:50],
         "rows": rows,
         "currency": decision,
         "error": error,
+        "warnings": warnings,
+    }
+
+
+def _empty_bank_result(
+    extracted: ExtractedPdf,
+    profile: BankProfile,
+    name: str,
+    is_image: bool,
+    strategy: str,
+) -> dict:
+    return {
+        "profile": profile.key,
+        "profile_label": profile.label,
+        "engine": extracted.engine,
+        "pdf_type": extracted.pdf_type,
+        "input_type": "image" if is_image else "pdf",
+        "parse_strategy": strategy,
+        "page_count": extracted.page_count,
+        "page_methods": dict(getattr(extracted, "page_methods", None) or {}),
+        "opening_balance": None,
+        "stated_closing": None,
+        "account_number": None,
+        "ifsc": None,
+        "inferred_count": 0,
+        "duplicate_count": 0,
+        "rows": [],
+        "currency": detect_currency(
+            "\n".join(page.text or "" for page in extracted.pages[:3]),
+            metadata={"filename": name, "profile_key": profile.key},
+        ),
+        "error": None,
+        "warnings": [],
     }
 
 
@@ -247,15 +345,18 @@ def _guard_extracted(extracted: ExtractedPdf) -> None:
 
 def _rows_from_extracted_tables(
     tables: list, profile: BankProfile, filename: str
-) -> list[dict]:
-    rows: list[dict] = []
+) -> tuple[list[dict], list[dict]]:
+    """Parse extractor tables in document order with cross-page state.
+
+    Narration that wraps from one page's table onto the next stays attached to
+    its transaction instead of being split and dropped at the page boundary.
+    """
+    session = TableSession(profile, filename)
     for table in tables:
         grid = getattr(table, "grid", None)
         if grid and len(grid) >= 2:
-            page_no = getattr(table, "page", 1)
-            bbox = getattr(table, "bbox", None)
-            rows.extend(rows_from_cell_tables([grid], profile, filename, page_no, bbox))
-    return rows
+            session.feed(grid, getattr(table, "page", 1), getattr(table, "bbox", None))
+    return session.finish()
 
 
 def _rows_from_extracted_words(
@@ -387,16 +488,27 @@ def _rows_from_lines(
             if abs(w.y - line.y) < 8
         ]
         debit, credit, balance = None, None, None
+        repairs: list[str] = []
         if p_words:
+            # The absolute debit/credit/balance x-bands below were derived from
+            # A4-portrait PDF-point layouts.  Image statements use *pixel*
+            # coordinates, where those bands are meaningless and corrupt the
+            # assignment — gate them to PDF-point scale pages and let the
+            # amounts heuristic handle everything else.
+            page_max_x = max((w.x + w.width for w in p_words), default=0.0)
+            use_absolute_bands = 0 < page_max_x <= 650.0
             for w in sorted(p_words, key=lambda item: item.x):
                 w_text = w.text.replace(",", ".") if re.fullmatch(r"\d{1,4},\d{2}", w.text) else w.text
-                v = parse_amount(w_text)
+                evidence = parse_amount_with_evidence(w_text)
+                v = evidence.value
                 if v is not None:
-                    if 340 <= w.x < 415 and debit is None and balance is None:
+                    if evidence.repaired:
+                        repairs.append(evidence.raw)
+                    if use_absolute_bands and 340 <= w.x < 415 and debit is None and balance is None:
                         debit = v
-                    elif 415 <= w.x < 488 and credit is None and balance is None:
+                    elif use_absolute_bands and 415 <= w.x < 488 and credit is None and balance is None:
                         credit = v
-                    elif w.x >= 488 and balance is None:
+                    elif use_absolute_bands and w.x >= 488 and balance is None:
                         balance = v
 
         if debit is None and credit is None and balance is None:
@@ -404,6 +516,12 @@ def _rows_from_lines(
             d_amt, c_amt = _debit_credit(amts, merged_text, profile)
             debit = d_amt
             credit = c_amt
+        # A zero debit/credit is never meaningful in a statement row: treat it
+        # as no value (the word-position strategy already does this).
+        if debit == 0:
+            debit = None
+        if credit == 0:
+            credit = None
 
         for amount in amts[-3:]:
             desc = desc.replace(f"{amount:,}", "").replace(str(amount), "")
@@ -418,7 +536,10 @@ def _rows_from_lines(
         if merged.width or merged.height:
             bbox = f"{merged.x:.1f},{merged.y:.1f},{merged.width:.1f},{merged.height:.1f}"
 
-        rows.append({
+        flags: list[str] = []
+        if repairs:
+            flags.append("ocr_digit_repair")
+        row = {
             "date": date,
             "description": desc or merged_text,
             "cheque_ref": cheque,
@@ -429,8 +550,12 @@ def _rows_from_lines(
             "source_bbox": bbox,
             "source": f"{filename}#p{merged.page}" + (f"@{bbox}" if bbox else ""),
             "raw_text": merged_text,
-            "flags": [],
-        })
+            "flags": flags,
+        }
+        row = attach_row_evidence(
+            row, words=words_by_page.get(line.page, []), page=line.page, bbox=bbox
+        )
+        rows.append(row)
 
     return rows, candidate_count
 
@@ -687,7 +812,7 @@ def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | N
     if line.width or line.height:
         bbox = f"{line.x:.1f},{line.y:.1f},{line.width:.1f},{line.height:.1f}"
 
-    return {
+    row = {
         "date": date,
         "description": description or text,
         "cheque_ref": cheque,
@@ -700,6 +825,7 @@ def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | N
         "raw_text": text,
         "flags": [],
     }
+    return attach_row_evidence(row, words=None, page=line.page, bbox=bbox)
 
 
 def attach_currency(rows: list[dict], decision: dict) -> None:
@@ -715,6 +841,31 @@ def attach_currency(rows: list[dict], decision: dict) -> None:
         row["currency_source"] = source
         row["currency_confidence"] = confidence
         row["currency_minor_units"] = minor
+
+
+def _stamp_extraction_evidence(rows: list[dict], extracted: ExtractedPdf) -> None:
+    """Stamp extraction method/confidence on rows that lack them.
+
+    Rows already carrying evidence (the word-position strategy computes it per
+    row) keep theirs.  For the rest, confidence comes from the OCR words inside
+    the row's own bounding box; method reflects the page's extraction path.
+    """
+    words = list(getattr(extracted, "words", None) or [])
+    page_methods = dict(getattr(extracted, "page_methods", None) or {})
+    engine = str(extracted.engine or "")
+    doc_is_ocr = "+ocr" in engine or engine.split(":")[0] in {"rapidocr", "tesseract"}
+    for row in rows:
+        if row.get("extraction_method"):
+            continue
+        page = row.get("source_page") or 1
+        conf = confidence_for_bbox(words, page, row.get("source_bbox"))
+        if conf is not None:
+            row["extraction_confidence"] = round(conf, 4)
+            row["extraction_method"] = "ocr"
+        elif page in page_methods or (doc_is_ocr and extracted.pdf_type in {"scanned", "image_based"}):
+            row["extraction_method"] = "ocr"
+        else:
+            row["extraction_method"] = "text"
 
 
 def _flag_duplicate_source_rows(rows: list[dict]) -> int:

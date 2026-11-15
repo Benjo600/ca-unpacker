@@ -6,7 +6,10 @@ from openpyxl import Workbook
 from openpyxl.styles import Font, PatternFill
 from openpyxl.utils import get_column_letter
 
-MONEY_FORMAT = "#,##0.00"
+from apps.engine.pack.formatting import guard_sheet_capacity, money_format
+
+# Reconciliation grid data is GST 2B vs books: INR unless rows say otherwise.
+MONEY_FORMAT = money_format([])
 RED_FILL = PatternFill("solid", fgColor="FFCDD2")
 BANK_NOTE = "Bank hints are an assist only; they are not matches."
 COUNT_ORDER = (
@@ -83,6 +86,7 @@ def _write_cover(sheet, counts: dict, row_count: int) -> None:
 
 
 def _write_table(sheet, rows: list[dict]) -> None:
+    guard_sheet_capacity(rows, sheet.title)
     sheet.append(GRID_HEADERS)
     for cell in sheet[1]:
         cell.font = Font(bold=True)

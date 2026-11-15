@@ -54,6 +54,7 @@ PURCHASE_COLS = [
     ("HSN", "hsn"),
     ("Flags", "flags"),
     ("Source", "source"),
+    ("Page", "source_page"),
 ]
 SALES_COLS = [
     ("Party", "supplier_name"),
@@ -66,6 +67,7 @@ SALES_COLS = [
     ("HSN", "hsn"),
     ("Flags", "flags"),
     ("Source", "source"),
+    ("Page", "source_page"),
 ]
 GSTR_INV_COLS = [
     ("GSTIN", "gstin"),
@@ -112,6 +114,7 @@ LINE_COLS = [
     ("Currency", "currency"),
     ("Flags", "flags"),
     ("Source", "source"),
+    ("Page", "source_page"),
 ]
 REVIEW_COLS = [
     ("File", "file"),
@@ -130,6 +133,7 @@ BOOKS_COLS = [
     ("Invoice value", "invoice_value"),
     ("Flags", "flags"),
     ("Source", "source"),
+    ("Page", "source_page"),
 ]
 SAP_COLS = [
     ("Report", "report_type_label"),
@@ -181,7 +185,7 @@ SAP_COLS = [
     ("Debit/credit indicator", "debit_credit_indicator"),
     ("Flags", "flags"),
     ("Source", "source"),
-    ("Source row", "raw_excerpt"),
+    ("Page", "source_page"),
 ]
 
 
@@ -276,6 +280,8 @@ def parse_period_banks(period_id: int, job_id: int | None = None) -> dict | None
 
 
 def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
+    from apps.engine.dump import JobCancelled
+
     session = get_session()
     try:
         files = (
@@ -284,7 +290,13 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             .order_by(StoredFile.id.asc())
             .all()
         )
+        _recover_password_unknowns(session, files)
         pending_extracted: list[dict] = []
+        if job_id is not None:
+            from apps.engine.dump import job_cancel_requested
+
+            if job_cancel_requested(job_id):
+                raise JobCancelled()
 
         bank_files: list[dict] = []
         purchase_rows: list[dict] = []
@@ -297,6 +309,11 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         gstr_3b: list[dict] = []
 
         for stored in files:
+            if job_id is not None:
+                from apps.engine.dump import job_cancel_requested
+
+                if job_cancel_requested(job_id):
+                    raise JobCancelled()
             kind = file_kind(stored)
             if not stored.storage_key:
                 persist_file_outcome(
@@ -390,6 +407,8 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                                 "source_page": int(item.get("source_page") or 1),
                                 "source_bbox": item.get("source_bbox"),
                                 "validation_flags": json.dumps(item.get("flags") or []),
+                                "extraction_confidence": _row_confidence(item),
+                                "extraction_method": _row_method(item),
                             }
                         )
             if (
@@ -421,6 +440,8 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         "source_page": int(row.get("source_page") or 1),
                         "source_bbox": row.get("source_bbox"),
                         "validation_flags": json.dumps(row.get("flags") or row.get("validation_flags") or []),
+                        "extraction_confidence": _row_confidence(row),
+                        "extraction_method": _row_method(row),
                     }
                 )
             if kind == "bank" and extra.get("check") is not None:
@@ -640,6 +661,25 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         session.close()
 
 
+def _row_confidence(row: dict) -> float | None:
+    """Row-level extraction confidence, if the parser recorded one."""
+    value = row.get("extraction_confidence")
+    if value is None:
+        return None
+    try:
+        return float(value)
+    except (TypeError, ValueError):
+        return None
+
+
+def _row_method(row: dict) -> str | None:
+    """Which extraction path produced this row (text layer vs OCR)."""
+    value = row.get("extraction_method")
+    if value is None:
+        return None
+    return str(value)[:40]
+
+
 def _books_register(row: dict, kind: str) -> str | None:
     register = str(row.get("register") or "").strip().lower()
     if register in {"purchase", "purchases", "bill", "bills"}:
@@ -740,6 +780,38 @@ def _dispatch_stored(stored: StoredFile, path: Path, kind: str) -> tuple[list[di
             with using_password(password):
                 return _dispatch(path, kind, stored.original_name)
     return _dispatch(path, kind, stored.original_name)
+
+
+def _recover_password_unknowns(session, files: list[StoredFile]) -> None:
+    """Re-classify password-protected files once a password has been set.
+
+    An encrypted PDF used to classify as ``unknown`` and then be skipped
+    forever: setting a password did not change the detected kind, so Retry
+    never parsed the file even with the correct password.  When a password
+    exists and the stored reason still says the content was
+    password-protected, classify the stored copy again under the password.
+    """
+    from apps.engine.classifier import classify_path
+    from apps.engine.pdf_extract import using_password
+
+    for stored in files:
+        if file_kind(stored) != "unknown" or not get_file_password(stored.id):
+            continue
+        reason = (stored.classify_reason or "").lower()
+        if "password" not in reason and "encrypted" not in reason:
+            continue
+        if not stored.storage_key:
+            continue
+        path = resolve_storage_key(stored.storage_key)
+        if not path.exists():
+            continue
+        with using_password(get_file_password(stored.id)):
+            result = classify_path(path)
+        if result.kind != "unknown":
+            stored.detected_kind = result.kind
+            stored.confidence = result.confidence
+            stored.classify_reason = result.reason
+            session.commit()
 
 
 def get_source_crop(file_id: int, page: int, bbox: str | None) -> dict:

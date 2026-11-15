@@ -8,9 +8,11 @@ from apps.engine.parsers.bank.money import (
     DATE_RE,
     MONEY_TOKEN_RE,
     amounts_in,
+    annotated_txn_direction,
     is_plausible_iso_date,
     normalize_date,
     parse_amount,
+    parse_amount_with_evidence,
 )
 from apps.engine.parsers.bank.patterns import (
     clean_text,
@@ -171,11 +173,15 @@ def _words_to_row(
     credit: Decimal | None = None
     balance: Decimal | None = None
     used_columns = False
+    repairs: list[str] = []
     if "balance" in columns and ("debit" in columns or "credit" in columns):
         used_columns = True
-        debit = _first_amount(_words_in_column(words, columns, "debit"))
-        credit = _first_amount(_words_in_column(words, columns, "credit"))
-        balance = _first_amount(_words_in_column(words, columns, "balance"))
+        debit, debit_evidence = _first_amount(_words_in_column(words, columns, "debit"))
+        credit, credit_evidence = _first_amount(_words_in_column(words, columns, "credit"))
+        balance, balance_evidence = _first_amount(_words_in_column(words, columns, "balance"))
+        for evidence in (debit_evidence, credit_evidence, balance_evidence):
+            if evidence is not None and evidence.repaired:
+                repairs.append(evidence.raw)
         if debit == 0:
             debit = None
         if credit == 0:
@@ -190,6 +196,9 @@ def _words_to_row(
 
     if debit is None and credit is None:
         return None
+
+    flags: list[str] = []
+    notes: list[str] = []
 
     description_words = []
     for word in ordered:
@@ -215,7 +224,7 @@ def _words_to_row(
     if not is_plausible_iso_date(date):
         return None
     page = words[0].page
-    return {
+    row = {
         "date": date,
         "description": description,
         "cheque_ref": cheque,
@@ -226,28 +235,52 @@ def _words_to_row(
         "source_bbox": bbox,
         "source": f"{filename}#p{page}@{bbox}",
         "raw_text": text,
-        "flags": [],
+        "flags": flags,
     }
+    if repairs:
+        flags.append("ocr_digit_repair")
+        notes.extend(f"repaired OCR digits in {value!r}" for value in repairs)
+    if notes:
+        row["extraction_notes"] = notes
+    # Recognition evidence: mean OCR word confidence for this row's words
+    # (None when the words came from a native text layer).
+    from apps.engine.evidence import word_confidence
+
+    scores = [score for score in (word_confidence(word) for word in words) if score is not None]
+    if scores:
+        row["extraction_confidence"] = round(sum(scores) / len(scores), 4)
+        row["extraction_method"] = "ocr"
+    else:
+        row["extraction_method"] = "text"
+    return row
 
 
-def _first_amount(words: list[WordBox]) -> Decimal | None:
+def _first_amount(words: list[WordBox]) -> tuple[Decimal | None, object]:
+    """Parse the first amount in a column, reporting OCR repairs."""
     for word in sorted(words, key=lambda item: item.x):
         w_text = word.text or ""
         if re.fullmatch(r"\d{1,4},\d{2}", w_text):
             w_text = w_text.replace(",", ".")
-        found = amounts_in(w_text)
-        if found:
-            return found[0]
-        parsed = parse_amount(w_text)
-        if parsed is not None:
-            return parsed
-    return None
+        evidence = parse_amount_with_evidence(w_text)
+        if evidence.value is not None:
+            return evidence.value, evidence
+    return None, None
 
 
 def _debit_credit(
     amounts: list[Decimal], text: str, profile: BankProfile
 ) -> tuple[Decimal | None, Decimal | None]:
     lowered = text.lower()
+
+    # Printed Dr/Cr markers are the strongest directional evidence in a
+    # statement ("NEFT 25,000 Dr 975,000").  Use them before any heuristic.
+    annotated = annotated_txn_direction(text)
+    if annotated is not None:
+        direction, value = annotated
+        if direction == "dr":
+            return value, None
+        return None, value
+
     placeholder = _placeholder_column(text)
     if placeholder is not None and len(amounts) >= 2:
         amount = amounts[-2].copy_abs()

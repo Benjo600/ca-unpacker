@@ -73,6 +73,9 @@ def _parse_xml(raw: bytes, source: str) -> list[dict]:
         gstin = _child(voucher, "PARTYGSTIN") or _child(voucher, "GSTIN")
         date = _pretty_date(_child(voucher, "DATE"))
         amount = _amount(_child(voucher, "AMOUNT") or _deep(voucher, "AMOUNT"))
+        amount_signed = _amount_signed(
+            _child(voucher, "AMOUNT") or _deep(voucher, "AMOUNT")
+        )
         hsn = _child(voucher, "HSNCODE") or _child(voucher, "HSN") or _deep(voucher, "HSNCODE")
         taxable = _amount(
             _child(voucher, "TAXABLEVALUE")
@@ -106,9 +109,18 @@ def _parse_xml(raw: bytes, source: str) -> list[dict]:
                 "voucher_number": voucher_number,
                 "date": date,
                 "amount": amount,
+                "amount_signed": amount_signed,
+                "direction": _direction_from_sign(amount_signed),
             }
         )
     return rows
+
+
+def _direction_from_sign(amount_signed: float | None) -> str | None:
+    """Tally convention: a negative party amount is a credit."""
+    if amount_signed is None or amount_signed == 0:
+        return None
+    return "cr" if amount_signed < 0 else "dr"
 
 
 def _register(vtype: str | None) -> str:
@@ -153,5 +165,15 @@ def _amount(raw: str | None) -> float | None:
         return None
     try:
         return abs(float(raw.replace(",", "")))
+    except ValueError:
+        return None
+
+
+def _amount_signed(raw: str | None) -> float | None:
+    """Tally's printed sign, preserved: magnitude only ever loses direction."""
+    if not raw:
+        return None
+    try:
+        return float(raw.replace(",", ""))
     except ValueError:
         return None

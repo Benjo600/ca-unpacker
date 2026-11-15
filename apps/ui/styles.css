@@ -3095,6 +3095,21 @@ select.kind-pick {
 #pane-dump #dump-status.status-warning { color: #8a4b20; }
 #pane-dump #dump-status.status-failure { color: #8b2a2a; }
 
+#pane-dump #dump-cancel {
+  margin: 6px 0 0 auto;
+  display: block;
+  padding: 6px 12px;
+  border: 1px solid #d5dce3;
+  background: #ffffff;
+  color: #8b2a2a;
+  font-size: 12px;
+  font-weight: 600;
+  cursor: pointer;
+}
+
+#pane-dump #dump-cancel:hover { background: #fdf3f3; }
+#pane-dump #dump-cancel:disabled { opacity: 0.55; cursor: default; }
+
 #pane-dump .drop-zone,
 #pane-dump .pack,
 #pane-dump .recon,

@@ -12,6 +12,8 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from apps.engine.pack.formatting import INR_MONEY_FORMAT
+
 from apps.engine.tests.dump_paths import GSTR_1 as GSTR_1_JSON, GSTR_2B as GSTR_2B_JSON, GSTR_3B as GSTR_3B_JSON
 
 
@@ -56,7 +58,7 @@ class GstrWorkbookWriteTests(unittest.TestCase):
             self.assertEqual(sheet.freeze_panes, "A2")
             self.assertTrue(sheet.auto_filter.ref)
             tax_col = _col(sheet, "Taxable")
-            self.assertEqual(sheet.cell(2, tax_col).number_format, "#,##0.00")
+            self.assertEqual(sheet.cell(2, tax_col).number_format, INR_MONEY_FORMAT)
             self.assertEqual(book["Flags"]["A2"].value, "none")
 
     def test_gstr1_writes_hsn_sheet(self) -> None:
@@ -89,7 +91,7 @@ class GstrWorkbookWriteTests(unittest.TestCase):
             taxables = [cell.value for cell in book["Summary"]["B"]]
             self.assertIn(50000, taxables)
             tax_col = _col(book["Summary"], "Taxable")
-            self.assertEqual(book["Summary"].cell(2, tax_col).number_format, "#,##0.00")
+            self.assertEqual(book["Summary"].cell(2, tax_col).number_format, INR_MONEY_FORMAT)
 
     def test_2b_cdn_sheet_only_when_present(self) -> None:
         from apps.engine.pack.gstr_xlsx import write_gstr_2b
