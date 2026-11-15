@@ -2064,6 +2064,91 @@ button.ghost:disabled:hover { background: transparent; }
   margin: 8px 0 0;
 }
 
+.recon-month {
+  margin: 12px 0 14px;
+  display: grid;
+  gap: 10px;
+}
+
+.recon-money {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(150px, 1fr));
+  gap: 8px;
+}
+
+.recon-money-cell {
+  display: grid;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1px solid var(--color-border);
+  border-radius: 6px;
+  background: var(--color-surface-muted);
+}
+
+.recon-money-label {
+  font-size: 11px;
+  letter-spacing: 0.04em;
+  text-transform: uppercase;
+  color: var(--color-text-secondary);
+}
+
+.recon-money-value {
+  font-size: 15px;
+  font-variant-numeric: tabular-nums;
+  color: var(--color-text);
+}
+
+.recon-tolerance,
+.recon-exports {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.recon-tol-field {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: var(--color-text-secondary);
+}
+
+.recon-tol-field input[type="number"] {
+  width: 76px;
+  padding: 4px 6px;
+  border: 1px solid var(--color-border);
+  border-radius: 4px;
+  font-variant-numeric: tabular-nums;
+}
+
+.recon-note {
+  font-size: 12px;
+  color: var(--color-text-secondary);
+}
+
+.recon-decision-cell {
+  white-space: nowrap;
+}
+
+.recon-decision-btn,
+.recon-decision-clear {
+  margin: 0 4px 0 0;
+  padding: 2px 8px;
+  font-size: 12px;
+}
+
+.recon-decision-pill {
+  display: inline-block;
+  margin-right: 6px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  font-size: 12px;
+  background: var(--color-surface-subtle);
+  border: 1px solid var(--color-border-strong);
+  color: var(--color-text);
+}
+
 .preview {
   margin: 0 0 20px;
 }
