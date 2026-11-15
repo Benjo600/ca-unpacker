@@ -4,7 +4,16 @@ import json
 import re
 import shutil
 
-from apps.engine.db import Client, DataPack, ExtractedRow, Job, Period, StoredFile, get_session
+from apps.engine.db import (
+    Client,
+    DataPack,
+    ExtractedRow,
+    Job,
+    Period,
+    ReconDecision,
+    StoredFile,
+    get_session,
+)
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.library import get_library_path
 from apps.engine.profiles import EXTRA_FIELDS, normalize_profile, resolve_profile
@@ -56,6 +65,10 @@ def client_to_dict(row: Client) -> dict:
         "profile": profile,
         "profile_summary": resolved["summary"],
         "profile_is_set": resolved["is_set"],
+        "tolerance_days": int(row.tolerance_days or 0),
+        "tolerance_amount": float(
+            row.tolerance_amount if row.tolerance_amount is not None else 1.0
+        ),
     }
 
 
@@ -143,6 +156,44 @@ def update_client_profile(client_id: int, profile: dict | None) -> dict:
         session.close()
 
 
+def set_client_tolerances(client_id: int, days, amount) -> dict:
+    """Save this client's usual date and rupee allowance for reconciliation."""
+    days_value = _clean_days(days)
+    amount_value = _clean_amount(amount)
+    session = get_session()
+    try:
+        row = session.get(Client, client_id)
+        if row is None:
+            raise ValueError("Client was not found.")
+        row.tolerance_days = days_value
+        row.tolerance_amount = amount_value
+        session.commit()
+        session.refresh(row)
+        return client_to_dict(row)
+    finally:
+        session.close()
+
+
+def _clean_days(value) -> int:
+    try:
+        days = int(value)
+    except (TypeError, ValueError):
+        raise ValueError("The date allowance must be a whole number of days.") from None
+    if days < 0 or days > 30:
+        raise ValueError("The date allowance must be between 0 and 30 days.")
+    return days
+
+
+def _clean_amount(value) -> float:
+    try:
+        amount = round(float(value), 2)
+    except (TypeError, ValueError):
+        raise ValueError("The rupee allowance must be a number.") from None
+    if amount < 0 or amount > 1000:
+        raise ValueError("The rupee allowance must be between 0 and 1000.")
+    return amount
+
+
 def delete_client(client_id: int) -> None:
     session = get_session()
     try:
@@ -158,6 +209,7 @@ def delete_client(client_id: int) -> None:
         for period_id in period_ids:
             session.query(ExtractedRow).filter(ExtractedRow.period_id == period_id).delete()
             session.query(DataPack).filter(DataPack.period_id == period_id).delete()
+            session.query(ReconDecision).filter(ReconDecision.period_id == period_id).delete()
             session.query(StoredFile).filter(StoredFile.period_id == period_id).delete()
             session.query(Job).filter(Job.period_id == period_id).delete()
         session.query(Period).filter(Period.client_id == cid).delete()

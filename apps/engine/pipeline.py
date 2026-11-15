@@ -4,11 +4,22 @@ import base64
 import hashlib
 import inspect
 import json
+import traceback
 from pathlib import Path
 
+from apps.engine import decisions
 from apps.engine.currency import apply_override, currency_label
-from apps.engine.db import Client, DataPack, ExtractedRow, Period, StoredFile, get_session
+from apps.engine.db import (
+    Client,
+    DataPack,
+    ExtractedRow,
+    Period,
+    StoredFile,
+    get_session,
+    utcnow,
+)
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
+from apps.engine.periods import effective_tolerances
 from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.outcomes import (
     evaluate_file_outcome,
@@ -333,11 +344,12 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             try:
                 rows, extra = _dispatch_stored(stored, path, kind)
             except Exception as exc:
+                _log_parse_failure(stored, kind, exc)
                 message = _redact_secret(str(exc), stored.id)
-                stored.classify_reason = f"could not parse: {message[:200]}"
+                stored.classify_reason = f"could not parse: {_friendly_parse_error(message)[:180]}"
                 persist_file_outcome(
                     stored,
-                    failed_file_outcome("parser_error", message, kind=kind),
+                    failed_file_outcome("parser_error", _friendly_parse_error(message), kind=kind),
                 )
                 session.commit()
                 continue
@@ -367,6 +379,12 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         flags.append(f"currency_override_rejected:{override}")
                         if extra.get("check") is not None:
                             extra["check"]["flags"] = flags
+            if rows or (kind == "invoice" and (extra.get("line_items") or [])):
+                # A successful re-parse replaces a stale failure message so the
+                # file list stops flagging files the engine now reads fine.
+                reason = str(stored.classify_reason or "").lower()
+                if reason.startswith("could not parse"):
+                    stored.classify_reason = ""
             if kind == "invoice":
                 items = extra.get("line_items") or []
                 if extra.get("unreadable") or not rows or not items:
@@ -464,8 +482,25 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         recon_result = None
         if gstr_2b and purchase_rows:
             bank_txns = _recon_bank_rows(bank_files)
-            recon_result = reconcile(purchase_rows, gstr_2b, bank_txns)
+            tolerance_days, tolerance_amount = effective_tolerances(period_id)
+            recon_result = reconcile(
+                purchase_rows,
+                gstr_2b,
+                bank_txns,
+                date_tolerance_days=tolerance_days,
+                amount_tolerance=tolerance_amount,
+            )
             _apply_gstr_2b_matches(gstr_2b, recon_result)
+            # Decisions are remembered per row so a re-run of the month keeps
+            # them. Only remember new keys; never delete the saved rows below.
+            fresh = decisions.remember(
+                session, period_id, decisions.row_keys(recon_result["rows"])
+            )
+            session.flush()
+            saved = decisions.load(session, period_id)
+            recon_result["decisions"] = decisions.apply(
+                recon_result["rows"], saved, fresh
+            )
 
         if bank_files:
             dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
@@ -608,8 +643,16 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
         if recon_result is not None:
             summary["recon"] = {
                 "counts": recon_result.get("counts") or {},
+                "totals": recon_result.get("totals") or {},
+                "tolerances": {
+                    "days": tolerance_days,
+                    "amount": tolerance_amount,
+                },
                 "rows": recon_result.get("rows") or [],
+                "decisions": recon_result.get("decisions") or {},
             }
+        elif gstr_2b or purchase_rows:
+            summary["recon_missing"] = "no_purchase_rows" if gstr_2b else "no_gstr_2b"
         if treatment is not None:
             summary["treatment"] = treatment
         if file_review is not None:
@@ -729,7 +772,61 @@ def _redact_secret(text: str, file_id: int) -> str:
     return cleaned.splitlines()[0] if cleaned else "Could not parse this file."
 
 
+def _log_parse_failure(stored, kind: str, exc: BaseException) -> None:
+    """Append the full traceback of a per-file parse failure to the library log.
+
+    The UI only shows a short message; this keeps the real cause for support.
+    """
+    try:
+        from apps.engine.library import get_library_path
+
+        log_path = get_library_path() / "app.log"
+        try:
+            if log_path.exists() and log_path.stat().st_size > 400_000:
+                log_path.read_text(encoding="utf-8", errors="replace")[-100_000:]
+                text = log_path.read_text(encoding="utf-8", errors="replace")[-100_000:]
+                log_path.write_text(text, encoding="utf-8")
+        except OSError:
+            pass
+        entry = "\n".join(
+            [
+                f"[{utcnow().isoformat()}] parse failure file={stored.id} "
+                f"name={stored.original_name!r} kind={kind}",
+                "".join(traceback.format_exception(type(exc), exc, exc.__traceback__)),
+                "-" * 60,
+            ]
+        )
+        with log_path.open("a", encoding="utf-8") as handle:
+            handle.write(entry)
+    except Exception:
+        pass  # never let logging break processing
+
+
+_INTERNAL_ERROR_MARKERS = (
+    "has no attribute",
+    "object is not",
+    "object at 0x",
+    "traceback (most recent call last)",
+)
+
+
+def _friendly_parse_error(message: str) -> str:
+    cleaned = (message or "").strip()
+    lowered = cleaned.lower()
+    if any(marker in lowered for marker in _INTERNAL_ERROR_MARKERS):
+        return "an internal error happened while reading this file"
+    return cleaned.splitlines()[0] if cleaned else "Could not parse this file."
+
+
 def _dispatch_stored(stored: StoredFile, path: Path, kind: str) -> tuple[list[dict], dict]:
+    client_id = None
+    if stored.period_id:
+        session = get_session()
+        try:
+            period = session.get(Period, int(stored.period_id))
+            client_id = period.client_id if period else None
+        finally:
+            session.close()
     password = get_file_password(stored.id)
     if password:
         try:
@@ -738,8 +835,8 @@ def _dispatch_stored(stored: StoredFile, path: Path, kind: str) -> tuple[list[di
             using_password = None
         if using_password is not None:
             with using_password(password):
-                return _dispatch(path, kind, stored.original_name)
-    return _dispatch(path, kind, stored.original_name)
+                return _dispatch(path, kind, stored.original_name, client_id)
+    return _dispatch(path, kind, stored.original_name, client_id)
 
 
 def get_source_crop(file_id: int, page: int, bbox: str | None) -> dict:
@@ -929,7 +1026,7 @@ def _invoke_render(fn, **values):
     return fn(values["path"], values["page"], values.get("bbox"), values.get("password"))
 
 
-def _dispatch(path: Path, kind: str, filename: str) -> tuple[list[dict], dict]:
+def _dispatch(path: Path, kind: str, filename: str, client_id: int | None = None) -> tuple[list[dict], dict]:
     if kind == "bank":
         parsed = parse_bank_statement(path, filename)
         check = check_balance(
@@ -1027,6 +1124,8 @@ def get_period_pack(period_id: int) -> dict | None:
             }
             if summary and summary.get("recon") is not None:
                 payload["recon"] = summary["recon"]
+            if summary and summary.get("recon_missing"):
+                payload["recon_missing"] = summary["recon_missing"]
             if summary and summary.get("treatment") is not None:
                 payload["treatment"] = summary["treatment"]
             if summary and summary.get("file_review") is not None:
@@ -1112,6 +1211,8 @@ def pack_dict(pack: DataPack, path: Path, summary: dict | None = None) -> dict:
     }
     if summary and summary.get("recon") is not None:
         payload["recon"] = summary["recon"]
+    if summary and summary.get("recon_missing"):
+        payload["recon_missing"] = summary["recon_missing"]
     if summary and summary.get("treatment") is not None:
         payload["treatment"] = summary["treatment"]
     if summary and summary.get("file_review") is not None:

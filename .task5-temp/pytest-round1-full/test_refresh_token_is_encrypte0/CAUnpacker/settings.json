@@ -1,0 +1,6 @@
+{
+  "auth_salt": "617c396045ff332bdf01282cf95b5566",
+  "auth_access_token": "header.payload.sig",
+  "auth_refresh_token_enc": "gAAAAABqo_3fXZ4rTsiZ542cD9ca2ATCn6_tKmaEyjfdEuatDMqPtGKhp5kyn4IH2MbjsnQMuioWBfYeluICwf14F55CHIywmnwijN_X-t1aP5BBwJ8EIRM=",
+  "auth_email": ""
+}

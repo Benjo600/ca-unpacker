@@ -20,6 +20,7 @@ from apps.engine.clients import (
     delete_client,
     get_client,
     list_clients,
+    set_client_tolerances,
     update_client_profile,
 )
 from apps.engine.currency import currency_options
@@ -78,6 +79,8 @@ from apps.engine.recon_workflows import (
     run_reconciliation as run_recon_workflow,
 )
 from apps.engine.reports import list_reports as report_packs
+from apps.engine import decisions
+from apps.engine.recon_exports import write_audit_summary, write_exceptions_workbook
 from apps.engine.settings import (
     get_output_root,
     get_ui_location,
@@ -87,9 +90,18 @@ from apps.engine.settings import (
     set_guide_dismissed,
     set_output_root,
 )
-from apps.engine.periods import create_period, get_period, list_periods, suggested_period_label
+from apps.engine.periods import (
+    create_period,
+    get_period,
+    list_periods,
+    set_period_tolerances,
+    suggested_period_label,
+)
 from apps.engine.removal import remove_period_file
-from apps.engine.pdf_passwords import set_file_password as store_file_password
+from apps.engine.pdf_passwords import (
+    get_file_password,
+    set_file_password as store_file_password,
+)
 from apps.engine.profiles import profile_options
 from apps.engine.pipeline import (
     get_period_pack,
@@ -1109,6 +1121,24 @@ class DesktopApi:
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def set_client_tolerances(self, client_id: int, days, amount) -> dict:
+        try:
+            client = set_client_tolerances(int(client_id), days, amount)
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {"ok": True, "client": client}
+
+    def set_period_tolerances(self, period_id: int, days=None, amount=None) -> dict:
+        try:
+            period = set_period_tolerances(int(period_id), days, amount)
+        except (TypeError, ValueError) as exc:
+            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": True,
+            "period": period,
+            "periods": list_periods(period["client_id"]),
+        }
+
     def get_period_desk(self, period_id: int) -> dict:
         period = get_period(int(period_id))
         if period is None:
@@ -1282,6 +1312,104 @@ class DesktopApi:
         except OSError as exc:
             return {"ok": False, "error": str(exc)}
 
+    def set_recon_decision(
+        self,
+        period_id: int,
+        row_key: str,
+        decision: str,
+        reason_code: str = "",
+        note: str = "",
+    ) -> dict:
+        try:
+            pid = int(period_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Period was not found."}
+        if get_period(pid) is None:
+            return {"ok": False, "error": "Period was not found."}
+        record: dict | None = None
+        saved: dict[str, dict] = {}
+        session = get_session()
+        try:
+            record = decisions.save(
+                session,
+                pid,
+                row_key,
+                decision,
+                reason_code=reason_code,
+                note=note,
+                decided_by=_firm_name(),
+            )
+            session.commit()
+            # The pack summary on disk was written at parse time, so re-attach
+            # the saved decisions here; otherwise the tray would not show the
+            # decision until the month was run again.
+            saved = decisions.load(session, pid)
+        except ValueError as exc:
+            session.rollback()
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            session.rollback()
+            return {"ok": False, "error": "Could not save that decision."}
+        finally:
+            session.close()
+        try:
+            pack = decisions.refresh_pack(get_period_pack(pid), saved)
+        except Exception:
+            pack = None
+        return {"ok": True, "pack": pack, "decision": record}
+
+    def clear_recon_decision(self, period_id: int, row_key: str) -> dict:
+        return self.set_recon_decision(period_id, row_key, "", "", "")
+
+    def export_recon_exceptions(self, period_id: int) -> dict:
+        return self._export_recon_file(period_id, "exceptions")
+
+    def export_recon_audit_summary(self, period_id: int) -> dict:
+        return self._export_recon_file(period_id, "summary")
+
+    def _export_recon_file(self, period_id: int, kind: str) -> dict:
+        try:
+            pid = int(period_id)
+        except (TypeError, ValueError):
+            return {"ok": False, "error": "Period was not found."}
+        pack = get_period_pack(pid)
+        if not pack or not pack.get("recon"):
+            return {
+                "ok": False,
+                "error": "Run the month first; there is no reconciliation to export.",
+            }
+        period = get_period(pid)
+        client = get_client(period["client_id"]) if period else None
+        folder = Path(pack.get("path") or "")
+        name = (
+            "Exceptions_Only.xlsx"
+            if kind == "exceptions"
+            else "Reconciliation_Summary.xlsx"
+        )
+        dest = folder / name
+        try:
+            if kind == "exceptions":
+                write_exceptions_workbook(
+                    dest,
+                    client_name=(client or {}).get("name") or "",
+                    period_label=(period or {}).get("label") or "",
+                    recon=pack.get("recon") or {},
+                )
+            else:
+                write_audit_summary(
+                    dest,
+                    client_name=(client or {}).get("name") or "",
+                    period_label=(period or {}).get("label") or "",
+                    recon=pack.get("recon") or {},
+                )
+        except OSError as exc:
+            return {"ok": False, "error": f"Could not write the file: {exc}"}
+        try:
+            _open_path(str(dest))
+        except OSError:
+            pass
+        return {"ok": True, "path": str(dest)}
+
     def set_file_password(self, file_id: int, password: str) -> dict:
         if not str(password or "").strip():
             return {"ok": False, "error": "Enter the PDF password."}
@@ -1349,6 +1477,16 @@ class DesktopApi:
         self._current_period_id = None
         state = self.get_state()
         return {"ok": True, **state}
+
+
+def _firm_name() -> str:
+    """The firm name recorded on a saved decision's audit trail."""
+    try:
+        firm = get_firm()
+    except Exception:
+        return "Firm"
+    name = str((firm or {}).get("name") or "").strip()
+    return name or "Firm"
 
 
 def _open_path(path: str) -> None:
@@ -1836,12 +1974,26 @@ def main() -> None:
         threading.Thread(target=_startup_auth_sync, daemon=True).start()
         global _WINDOW
         api = DesktopApi()
+        # Keep the window usable on any screen: never taller than ~90% of the
+        # work area and always placed inside it (150% DPI made it overflow).
+        width, height = 1120, 760
+        x = y = None
+        try:
+            primary = webview.screens[0]
+            width = min(width, max(primary.width - 20, 700))
+            height = min(height, max(primary.height - 16, 480))
+            x = max(0, (primary.width - width) // 2)
+            y = max(0, (primary.height - height) // 2)
+        except Exception:
+            pass
         _WINDOW = webview.create_window(
             "CA Unpacker",
             ui_index(),
             js_api=api,
-            width=1120,
-            height=760,
+            width=width,
+            height=height,
+            x=x,
+            y=y,
             min_size=(880, 580),
             background_color="#2C3330",
         )

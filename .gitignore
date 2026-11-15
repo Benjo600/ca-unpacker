@@ -21,3 +21,4 @@ supabase/.branches
 # Subagent worktrees and Netlify local state
 .claude/worktrees/
 apps/web/.netlify/
+stress-dump/
