@@ -1,0 +1,238 @@
+<!DOCTYPE html>
+<html lang="en" translate="no" class="notranslate">
+<head>
+<meta name="google" content="notranslate">
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>CA Unpacker — What's left to build</title>
+<style>
+  :root {
+    --paper: #faf7f0;
+    --card:  #fffdf8;
+    --ink:   #2c3330;
+    --mute:  #5c6b63;
+    --line:  #e2dccc;
+    --accent:#c45a2a;
+    --green: #2a6b3f;
+    --warn:  #8a4b20;
+  }
+  * { box-sizing: border-box; }
+  body {
+    margin: 0;
+    background: var(--paper);
+    color: var(--ink);
+    font-family: "Segoe UI", Arial, sans-serif;
+    line-height: 1.45;
+    padding: 32px 20px 80px;
+  }
+  .wrap { max-width: 880px; margin: 0 auto; }
+  header.kicker {
+    font-size: 11px; font-weight: 600; letter-spacing: .14em;
+    text-transform: uppercase; color: var(--accent); margin-bottom: 6px;
+  }
+  h1 { font-size: 26px; margin: 0 0 6px; }
+  p.lede { color: var(--mute); margin: 0 0 28px; max-width: 640px; }
+  .status-strip {
+    display: flex; gap: 10px; flex-wrap: wrap; margin: 0 0 30px;
+  }
+  .chip {
+    background: var(--card); border: 1px solid var(--line);
+    border-radius: 8px; padding: 8px 12px; font-size: 12px; color: var(--mute);
+  }
+  .chip b { color: var(--ink); }
+  .chip.ok b { color: var(--green); }
+
+  section.block { margin: 0 0 34px; }
+  .block-head { display: flex; align-items: baseline; gap: 10px; margin: 0 0 4px; }
+  .block-head h2 { font-size: 17px; margin: 0; }
+  .tag {
+    font-size: 10px; font-weight: 700; letter-spacing: .1em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 20px; color: #fff;
+  }
+  .tag.now { background: var(--accent); }
+  .tag.money { background: var(--ink); }
+  .tag.quality { background: var(--warn); }
+  .tag.later { background: var(--mute); }
+  .block-sub { color: var(--mute); font-size: 12.5px; margin: 0 0 12px; }
+
+  ul.items { list-style: none; margin: 0; padding: 0; }
+  ul.items li {
+    background: var(--card); border: 1px solid var(--line); border-radius: 10px;
+    padding: 14px 16px; margin: 0 0 10px;
+    display: grid; grid-template-columns: 14px 1fr auto; gap: 12px; align-items: start;
+  }
+  .tick {
+    width: 14px; height: 14px; border: 2px solid var(--mute);
+    border-radius: 4px; margin-top: 3px;
+  }
+  ul.items li.done .tick { border-color: var(--green); background: var(--green); position: relative; }
+  ul.items li.done .tick::after {
+    content: ""; position: absolute; left: 3px; top: 0px; width: 4px; height: 8px;
+    border: solid #fff; border-width: 0 2px 2px 0; transform: rotate(45deg);
+  }
+  .item-title { font-weight: 600; font-size: 14.5px; }
+  .item-title .why { font-weight: 400; color: var(--mute); }
+  .item-desc { color: var(--mute); font-size: 12.5px; margin-top: 3px; }
+  .sev {
+    font-size: 10px; font-weight: 700; letter-spacing: .08em; text-transform: uppercase;
+    padding: 3px 8px; border-radius: 20px; white-space: nowrap; margin-top: 2px;
+  }
+  .sev.high   { background: #f7e3d8; color: var(--accent); }
+  .sev.medium { background: #efeae0; color: var(--warn); }
+  .sev.low    { background: #eaf2ec; color: var(--green); }
+  .sev.tip    { background: #eaf2ec; color: var(--green); }
+
+  footer {
+    margin-top: 40px; padding-top: 14px; border-top: 1px solid var(--line);
+    color: var(--mute); font-size: 11.5px;
+  }
+  code { background: #efeae0; padding: 1px 5px; border-radius: 4px; font-size: 12px; }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header class="kicker">CA Unpacker · status scan 10 Nov 2026</header>
+  <h1>What's left to build</h1>
+  <p class="lede">All ten build stages passed their gates on fixtures, and the update pipeline went live today
+     (CI auto-builds, New features tab, Install now / Later popup). This is everything still open,
+     in the order it should be built.</p>
+
+  <div class="status-strip">
+    <span class="chip ok"><b>Stages 1–10:</b> gates passed</span>
+    <span class="chip"><b>Update pipeline:</b> live, first publish pending</span>
+    <span class="chip"><b>Bugs list:</b> 7 of 9 done</span>
+    <span class="chip"><b>Latest CI build:</b> v0.11.2</span>
+  </div>
+
+  <section class="block">
+    <div class="block-head"><h2>1 · Right now</h2><span class="tag now">now</span></div>
+    <p class="block-sub">Finish what you started today.</p>
+    <ul class="items">
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">First real publish + popup test</div>
+          <div class="item-desc">Sign into the dashboard → New features → Create release draft on v0.11.2 → install that exe, run one job → publish → confirm an old install pops <b>Install now / Later</b> and completes a silent update.</div>
+        </div>
+        <span class="sev high">5 min of clicks</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">CI installers ship without Tesseract <span class="why">— OCR silently missing</span></div>
+          <div class="item-desc">The CI runner has no Tesseract, and <code>bundle_tesseract.py</code> exits 0 when it's missing. So v0.11.1 / v0.11.2 (and every future auto-build) have no OCR — scanned bank PDFs would return nothing on a customer PC. Fix: <code>choco install tesseract-oss</code> (or download a pinned release) in the workflow before bundling, and fail the build if <code>tessdata/eng.traineddata</code> is absent.</div>
+        </div>
+        <span class="sev high">highest impact fix</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><h2>2 · Before you charge money</h2><span class="tag money">revenue</span></div>
+    <p class="block-sub">Billing is Phase 1 only (Supabase auth, quotas, manual plan changes). Phases 2–3 are designed but unbuilt.</p>
+    <ul class="items">
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Billing Phase 2 — license keys, device limits, usage export, emails</div>
+          <div class="item-desc">License-key generation/redemption, device-count limits per plan, CSV export of firm usage for the founders, transactional signup/upgrade emails. No <code>license-*</code> edge function exists yet.</div>
+        </div>
+        <span class="sev high">phase 2</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Billing Phase 3 — Razorpay self-serve payments</div>
+          <div class="item-desc">Starter/Pro checkout, auto-upgrade on payment, invoice emails. Until then every Pro upgrade stays a manual click on the admin dashboard.</div>
+        </div>
+        <span class="sev medium">phase 3</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Code signing (SmartScreen reputation)</div>
+          <div class="item-desc">The installer is unsigned; <code>SMARTSCREEN.txt</code> is only a written workaround for the first firms. Needed before paid rollout so a paying CA doesn't hit "Windows protected your PC".</div>
+        </div>
+        <span class="sev medium">paid rollout</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><h2>3 · Accuracy &amp; trust</h2><span class="tag quality">quality</span></div>
+    <p class="block-sub">The open bugs list and the audit's long-tail parser work — this is what makes Firms stay.</p>
+    <ul class="items">
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Bug 4 — scanned / differently-formatted PDF parsing</div>
+          <div class="item-desc">Kotak-via-RapidOCR works from one session; the gate is broad scanned coverage: more bank layouts from real samples, OCR noise tolerance, disagreement downgraded to Needs-review instead of wrong rows.</div>
+        </div>
+        <span class="sev high">open bug</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Bug 5 — modernize the UI / progressive results</div>
+          <div class="item-desc">Current UI dumps all post-processing results at once and feels dated. Rework into a guided flow: dump → progress → flags first, drill in as needed.</div>
+        </div>
+        <span class="sev medium">open bug</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Real-world parser hardening (audit P2 tail)</div>
+          <div class="item-desc">Invoice heuristics vs GSTIN-labelled multi-table invoices, Tally sample corpus before advertising broad compatibility, GSTR schema-version fixtures with visible failure on unknown shapes.</div>
+        </div>
+        <span class="sev medium">grow on samples</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Dependency lock file + clean-VM install smoke test</div>
+          <div class="item-desc">requirements.txt is all <code>&gt;=</code> ranges — lock a release set (<code>requirements.lock.txt</code>) so CI builds are reproducible; run the audit's clean-Windows-VM checklist once against a CI-built installer.</div>
+        </div>
+        <span class="sev low">release hygiene</span>
+      </li>
+    </ul>
+  </section>
+
+  <section class="block">
+    <div class="block-head"><h2>4 · Later upsells</h2><span class="tag later">roadmap</span></div>
+    <p class="block-sub">Deliberately closed in the build plan until a CA asks twice.</p>
+    <ul class="items">
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">ITC reconciliation as its own product <span class="why">(Tier 1 upsell)</span></div>
+          <div class="item-desc">The master grid is the seed; the standalone ITC engine is the Suite-plan product.</div>
+        </div>
+        <span class="sev tip">suite plan</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">GSTR-9 auto-filler <span class="why">(Tier 2 upsell)</span></div>
+          <div class="item-desc">Annual return generation from the packs already built.</div>
+        </div>
+        <span class="sev tip">tier 2</span>
+      </li>
+      <li>
+        <span class="tick"></span>
+        <div>
+          <div class="item-title">Shared-library multi-PC, accuracy dashboard, live portal/Tally access</div>
+          <div class="item-desc">Phase-9 hardening items that wait for real firm feedback: NAS/second-PC library beyond the lock-file MVP, override-rate dashboard, and the explicitly out-of-scope live integrations.</div>
+        </div>
+        <span class="sev tip">phase 9</span>
+      </li>
+    </ul>
+  </section>
+
+  <footer>
+    Sources: STAGES.md gate log (all 10 stages passed on fixtures) · bugs-to-fix.md (items 4 &amp; 5 open) ·
+    AUDIT-FINDINGS-2026-08-16.md · admin-dashboard-auth-design phase table · today's update-pipeline build.
+    Updated 10 Nov 2026.
+  </footer>
+</div>
+</body>
+</html>
