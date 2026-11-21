@@ -5,6 +5,7 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
+from apps.engine.pack.formatting import guard_sheet_capacity
 from apps.engine.pack.style import (
     MONEY_FORMAT,
     RED_FILL,
@@ -16,6 +17,7 @@ from apps.engine.pack.style import (
     style_note,
     style_title,
 )
+
 
 BANK_NOTE = "Bank hints are an assist only; they are not matches."
 MONEY_NOTE = (
@@ -190,6 +192,7 @@ def _write_cover(
 
 
 def _write_table(sheet, rows: list[dict]) -> None:
+    guard_sheet_capacity(rows, sheet.title)
     sheet.append(GRID_HEADERS)
     style_header(sheet, len(GRID_HEADERS))
     flagged: list[int] = []

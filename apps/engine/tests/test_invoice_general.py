@@ -11,6 +11,8 @@ ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
+from apps.engine.pack.formatting import INR_MONEY_FORMAT
+
 from apps.engine.tests import fixtures_invoice_layouts as layouts
 
 FLPK = Path(__file__).resolve().parent / "fixtures" / "invoices" / "flpk.pdf"
@@ -55,7 +57,13 @@ class FlpkRealInvoiceTests(InvoiceFixtureTestCase):
         self.assertEqual(parsed["record_count"], 2)
         self.assertEqual(parsed["invoice_record_count"], 2)
         self.assertEqual(parsed["failed_records"], [])
-        self.assertEqual(parsed["skipped_rows"], [])
+        # Nothing may be dropped silently: whatever is skipped must be honest
+        # bookkeeping of lines after the totals footer, not lost item rows.
+        self.assertEqual(
+            [row for row in parsed["skipped_rows"] if row.get("reason") != "after_footer"],
+            [],
+        )
+        self.assertTrue(all(row.get("reason") == "after_footer" for row in parsed["skipped_rows"]))
         self.assertEqual(parsed["ignored_documents"], [])
 
         rows = {row["invoice_number"]: row for row in parsed["rows"]}
@@ -530,8 +538,8 @@ class FlpkPipelineTests(InvoiceFixtureTestCase):
 
         cgst_column = invoice_headers.index("CGST") + 1
         gross_column = item_headers.index("Gross") + 1
-        self.assertEqual(invoices.cell(2, cgst_column).number_format, "#,##0.00")
-        self.assertEqual(items.cell(2, gross_column).number_format, "#,##0.00")
+        self.assertEqual(invoices.cell(2, cgst_column).number_format, INR_MONEY_FORMAT)
+        self.assertEqual(items.cell(2, gross_column).number_format, INR_MONEY_FORMAT)
 
 
 if __name__ == "__main__":

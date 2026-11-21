@@ -271,13 +271,15 @@ class MigrationTests(unittest.TestCase):
         from apps.engine.migrations import LATEST_SCHEMA_VERSION
 
         create_legacy_database(self.db_path)
-        occupied = self.db_path.with_name("app.db.v1-to-v5.backup")
+        occupied = self.db_path.with_name(f"app.db.v1-to-v{LATEST_SCHEMA_VERSION}.backup")
         occupied.write_bytes(b"older backup")
 
         get_engine()
         reset_engine()
 
-        backups = sorted(self.db_path.parent.glob("app.db.v1-to-v5*.backup"))
+        backups = sorted(
+            self.db_path.parent.glob(f"app.db.v1-to-v{LATEST_SCHEMA_VERSION}*.backup")
+        )
         self.assertEqual(len(backups), 2)
         self.assertEqual(occupied.read_bytes(), b"older backup")
         new_backup = next(path for path in backups if path != occupied)
@@ -337,7 +339,13 @@ class MigrationTests(unittest.TestCase):
             ensure_schema(
                 engine,
                 Base.metadata,
-                migration_steps={2: failing_migration, 3: lambda connection: None, 4: lambda connection: None, 5: lambda connection: None},
+                migration_steps={
+                    2: failing_migration,
+                    3: lambda connection: None,
+                    4: lambda connection: None,
+                    5: lambda connection: None,
+                    6: lambda connection: None,
+                },
             )
 
         engine.dispose()
@@ -358,9 +366,7 @@ class MigrationTests(unittest.TestCase):
         reset_engine()
 
         self.assertTrue(
-            self.db_path.with_name(
-                f"app.db.v2-to-v{LATEST_SCHEMA_VERSION}.backup"
-            ).is_file()
+            self.db_path.with_name(f"app.db.v2-to-v{LATEST_SCHEMA_VERSION}.backup").is_file()
         )
         with closing(sqlite3.connect(self.db_path)) as connection:
             version = connection.execute("SELECT version FROM schema_version").fetchone()[0]

@@ -30,6 +30,15 @@ const failed = summarizeJobStatus({
 assert.equal(failed.tone, "failure");
 assert.equal(failed.text, "Processing failed: 1 processed, 1 failed.");
 
+const cancelled = summarizeJobStatus({
+  status: "cancelled",
+  outcome_counts: { processed: 2, needs_review: 0, failed: 0, unclassified: 0 },
+});
+assert.equal(cancelled.tone, "warning");
+assert.equal(cancelled.label, "Cancelled");
+assert.ok(cancelled.text.includes("Import cancelled"));
+assert.ok(cancelled.text.includes("2 processed"));
+
 assert.equal(isReviewOutcome("needs_review"), true);
 assert.equal(isReviewOutcome("failed"), true);
 assert.equal(isReviewOutcome("unclassified"), true);

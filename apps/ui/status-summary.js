@@ -52,6 +52,13 @@
         text: `Processing failed: ${countSummary}.`,
       };
     }
+    if (job && job.status === "cancelled") {
+      return {
+        tone: "warning",
+        label: "Cancelled",
+        text: `Import cancelled: ${countSummary}. Files already read were kept.`,
+      };
+    }
     return { tone: "progress", label: "Processing", text: "Processing files…" };
   }
 

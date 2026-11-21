@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import hashlib
 import json
 import mimetypes
 import re
@@ -30,8 +31,13 @@ INTERRUPTED_MESSAGE = (
 )
 STALE_JOB_MINUTES = 30
 _SKIP_NAMES = {"readme.md", "readme.txt", "thumbs.db", "desktop.ini"}
-_ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
+_ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing", "cancel_requested")
 _FILE_OUTCOMES = ("processed", "needs_review", "failed", "unclassified")
+_CANCEL_MESSAGE = "Processing was cancelled. Files already read were kept."
+
+
+class JobCancelled(Exception):
+    """Raised inside a job when the user asked to cancel it."""
 
 
 @dataclass(frozen=True)
@@ -95,6 +101,7 @@ def _file_dict(row: StoredFile) -> dict:
         "original_name": row.original_name,
         "size": row.size,
         "storage_key": row.storage_key,
+        "content_sha256": getattr(row, "content_sha256", None),
         "detected_kind": row.detected_kind,
         "override_kind": row.override_kind,
         "kind": kind,
@@ -117,6 +124,7 @@ def _file_dict(row: StoredFile) -> dict:
         "needs_password": getattr(row, "parse_reason_code", None) == "password_required"
         or "password" in reason_l,
         "parse_failed": parse_failed,
+        "duplicate_content": "duplicate content of" in reason_l,
     }
 
 
@@ -303,10 +311,63 @@ def fail_job(job_id: int, message: str) -> None:
     session = get_session()
     try:
         job = session.get(Job, job_id)
-        if job is None or job.status in {"done", "done_with_warnings", "failed"}:
+        if job is None or job.status in {"done", "done_with_warnings", "failed", "cancelled"}:
             return
         job.status = "failed"
         job.error_message = redact_known_passwords(message or "Could not process these files.")[:500]
+        job.finished_at = utcnow()
+        session.commit()
+    except Exception:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+    finally:
+        session.close()
+
+
+def cancel_job(job_id: int) -> dict:
+    """Ask a running job to stop at the next file boundary.
+
+    Cancellation is cooperative: the ingest/parse loops check the flag between
+    files, so a page already being parsed finishes and its results are kept.
+    """
+    session = get_session()
+    try:
+        job = session.get(Job, job_id)
+        if job is None:
+            raise ValueError("Job was not found.")
+        if job.status not in _ACTIVE_JOB_STATUSES:
+            return {"id": job.id, "status": job.status, "cancelled": False}
+        job.status = "cancel_requested"
+        session.commit()
+        return {"id": job.id, "status": job.status, "cancelled": True}
+    finally:
+        session.close()
+
+
+def job_cancel_requested(job_id: int | None) -> bool:
+    if not job_id:
+        return False
+    session = get_session()
+    try:
+        job = session.get(Job, int(job_id))
+        return bool(job is not None and job.status == "cancel_requested")
+    except Exception:
+        return False
+    finally:
+        session.close()
+
+
+def finish_cancelled_job(job_id: int) -> None:
+    """Mark a cancelled job terminal, keeping files already processed."""
+    session = get_session()
+    try:
+        job = session.get(Job, int(job_id))
+        if job is None or job.status != "cancel_requested":
+            return
+        job.status = "cancelled"
+        job.error_message = _CANCEL_MESSAGE
         job.finished_at = utcnow()
         session.commit()
     except Exception:
@@ -418,6 +479,65 @@ def _safe_name(name: str) -> str:
     return (cleaned or "file")[:120]
 
 
+def copy_verified(source: Path, dest: Path) -> tuple[str | None, str | None]:
+    """Copy a file into the library, then verify and hash what was written.
+
+    Returns ``(sha256_hex, error_message)``.  The hash and size check read the
+    *destination* bytes, so the recorded hash always describes the copy the
+    library will actually parse — not the source that may be mid-change.
+    ``error_message`` is set on any failure and the partial file is removed.
+    """
+    try:
+        shutil.copy2(source, dest)
+    except OSError as exc:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None, f"could not copy file into the library ({exc.__class__.__name__})"
+    digest = hashlib.sha256()
+    try:
+        with open(dest, "rb") as reader:
+            while True:
+                chunk = reader.read(1024 * 1024)
+                if not chunk:
+                    break
+                digest.update(chunk)
+        expected = source.stat().st_size
+        copied = dest.stat().st_size
+    except OSError:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None, "could not verify the copied file"
+    if expected is not None and copied != expected:
+        try:
+            dest.unlink(missing_ok=True)
+        except OSError:
+            pass
+        return None, (
+            f"copy verification failed ({copied} of {expected} bytes); the source "
+            "file may be changing on disk"
+        )
+    return digest.hexdigest(), None
+
+
+def _find_duplicate_content(session, period_id: int, file_id: int, sha256: str | None):
+    """Another file in this period with identical bytes, if any."""
+    if not sha256:
+        return None
+    return (
+        session.query(StoredFile)
+        .filter(
+            StoredFile.period_id == period_id,
+            StoredFile.id != file_id,
+            StoredFile.content_sha256 == sha256,
+        )
+        .first()
+    )
+
+
 def ingest_paths(job_id: int, paths: list[str]) -> dict:
     session = get_session()
     try:
@@ -431,6 +551,12 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         preflight = preflight_paths(paths)
         to_copy = preflight.paths
         assert_can_ingest(preflight.accepted_count)
+        # Re-read the row: a cancel request committed after this job started
+        # must not be overwritten by the routine queued→routing transition.
+        session.expire(job)
+        session.refresh(job)
+        if job.status == "cancel_requested":
+            raise JobCancelled()
         job.status = "routing"
         job.intake_discovered_count = preflight.discovered_count
         job.intake_accepted_count = preflight.accepted_count
@@ -455,6 +581,10 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
         dest_root.mkdir(parents=True, exist_ok=True)
 
         for source, row in manifest:
+            session.expire(job)
+            session.refresh(job)
+            if job.status == "cancel_requested":
+                raise JobCancelled()
             try:
                 size = source.stat().st_size
             except OSError:
@@ -484,14 +614,10 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             row.storage_key = f"{period.client_id}/{period.id}/{key_name}"
             dest = dest_root / key_name
             session.commit()
-            try:
-                shutil.copy2(source, dest)
-                copied = dest.is_file()
-            except OSError:
-                copied = False
-            if not copied:
+            sha256, copy_error = copy_verified(source, dest)
+            if copy_error or sha256 is None:
                 row.storage_key = ""
-                row.classify_reason = "could not copy file into the library"
+                row.classify_reason = copy_error or "could not copy file into the library"
                 persist_file_outcome(
                     row,
                     failed_file_outcome(
@@ -500,17 +626,37 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
                 )
                 session.commit()
                 continue
+            row.content_sha256 = sha256
+
+            duplicate = _find_duplicate_content(session, period.id, row.id, sha256)
+            if duplicate is not None:
+                # Never silently drop the file: ingest, parse and flag it so a
+                # human can decide whether both copies belong in the register.
+                row.classify_reason = (
+                    f"duplicate content of {duplicate.original_name} (identical bytes)"
+                )
 
             result = classify_path(dest)
             row.detected_kind = result.kind
             row.confidence = result.confidence
-            row.classify_reason = result.reason
+            if duplicate is not None:
+                row.classify_reason = f"{row.classify_reason} · {result.reason}"[:300]
+            else:
+                row.classify_reason = result.reason
             session.commit()
 
+        session.expire(job)
+        session.refresh(job)
+        if job.status == "cancel_requested":
+            raise JobCancelled()
         job.status = "parsing"
         session.commit()
         period_id = period.id
-        pack_result = parse_period_banks(period_id, job_id)
+        try:
+            pack_result = parse_period_banks(period_id, job_id)
+        except JobCancelled:
+            finish_cancelled_job(job_id)
+            raise
         job = session.get(Job, job_id)
         if job is not None:
             job.status = _period_job_status(session, period_id)
@@ -519,6 +665,20 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             session.commit()
         record_ingested(preflight.accepted_count)
         return get_job(job_id) or {"id": job_id, "status": "done", "files": []}
+    except JobCancelled:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        finish_cancelled_job(job_id)
+        raise
+    except JobCancelled:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        finish_cancelled_job(job_id)
+        raise
     except Exception as exc:
         try:
             session.rollback()
@@ -596,9 +756,17 @@ def reparse_period(period_id: int, job_id: int | None = None) -> dict:
         job = session.get(Job, job_id)
         if job is None:
             raise ValueError("Job was not found.")
+        session.expire(job)
+        session.refresh(job)
+        if job.status == "cancel_requested":
+            raise JobCancelled()
         job.status = "parsing"
         session.commit()
-        pack_result = parse_period_banks(period_id, job_id)
+        try:
+            pack_result = parse_period_banks(period_id, job_id)
+        except JobCancelled:
+            finish_cancelled_job(job_id)
+            raise
         job = session.get(Job, job_id)
         if job is not None:
             job.status = _period_job_status(session, period_id)
@@ -611,6 +779,13 @@ def reparse_period(period_id: int, job_id: int | None = None) -> dict:
             "status": "done_with_warnings",
             "files": [],
         }
+    except JobCancelled:
+        try:
+            session.rollback()
+        except Exception:
+            pass
+        finish_cancelled_job(job_id)
+        raise
     except Exception as exc:
         try:
             session.rollback()

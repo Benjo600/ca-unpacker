@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import re
 from pathlib import Path
 from typing import Any
 
@@ -261,11 +262,15 @@ def _base_row(
     flags = list(flags)
     # Advisory only: a rate that does not match the code's usual rate.
     flags.extend(hsn_rate_flags(hsn, taxable=taxable, tax=_add(_add(igst, cgst), sgst)))
+    date_text = str(invoice_date or "").strip() or None
     return {
         "gstin": gstin,
         "trade_name": trade_name,
         "invoice_number": invoice_number,
         "invoice_date": invoice_date,
+        # Additive normalised date (GSTN prints dd-mm-yyyy): downstream code
+        # can sort/compare without re-parsing, and the printed value is kept.
+        "invoice_date_iso": _normalize_gstn_date(date_text),
         "invoice_value": invoice_value,
         "taxable": taxable,
         "igst": igst,
@@ -284,6 +289,22 @@ def _base_row(
         "match_status": "",
         "books_ref": "",
     }
+
+
+def _normalize_gstn_date(value: str | None) -> str | None:
+    """ISO (yyyy-mm-dd) form of a GSTN portal date, or None."""
+    if not value:
+        return None
+    text = str(value).strip()
+    match = re.fullmatch(r"(\d{1,2})[-/.](\d{1,2})[-/.](\d{4})", text)
+    if match:
+        day, month, year = (int(part) for part in match.groups())
+        if 1 <= month <= 12 and 1 <= day <= 31 and 1990 <= year <= 2100:
+            return f"{year:04d}-{month:02d}-{day:02d}"
+        return None
+    if re.fullmatch(r"\d{4}-\d{2}-\d{2}", text):
+        return text
+    return None
 
 
 def _summary_row(section: str, taxable: Any, igst: Any, cgst: Any, sgst: Any, cess: Any, source: str) -> dict:
