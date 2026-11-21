@@ -5322,8 +5322,51 @@ document.addEventListener("keydown", (event) => {
   }
 });
 
+// Background threads never touch this page directly: calling into the window
+// from a worker thread raised a Windows COM fault (0x8001010d) and killed the
+// app. They queue work in Python instead, and this pump runs it here.
+let uiEventPumpStarted = false;
+
+async function applyUiEvent(event) {
+  if (!event || !event.type) return;
+  if (event.type === "auth_refresh") {
+    try {
+      if (typeof ensurePostAuth === "function") {
+        await ensurePostAuth();
+      } else if (typeof refreshAuthState === "function") {
+        await refreshAuthState();
+      }
+    } catch (err) {
+      // The sign-in screen still works; a failed refresh must not break boot.
+    }
+    return;
+  }
+  if (event.type === "auth_error") {
+    const el = document.getElementById("auth-error");
+    if (el && typeof showError === "function") {
+      showError(el, String(event.message || ""));
+    }
+  }
+}
+
+function startUiEventPump() {
+  if (uiEventPumpStarted) return;
+  const api = window.pywebview && window.pywebview.api;
+  if (!api || typeof api.drain_ui_events !== "function") return;
+  uiEventPumpStarted = true;
+  setInterval(async () => {
+    try {
+      const events = await api.drain_ui_events();
+      for (const event of events || []) await applyUiEvent(event);
+    } catch (err) {
+      // Never let the pump itself surface an error to the user.
+    }
+  }, 800);
+}
+
 window.addEventListener("pywebviewready", () => {
   // Boot used to receive the event object as its "prefetched" state, so it fell
   // through to the setup screen and raced the auth refresh for the desk.
   boot();
+  startUiEventPump();
 });

@@ -705,6 +705,13 @@ class DesktopApi:
             return _process_deep_link(self, pending)
         return {"ok": False, "error": "No pending auth callback found."}
 
+    def drain_ui_events(self) -> list:
+        """Background work waiting for the UI thread (auth refresh, errors).
+
+        The page polls this instead of letting worker threads touch the window.
+        """
+        return _drain_ui_events()
+
     def get_state(self) -> dict:
         init_library()
         output = get_output_root()
@@ -1683,7 +1690,17 @@ def _log_crash(message: str) -> None:
     try:
         log_path = get_library_path() / "app.log"
         log_path.parent.mkdir(parents=True, exist_ok=True)
-        log_path.write_text(message, encoding="utf-8")
+        stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+        with open(log_path, "a", encoding="utf-8") as handle:
+            handle.write(f"\n===== {stamp} =====\n{message.rstrip()}\n")
+        # A crash loop must not fill the disk. Truncating in place keeps the
+        # fault handler's own handle on the same file valid.
+        try:
+            if log_path.stat().st_size > 1_000_000:
+                shutil.copyfile(log_path, log_path.with_name("app.log.1"))
+                log_path.write_text("", encoding="utf-8")
+        except OSError:
+            pass
     except OSError:
         pass
 
@@ -1717,6 +1734,63 @@ def _show_fatal(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(
             0, message, "CA Unpacker", 0x00000010 | 0x00000000
         )
+    except Exception:
+        pass
+
+
+def _friendly_startup_message(error: BaseException) -> str:
+    """Turn a startup exception into something a CA can act on."""
+    text = str(error or "").strip()
+    lowered = text.lower()
+    if "newer than supported" in lowered:
+        return (
+            "This data folder was made by a newer version of CA Unpacker.\n\n"
+            "Install the latest version and open it again. Nothing was deleted "
+            "and every file is still in that folder."
+        )
+    if "already using this library" in lowered:
+        return (
+            "Another CA Unpacker window is already using this folder.\n\n"
+            "Close it and try again. If no window is open, that folder is on "
+            "another computer or a network drive."
+        )
+    if isinstance(error, PermissionError) or "permission denied" in lowered:
+        return (
+            "Windows would not let CA Unpacker write to its data folder.\n\n"
+            "Move the folder out of OneDrive, Desktop or a synced drive, then "
+            "open the app again."
+        )
+    if "no space left" in lowered:
+        return "The disk is full, so CA Unpacker could not save its data. Free some space and try again."
+    return text.splitlines()[-1] if text else "Unknown error"
+
+
+def _install_crash_hooks() -> None:
+    """Log uncaught errors from the main thread and from worker threads.
+
+    pythonw has no console, so without this a crash in a worker left nothing
+    behind but a closed window.
+    """
+    import traceback
+
+    def _hook(exc_type, exc, tb) -> None:
+        if issubclass(exc_type, KeyboardInterrupt):
+            return
+        _log_crash("".join(traceback.format_exception(exc_type, exc, tb)))
+
+    sys.excepthook = _hook
+    try:
+
+        def _thread_hook(args) -> None:
+            if args.exc_type is SystemExit:
+                return
+            name = getattr(args.thread, "name", "worker")
+            detail = "".join(
+                traceback.format_exception(args.exc_type, args.exc_value, args.exc_traceback)
+            )
+            _log_crash(f"thread {name} failed:\n{detail}")
+
+        threading.excepthook = _thread_hook
     except Exception:
         pass
 
@@ -1877,46 +1951,41 @@ def _read_pending_deep_link() -> str | None:
     return None
 
 
+_UI_EVENTS: list[dict] = []
+_UI_EVENTS_LOCK = threading.Lock()
+_UI_EVENTS_LIMIT = 25
+
+
+def _queue_ui_event(event: dict) -> None:
+    """Hand work to the page from a background thread.
+
+    pywebview's window belongs to the UI thread. Calling evaluate_js from a
+    worker thread raised a COM fault (0x8001010d) and took the whole app down,
+    so background code only appends here and the page drains this queue on its
+    own timer (see DesktopApi.drain_ui_events and the pump in app.js).
+    """
+    if not event:
+        return
+    with _UI_EVENTS_LOCK:
+        _UI_EVENTS.append(dict(event))
+        del _UI_EVENTS[:-_UI_EVENTS_LIMIT]
+
+
+def _drain_ui_events() -> list[dict]:
+    with _UI_EVENTS_LOCK:
+        events = list(_UI_EVENTS)
+        _UI_EVENTS.clear()
+    return events
+
+
 def _notify_auth_ui_refresh(result: dict) -> None:
+    """Queue the post-sign-in refresh; the page applies it on the UI thread."""
     if not result:
         return
-
-    def _do_js() -> None:
-        if _WINDOW is None:
-            return
-        try:
-            if result.get("ok"):
-                # robust: full state refresh + redecide screen (setup for fresh post-signup)
-                # also ensures quota/auth UI fully updated even if window was loading
-                js = (
-                    "(async () => { try { "
-                    "if (typeof ensurePostAuth === 'function') { await ensurePostAuth(); } "
-                    "else if (typeof refreshAuthState === 'function') { await refreshAuthState(); "
-                    "const api = (window.pywebview && window.pywebview.api) || null; "
-                    "if (api && api.get_state) { "
-                    "const s = await api.get_state(); "
-                    "if (s && s.firm && s.output_path && typeof showDesk === 'function') showDesk(s); "
-                    "else if (typeof showSetup === 'function') showSetup(s || {}); "
-                    "} } "
-                    "} catch (e) {} })();"
-                )
-                _WINDOW.evaluate_js(js)
-            elif result.get("error"):
-                message = json.dumps(str(result["error"]))
-                _WINDOW.evaluate_js(
-                    f"showError(document.getElementById('auth-error'), {message})"
-                )
-        except Exception:
-            pass
-
-    if _WINDOW is None:
-        # window not assigned yet (rare timing), retry shortly
-        def _delayed() -> None:
-            time.sleep(0.7)
-            _do_js()
-        threading.Thread(target=_delayed, daemon=True).start()
-    else:
-        _do_js()
+    if result.get("ok"):
+        _queue_ui_event({"type": "auth_refresh"})
+    elif result.get("error"):
+        _queue_ui_event({"type": "auth_error", "message": str(result["error"])})
 
 
 def _process_deep_link(api: DesktopApi, url: str) -> dict:
@@ -1976,6 +2045,7 @@ def main() -> None:
 
     claim_taskbar_identity()
     _enable_fault_handler()
+    _install_crash_hooks()
 
     global _startup_deep_link
     deep_link = extract_deep_link_url()
@@ -2049,13 +2119,12 @@ def main() -> None:
         # Best-effort, non-blocking: only checks once the user is signed in.
         _schedule_startup_update_check()
         webview.start(icon=app_icon_path())
-    except Exception:
+    except Exception as exc:
         detail = traceback.format_exc()
         _log_crash(detail)
-        last_line = detail.strip().splitlines()[-1] if detail.strip() else ""
         _show_fatal(
             "CA Unpacker could not start.\n\n"
-            f"{last_line}\n\n"
+            f"{_friendly_startup_message(exc)}\n\n"
             f"Details were written to:\n{get_library_path() / 'app.log'}"
         )
         raise

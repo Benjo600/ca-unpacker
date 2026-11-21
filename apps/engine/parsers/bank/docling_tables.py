@@ -9,7 +9,12 @@ _converter = None
 
 
 def rows_from_docling(path: Path, profile: BankProfile, filename: str) -> list[dict]:
-    """Layout + table-structure parser (IBM Docling). Local only; used for image PDFs."""
+    """Layout + table-structure parser (IBM Docling). Local only; used for image PDFs.
+
+    Optional: Docling and its machine-learning stack are not installed by
+    default because they cost about a gigabyte on the client's disk. When it
+    is missing this returns [] and the lighter readers take over.
+    """
     converter = _docling_converter()
     if converter is None:
         return []
