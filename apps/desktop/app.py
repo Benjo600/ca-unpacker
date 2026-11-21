@@ -1302,6 +1302,18 @@ class DesktopApi:
         _run_job_thread(job["id"], lambda: reparse_period(int(period_id), job["id"]))
         return {"ok": True, "job_id": job["id"]}
 
+    def cancel_job(self, job_id: int) -> dict:
+        """Ask the running import to stop after the file it is on."""
+        try:
+            from apps.engine.dump import cancel_job
+
+            result = cancel_job(int(job_id))
+            return {"ok": True, **result}
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        except Exception:
+            return {"ok": False, "error": "Could not cancel this job."}
+
     def open_bank_pack(self, period_id: int, key: str = "") -> dict:
         try:
             path = open_pack_path(int(period_id), key or None)
@@ -1718,7 +1730,13 @@ def _run_job_thread(job_id: int, fn) -> None:
             if epoch == _wipe_epoch:
                 ran = True
                 fn()
-        except Exception:
+        except Exception as exc:
+            from apps.engine.dump import JobCancelled
+
+            if isinstance(exc, JobCancelled):
+                # The user asked to cancel: the job is already marked
+                # "cancelled" and files processed so far are kept.
+                return
             import traceback
 
             # Log first, but never let a logging failure stop the job from
@@ -1734,6 +1752,7 @@ def _run_job_thread(job_id: int, fn) -> None:
                     "queued",
                     "routing",
                     "parsing",
+                    "cancel_requested",
                 }:
                     fail_job(job_id, "Could not process these files.")
             except Exception:

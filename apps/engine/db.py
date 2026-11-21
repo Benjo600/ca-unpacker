@@ -120,6 +120,7 @@ class StoredFile(Base):
     )
     currency_status: Mapped[str | None] = mapped_column(String(20), nullable=True)
     currency_override: Mapped[str | None] = mapped_column(String(3), nullable=True)
+    content_sha256: Mapped[str | None] = mapped_column(String(64), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
@@ -134,6 +135,8 @@ class ExtractedRow(Base):
     source_page: Mapped[int] = mapped_column(Integer, default=1)
     source_bbox: Mapped[str | None] = mapped_column(String(80), nullable=True)
     validation_flags: Mapped[str] = mapped_column(String, default="[]")
+    extraction_confidence: Mapped[float | None] = mapped_column(Float, nullable=True)
+    extraction_method: Mapped[str | None] = mapped_column(String(40), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 

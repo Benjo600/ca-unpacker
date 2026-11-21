@@ -1,9 +1,13 @@
 from __future__ import annotations
 
 import contextvars
+import copy
+import hashlib
 import os
 import re
 import tempfile
+import threading
+from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
@@ -34,6 +38,9 @@ class WordBox:
     y: float
     width: float
     height: float
+    # Recognition confidence 0..1 when the word came from an OCR engine.
+    # ``None`` for native text-layer words.  Evidence only — never a gate.
+    confidence: float | None = None
 
 
 @dataclass
@@ -53,11 +60,55 @@ class ExtractedPdf:
     words: list[WordBox] = field(default_factory=list)
     tables: list[ExtractedTable] = field(default_factory=list)
     engine: str = "none"
+    # Per-page extraction method, e.g. {3: "ocr:rapidocr"}.  Pages absent from
+    # the map came from the native text layer.  Additive metadata.
+    page_methods: dict[int, str] = field(default_factory=dict)
+    # Non-fatal extraction notes (e.g. "page 4 could not be OCR read").
+    warnings: list[str] = field(default_factory=list)
 
 
 _active_password: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "caunpacker_pdf_password", default=None
 )
+
+# Extraction cache: classification and parsing both call extract_pdf for the
+# same file within seconds.  Re-running three engines twice doubles the cost
+# of every import, so the last few results are reused (keyed on path + size +
+# mtime + password fingerprint).  Callers receive a deep copy because parsers
+# legitimately mutate the result during per-page merging.
+_CACHE_LOCK = threading.Lock()
+_CACHE: "OrderedDict[tuple, ExtractedPdf]" = OrderedDict()
+_CACHE_MAX = 4
+_CACHE_PAGE_LIMIT = 120
+
+
+def _cache_fingerprint(path: Path, password: str | None) -> tuple | None:
+    try:
+        stat = path.stat()
+    except OSError:
+        return None
+    password_key = hashlib.sha256((password or "").encode("utf-8", "ignore")).hexdigest()[:16]
+    return (str(path.resolve()).lower(), stat.st_size, stat.st_mtime_ns, password_key)
+
+
+def _cache_get(key: tuple | None) -> ExtractedPdf | None:
+    if key is None:
+        return None
+    with _CACHE_LOCK:
+        stored = _CACHE.get(key)
+        if stored is None:
+            return None
+        _CACHE.move_to_end(key)
+    return copy.deepcopy(stored)
+
+
+def _cache_put(key: tuple | None, extracted: ExtractedPdf) -> None:
+    if key is None or extracted.page_count > _CACHE_PAGE_LIMIT:
+        return
+    with _CACHE_LOCK:
+        _CACHE[key] = copy.deepcopy(extracted)
+        while len(_CACHE) > _CACHE_MAX:
+            _CACHE.popitem(last=False)
 
 
 @contextmanager
@@ -77,6 +128,10 @@ def extract_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
     """Local extract only. Uses Firecrawl pdf-inspector on this PC, never uploads."""
     path = Path(path)
     secret = _resolve_password(password)
+    cache_key = _cache_fingerprint(path, secret)
+    cached = _cache_get(cache_key)
+    if cached is not None:
+        return cached
     unlocked: Path | None = None
     try:
         unlocked, blocked, page_count = _maybe_unlock(path, secret)
@@ -84,50 +139,46 @@ def extract_pdf(path: Path, password: str | None = None) -> ExtractedPdf:
             return ExtractedPdf(pdf_type="encrypted", page_count=page_count, engine="pypdf")
         work = unlocked or path
 
-        mupdf = _extract_with_pymupdf(work)
-        inspector = _extract_with_inspector(work)
-        plumber = _extract_with_pdfplumber(work)
-
-        extracted = mupdf if (mupdf is not None and not _almost_no_lines(mupdf)) else inspector
-        if extracted is None or _almost_no_lines(extracted):
-            if plumber is not None:
-                extracted = plumber
-            elif mupdf is not None:
-                extracted = mupdf
-
-        for candidate in (mupdf, plumber):
-            if candidate is not None and extracted is not None:
-                if not extracted.tables and candidate.tables:
-                    extracted.tables = candidate.tables
-                # The inspector's item boxes are deliberately kept for its own
-                # parser; replacing them with token boxes makes line-order
-                # parsers misread columns.  Tables are still merged above.
-                if extracted.engine != "pdf-inspector" and len(candidate.words) > len(extracted.words):
-                    extracted.words = candidate.words
-                    if not extracted.lines or len(candidate.lines) > len(extracted.lines):
-                        extracted.lines = candidate.lines
-
-        if extracted is None:
-            extracted = _extract_with_pypdf(work)
-        extracted = _normalize_extracted(extracted)
-
-        if _should_ocr(extracted):
-            from apps.engine.ocr import ocr_pdf
-
-            ocr = ocr_pdf(work, password=secret)
-            if ocr.lines:
-                ocr_norm = _normalize_extracted(ocr)
-                if not extracted.tables and ocr_norm.tables:
-                    extracted.tables = ocr_norm.tables
-                extracted.pages = ocr_norm.pages
-                extracted.lines = ocr_norm.lines
-                extracted.words = ocr_norm.words
-                extracted.pdf_type = ocr_norm.pdf_type
-                extracted.engine = f"{extracted.engine}+ocr"
+        extracted = _extract_from_document(work, secret)
+        _cache_put(cache_key, extracted)
         return extracted
     finally:
         if unlocked is not None:
             _unlink_quiet(unlocked)
+
+
+def _extract_from_document(work: Path, secret: str | None) -> ExtractedPdf:
+    mupdf = _extract_with_pymupdf(work)
+    inspector = _extract_with_inspector(work)
+    plumber = _extract_with_pdfplumber(work)
+
+    extracted = mupdf if (mupdf is not None and not _almost_no_lines(mupdf)) else inspector
+    if extracted is None or _almost_no_lines(extracted):
+        if plumber is not None:
+            extracted = plumber
+        elif mupdf is not None:
+            extracted = mupdf
+
+    for candidate in (mupdf, plumber):
+        if candidate is not None and extracted is not None:
+            if not extracted.tables and candidate.tables:
+                extracted.tables = candidate.tables
+            # The inspector's item boxes are deliberately kept for its own
+            # parser; replacing them with token boxes makes line-order
+            # parsers misread columns.  Tables are still merged above.
+            if extracted.engine != "pdf-inspector" and len(candidate.words) > len(extracted.words):
+                extracted.words = candidate.words
+                if not extracted.lines or len(candidate.lines) > len(extracted.lines):
+                    extracted.lines = candidate.lines
+
+    if extracted is None:
+        extracted = _extract_with_pypdf(work)
+    extracted = _normalize_extracted(extracted)
+
+    # Hybrid per-page routing: OCR only the pages whose native text layer
+    # is unusable, and never let an OCR pass overwrite better native
+    # extraction on a page that already has usable text.
+    return _apply_ocr_to_pages(extracted, work, secret)
 
 
 def _resolve_password(password: str | None) -> str | None:
@@ -192,29 +243,83 @@ def _unlink_quiet(path: Path) -> None:
         pass
 
 
-def _should_ocr(extracted: ExtractedPdf) -> bool:
-    if extracted.pdf_type == "encrypted":
+_MIN_NATIVE_PAGE_CHARS = 10
+
+
+def _page_needs_ocr(page: PageText, pdf_type: str) -> bool:
+    """A page needs OCR only when its native text layer is unusable."""
+    if page is None:
         return False
-    if extracted.pdf_type in {"scanned", "image_based"}:
+    if len((page.text or "").strip()) >= _MIN_NATIVE_PAGE_CHARS:
+        # Usable native text on this page — OCR would only degrade it.
+        return False
+    if pdf_type in {"scanned", "image_based", "mixed"}:
         return True
-    if extracted.pages and any(page.needs_ocr for page in extracted.pages):
-        return True
-    if extracted.page_count >= 1 and _almost_no_lines(extracted) and _looks_like_scan(extracted):
-        return True
-    return False
+    return bool(page.needs_ocr)
+
+
+def _apply_ocr_to_pages(extracted: ExtractedPdf, work: Path, secret: str | None) -> ExtractedPdf:
+    """OCR only the pages that need it and merge results per page.
+
+    Mixed searchable/scanned PDFs keep their precise text-layer coordinates on
+    searchable pages and get OCR boxes only where the text layer is empty.
+    Scanned-only documents still end up fully OCR'd, as before.
+    """
+    if extracted.pdf_type == "encrypted":
+        return extracted
+    pages_needing_ocr = [
+        page.page for page in extracted.pages if _page_needs_ocr(page, extracted.pdf_type)
+    ]
+    if not pages_needing_ocr:
+        return extracted
+
+    from apps.engine.ocr import ocr_pdf_pages
+
+    ocr = ocr_pdf_pages(work, pages_needing_ocr, password=secret)
+    return _merge_ocr_pages(extracted, ocr)
+
+
+def _merge_ocr_pages(extracted: ExtractedPdf, ocr: ExtractedPdf) -> ExtractedPdf:
+    if not ocr.lines and not ocr.words:
+        # An empty OCR pass must never blank out whatever native content the
+        # document already had — keep the native extraction and note it.
+        for warning in ocr.warnings or []:
+            if warning not in extracted.warnings:
+                extracted.warnings.append(warning)
+        if ocr.warnings:
+            extracted.warnings.append(
+                "OCR could not read some pages; native text kept where present"
+            )
+        return extracted
+
+    ocr_norm = _normalize_extracted(ocr)
+    ocr_pages = {page.page for page in ocr_norm.pages}
+    original_page_count = len(extracted.pages)
+    extracted.pages = [page for page in extracted.pages if page.page not in ocr_pages]
+    extracted.pages.extend(ocr_norm.pages)
+    extracted.lines = [line for line in extracted.lines if line.page not in ocr_pages]
+    extracted.lines.extend(ocr_norm.lines)
+    extracted.words = [word for word in extracted.words if word.page not in ocr_pages]
+    extracted.words.extend(ocr_norm.words)
+    # Keep native tables (they only exist where the text layer worked) and add
+    # whatever the OCR pass found on its own pages.
+    native_tables = [table for table in extracted.tables if table.page not in ocr_pages]
+    extracted.tables = native_tables + list(ocr_norm.tables or [])
+    extracted.page_methods.update(ocr_norm.page_methods or {})
+    for warning in ocr_norm.warnings or []:
+        if warning not in extracted.warnings:
+            extracted.warnings.append(warning)
+    if ocr_pages:
+        if ocr_pages >= set(range(1, original_page_count + 1)):
+            extracted.pdf_type = "scanned"
+        else:
+            extracted.pdf_type = "mixed"
+        extracted.engine = f"{extracted.engine}+ocr" if "+ocr" not in extracted.engine else extracted.engine
+    return extracted
 
 
 def _almost_no_lines(extracted: ExtractedPdf) -> bool:
     return sum(1 for line in extracted.lines if line.text.strip()) < 2
-
-
-def _looks_like_scan(extracted: ExtractedPdf) -> bool:
-    if extracted.pdf_type in {"scanned", "image_based", "mixed"}:
-        return True
-    if extracted.pages and any(page.needs_ocr for page in extracted.pages):
-        return True
-    text = " ".join((page.text or "") for page in extracted.pages).strip()
-    return len(text) < 20
 
 
 def _normalize_extracted(extracted: ExtractedPdf) -> ExtractedPdf:

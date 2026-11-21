@@ -4,6 +4,7 @@ import contextvars
 import re
 from contextlib import contextmanager
 from decimal import Decimal, InvalidOperation
+from typing import NamedTuple
 
 # A conservative amount token used by invoice parsing and word-level layout
 # code.  It deliberately requires a decimal separator or a grouped number so
@@ -44,6 +45,8 @@ MONEY_TOKEN_RE = re.compile(
 
 DATE_RE = re.compile(
     r"\b("
+    r"\d{4}-\d{1,2}-\d{1,2}"
+    r"|"
     r"\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}"
     r"|"
     r"\d{1,2}[.\s]*[A-Za-z]{3,9}\.?\s*\d{2,4}"
@@ -67,6 +70,34 @@ _MONTHS = {
 _ACTIVE_DECIMAL: contextvars.ContextVar[str | None] = contextvars.ContextVar(
     "caunpacker_decimal_separator", default=None
 )
+
+# OCR look-alike digit substitutions.  Applied only when a token otherwise
+# fails to parse, only when the repaired text is fully numeric, and always
+# reported back to the caller so the repair can be flagged for review.
+# Mapping is deliberately limited to the strongest typographic confusions in
+# financial documents (Phase 7): 0/O, 1/I/l, 5/S, 8/B, 2/Z.
+_OCR_DIGIT_FIXES = {
+    "O": "0", "o": "0", "D": "0", "Q": "0",
+    "I": "1", "i": "1", "l": "1", "|": "1", "!": "1",
+    "Z": "2", "z": "2",
+    "S": "5", "s": "5",
+    "B": "8",
+}
+
+_DRCR_SUFFIX_RE = re.compile(r"(?i)(?:^|[\s(])([Dd][Rr]|[Cc][Rr])\.?(?=[\s)|]|$)")
+
+
+class AmountEvidence(NamedTuple):
+    """What an amount parse actually saw — original text, value, repairs."""
+
+    raw: str
+    value: Decimal | None
+    repaired_from: str | None = None
+    drcr: str | None = None
+
+    @property
+    def repaired(self) -> bool:
+        return self.repaired_from is not None
 
 
 @contextmanager
@@ -117,7 +148,25 @@ def parse_amount(raw: str, *, decimal_separator: str | None = None) -> Decimal |
     text = str(raw).strip()
     if not text:
         return None
+    candidate, negative = _numeric_candidate(text)
+    if not candidate or candidate in {".", ",", "-", "--", "'"}:
+        return None
+    if not re.fullmatch(r"[0-9.,']+", candidate):
+        return None
 
+    hint = decimal_separator if decimal_separator in {".", ","} else _ACTIVE_DECIMAL.get()
+    try:
+        value = _parse_number(candidate, hint)
+    except (InvalidOperation, ValueError):
+        return None
+    if value is None:
+        return None
+    return -value if negative else value
+
+
+def _numeric_candidate(raw: str) -> tuple[str, bool]:
+    """Reduce an amount token to its numeric body plus a negative flag."""
+    text = str(raw).strip()
     negative = False
     if text.startswith("(") and text.endswith(")") and len(text) > 2:
         negative = True
@@ -135,10 +184,11 @@ def parse_amount(raw: str, *, decimal_separator: str | None = None) -> Decimal |
     elif text.startswith("+"):
         text = text[1:].strip()
 
-    # Remove a leading/trailing currency code or symbol.  Only uppercase
-    # three-letter codes are stripped so ordinary words are not eaten.
-    text = re.sub(rf"^(?:{_CURRENCY_TOKEN})\s*", "", text).strip()
-    text = re.sub(rf"\s*(?:{_CURRENCY_TOKEN})$", "", text).strip()
+    # Remove a leading/trailing currency code or symbol.  Symbols are
+    # unambiguous; a three-letter alphabetic token is only stripped when it is
+    # a *known* ISO currency code, so OCR'd digits like ``2OOO`` are never
+    # eaten as a fake "OOO currency".
+    text = _strip_currency_edges(text)
 
     text = (
         text.replace("\u00a0", "")
@@ -147,19 +197,26 @@ def parse_amount(raw: str, *, decimal_separator: str | None = None) -> Decimal |
         .replace(" ", "")
         .replace("\u2019", "'")
     )
-    if not text or text in {".", ",", "-", "--", "'"}:
-        return None
-    if not re.fullmatch(r"[0-9.,']+", text):
-        return None
+    return text, negative
 
-    hint = decimal_separator if decimal_separator in {".", ","} else _ACTIVE_DECIMAL.get()
-    try:
-        value = _parse_number(text, hint)
-    except (InvalidOperation, ValueError):
-        return None
-    if value is None:
-        return None
-    return -value if negative else value
+
+def _strip_currency_edges(text: str) -> str:
+    match = re.match(rf"^({_CURRENCY_TOKEN})\s*", text)
+    if match and _currency_token_ok(match.group(1)):
+        text = text[match.end():]
+    match = re.search(rf"\s*({_CURRENCY_TOKEN})$", text)
+    if match and _currency_token_ok(match.group(1)):
+        text = text[: match.start()].strip()
+    return text
+
+
+def _currency_token_ok(token: str) -> bool:
+    """Symbols pass; three-letter codes must be real ISO currencies."""
+    if not token.isalpha():
+        return True
+    from apps.engine.currency import is_known
+
+    return is_known(token.upper())
 
 
 def _parse_number(text: str, hint: str | None) -> Decimal | None:
@@ -189,10 +246,12 @@ def _parse_number(text: str, hint: str | None) -> Decimal | None:
     count = comma_count or dot_count
     integer_part, _, fraction = text.rpartition(separator)
     if count > 1:
-        # Multiple separators can only be grouping marks.
-        if not integer_part or not fraction or not fraction.isdigit():
-            return None
-        if not _valid_grouping(integer_part, separator) or len(fraction) != 3:
+        # Multiple separators can only be grouping marks: the whole token is a
+        # grouped integer (the trailing group is the last group of the number,
+        # not a decimal fraction).  Validate the full grouping so Indian
+        # ``12,34,567`` and ``1,00,000`` parse; ``4821,355`` (4-digit head)
+        # still fails.
+        if not _valid_grouping(text, separator):
             return None
         return Decimal(text.replace(separator, ""))
 
@@ -298,3 +357,162 @@ def is_plausible_iso_date(value: str) -> bool:
     except (TypeError, ValueError):
         return False
     return 1990 <= year <= 2100 and 1 <= month <= 12 and 1 <= day <= 31
+
+
+def repair_ocr_digits(text: str) -> str | None:
+    """Repair OCR digit confusions (0/O, 1/I/l, 5/S, 8/B, …) conservatively.
+
+    Returns the repaired string only when the result fully parses as an amount
+    (signs, parentheses, grouping and decimals all included — :func:`parse_amount`
+    is the validator, so the repair never invents a format); otherwise ``None``.
+    A token like ``1O5,OOO.OO`` becomes ``105,000.00``; a word like ``TOTAL``
+    is never touched (no digits to repair around, and the parse check fails).
+    """
+    if not text or not any(ch.isdigit() for ch in text):
+        # Pure words, or words with a single stray letter: not an amount.
+        return None
+    candidate = "".join(_OCR_DIGIT_FIXES.get(ch, ch) for ch in text)
+    candidate = candidate.replace(" ", "")
+    if not re.fullmatch(r"[0-9.,'()\-\u00a0]+", candidate):
+        return None
+    if "." not in candidate and "," not in candidate:
+        # A repaired plain integer (``12AB3`` → ``12483``) is far more likely
+        # a cheque or reference number than an amount: refuse to guess.
+        return None
+    try:
+        if parse_amount(candidate) is None:
+            return None
+    except (InvalidOperation, ValueError):
+        return None
+    return candidate
+
+
+def parse_amount_with_evidence(
+    raw: str,
+    *,
+    decimal_separator: str | None = None,
+    allow_ocr_repair: bool = True,
+) -> AmountEvidence:
+    """Parse an amount and report what happened, including OCR repairs.
+
+    ``value is None`` means unparseable.  ``repaired_from`` is set when an OCR
+    digit confusion had to be fixed (0/O, 1/I, 5/S, 8/B …) — callers must flag
+    such rows for review rather than silently trusting the repair.
+    """
+    text = str(raw or "").strip()
+    if not text:
+        return AmountEvidence(raw=text, value=None)
+    value = parse_amount(text, decimal_separator=decimal_separator)
+    if value is not None:
+        return AmountEvidence(raw=text, value=value, drcr=_drcr_of(text))
+    if not allow_ocr_repair:
+        return AmountEvidence(raw=text, value=None, drcr=_drcr_of(text))
+    candidate, negative = _numeric_candidate(text)
+    repaired = repair_ocr_digits(candidate)
+    if repaired is None:
+        return AmountEvidence(raw=text, value=None, drcr=_drcr_of(text))
+    if negative and not (repaired.startswith("-") or repaired.startswith("(")):
+        # The parentheses/sign markers were consumed by the candidate strip;
+        # put them back so the repaired value keeps its direction.
+        repaired = f"({repaired})"
+    value = parse_amount(repaired, decimal_separator=decimal_separator)
+    if value is None:
+        return AmountEvidence(raw=text, value=None, drcr=_drcr_of(text))
+    return AmountEvidence(raw=text, value=value, repaired_from=text, drcr=_drcr_of(text))
+
+
+def _drcr_of(text: str) -> str | None:
+    """Detect a Dr/Cr marker on an amount token ('25,000 Dr', 'Cr 500.00')."""
+    if not text:
+        return None
+    matches = _DRCR_SUFFIX_RE.findall(text)
+    if not matches:
+        return None
+    directions = {match.lower() for match in matches}
+    if len(directions) == 1:
+        return "dr" if "d" in next(iter(directions)) else "cr"
+    return None
+
+
+def drcr_amounts_in(text: str) -> list[tuple[int, Decimal, str]]:
+    """Annotated amounts in a line: [(token_index, value, 'dr'|'cr'), …].
+
+    Used as directional evidence: ``NEFT 25,000 Dr 975,000`` says the 25,000
+    is a debit.  Only tokens that actually carry a Dr/Cr marker are returned.
+    """
+    found: list[tuple[int, Decimal, str]] = []
+    body = str(text or "")
+    hint = detect_decimal_separator(body)
+    for index, match in enumerate(MONEY_TOKEN_RE.finditer(body)):
+        direction = _drcr_of(match.group("drcr_prefix") or "") or _drcr_of(match.group("drcr") or "")
+        if not direction:
+            continue
+        value = parse_amount(match.group(0), decimal_separator=hint)
+        if value is None:
+            value = parse_amount(match.group("amount"), decimal_separator=hint)
+        if value is not None:
+            found.append((index, value, direction))
+    return found
+
+
+_DRCR_GLUED_RE = re.compile(r"(?P<marker>[Dd][Rr]|[Cc][Rr])\.?(?=\s|$|[),;])")
+
+
+def annotated_directions(text: str) -> list[tuple[Decimal, str, int]]:
+    """All Dr/Cr-annotated amounts in a line: [(value, 'dr'|'cr', start)].
+
+    Handles both spaced (``25,000 Dr``) and glued (``5,000.00Dr``) markers.
+    A marker only counts when the text immediately before it ends in a real
+    *money* token (grouped or decimal — a bare reference number like
+    ``REF 12345 DR`` never counts), so titles like ``Dr. Smith`` or the word
+    ``CREDIT`` never match either.
+    """
+    out: list[tuple[Decimal, str, int]] = []
+    body = str(text or "")
+    hint = detect_decimal_separator(body)
+    for match in _DRCR_GLUED_RE.finditer(body):
+        prefix = body[: match.start()].rstrip()
+        number = re.search(r"(\d[\d,.\u00a0\u202f ']*)$", prefix)
+        if not number:
+            continue
+        token = number.group(1).strip()
+        if not re.fullmatch(_NUMBER_BODY, token):
+            # A bare integer before Dr/Cr is most likely a reference number
+            # (``REF 12345 DR``); using it as the transaction amount would
+            # override the real positional evidence.
+            continue
+        value = parse_amount(f"{token} {match.group('marker')}.", decimal_separator=hint)
+        if value is not None:
+            out.append((value.copy_abs(), match.group("marker").lower(), match.start()))
+    return out
+
+
+def annotated_txn_direction(text: str) -> tuple[str, Decimal] | None:
+    """(direction, value) when a line's printed Dr/Cr marker identifies its
+    transaction amount, else ``None``.
+
+    A marker that follows the *last* money token most likely annotates the
+    balance column (``975,000 Dr`` for a debit balance), so it is ignored for
+    transaction direction.  Conflicting markers on the same line are treated
+    as no evidence.
+    """
+    annotations = annotated_directions(text)
+    if not annotations:
+        return None
+    directions = {direction for _value, direction, _start in annotations}
+    if len(directions) != 1:
+        # Conflicting printed evidence (``25,000 Dr 25,000 Cr``) is not a
+        # guess: refuse and let the positional heuristics decide.
+        return None
+    token_starts = [match.start() for match in MONEY_TOKEN_RE.finditer(str(text or ""))]
+    last_token_start = token_starts[-1] if token_starts else None
+    txn = [
+        (value, direction, start)
+        for value, direction, start in annotations
+        if last_token_start is None or start < last_token_start or len(token_starts) == 1
+    ]
+    if not txn:
+        return None
+    direction = next(iter(directions))
+    value = txn[-1][0]
+    return direction, value
