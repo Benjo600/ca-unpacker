@@ -345,6 +345,7 @@ class MigrationTests(unittest.TestCase):
                     4: lambda connection: None,
                     5: lambda connection: None,
                     6: lambda connection: None,
+                    7: lambda connection: None,
                 },
             )
 

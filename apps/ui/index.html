@@ -425,6 +425,7 @@
         </div>
       </div>
       <p id="dump-error" class="error" hidden></p>
+      <p id="dump-skipped" class="notice" hidden></p>
 
       <section id="file-review-block" class="treatment hidden">
         <div class="treatment-head">
@@ -706,11 +707,49 @@
     <div class="modal-card">
       <p class="eyebrow">Delete library</p>
       <h1>Wipe this PC’s app folder?</h1>
-      <p class="lede">Every client, dumped file and pack in the app will be deleted. Your Desktop project folder and the <code>test-dump</code> samples are not touched, and you stay signed in. The app returns to the first-run setup.</p>
+      <p class="lede">Every client, dumped file and pack in the app will be deleted. The Excel folders already written to your output folder are not touched, and you stay signed in. The app returns to the first-run setup.</p>
       <p id="wipe-error" class="error" hidden></p>
       <div class="drop-actions">
         <button type="button" class="danger" id="wipe-confirm">Delete everything</button>
         <button type="button" class="ghost" id="wipe-cancel">Keep data</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="guide-modal" class="modal hidden">
+    <div class="modal-card guide-card">
+      <p class="eyebrow">How to use</p>
+      <h1>One client month, five steps</h1>
+      <ol id="guide-modal-steps" class="guide-steps"></ol>
+      <p class="mute-note">Client files never leave this PC. Only the licence check uses the internet.</p>
+      <div class="drop-actions">
+        <button type="button" class="ghost" id="guide-modal-close">Close</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-period-modal" class="modal hidden">
+    <div class="modal-card">
+      <p class="eyebrow">Delete period</p>
+      <h1 id="delete-period-title">Delete this month?</h1>
+      <p class="lede" id="delete-period-copy">Every file, row and Excel pack for this month is deleted from this PC, and the month's output folder is removed. Other months are not touched.</p>
+      <p id="delete-period-error" class="error" hidden></p>
+      <div class="drop-actions">
+        <button type="button" class="danger" id="delete-period-confirm">Delete month</button>
+        <button type="button" class="ghost" id="delete-period-cancel">Keep month</button>
+      </div>
+    </div>
+  </div>
+
+  <div id="delete-client-modal" class="modal hidden">
+    <div class="modal-card">
+      <p class="eyebrow">Delete client</p>
+      <h1 id="delete-client-title">Delete this client?</h1>
+      <p class="lede" id="delete-client-copy">Their periods, every dumped file and the Excels in this client's output folder are deleted from this PC. Files you already copied elsewhere are not touched.</p>
+      <p id="delete-client-error" class="error" hidden></p>
+      <div class="drop-actions">
+        <button type="button" class="danger" id="delete-client-confirm">Delete client</button>
+        <button type="button" class="ghost" id="delete-client-cancel">Keep client</button>
       </div>
     </div>
   </div>

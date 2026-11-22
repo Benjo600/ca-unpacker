@@ -12,7 +12,7 @@ from sqlalchemy.engine import Connection, Engine
 from sqlalchemy.sql.schema import MetaData
 
 BASELINE_SCHEMA_VERSION = 1
-LATEST_SCHEMA_VERSION = 6
+LATEST_SCHEMA_VERSION = 7
 
 _log = logging.getLogger(__name__)
 
@@ -146,12 +146,40 @@ def _migrate_v5_to_v6(connection: Connection) -> None:
         connection.exec_driver_sql(statement)
 
 
+def _migrate_v6_to_v7(connection: Connection) -> None:
+    """Remember which files an import skipped as already present.
+
+    Dropping the same client folder twice used to store every document again,
+    so the bank and purchase totals doubled.  Identical bytes are now skipped
+    at intake; this column keeps the names so the import summary can say what
+    was skipped and why (additive, default empty).
+    """
+    existing = {
+        row[0]
+        for row in connection.exec_driver_sql(
+            "SELECT name FROM sqlite_master WHERE type = 'table'"
+        )
+    }
+    if "jobs" not in existing:
+        return
+    present = {
+        row[1] for row in connection.exec_driver_sql("PRAGMA table_info(jobs)")
+    }
+    if "intake_duplicate_names_json" in present:
+        return
+    connection.exec_driver_sql(
+        "ALTER TABLE jobs ADD COLUMN intake_duplicate_names_json VARCHAR "
+        "NOT NULL DEFAULT '[]'"
+    )
+
+
 MIGRATION_STEPS: Mapping[int, Migration] = {
     2: _migrate_v1_to_v2,
     3: _migrate_v2_to_v3,
     4: _migrate_v3_to_v4,
     5: _migrate_v4_to_v5,
     6: _migrate_v5_to_v6,
+    7: _migrate_v6_to_v7,
 }
 
 

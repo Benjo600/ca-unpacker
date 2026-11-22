@@ -180,6 +180,14 @@ def get_job(job_id: int) -> dict | None:
         extra = []
         if (job.error_message or "") == TRUNCATION_WARNING:
             extra.append(TRUNCATION_WARNING)
+        try:
+            skipped_duplicates = json.loads(
+                getattr(job, "intake_duplicate_names_json", "[]") or "[]"
+            )
+        except (TypeError, ValueError):
+            skipped_duplicates = []
+        if not isinstance(skipped_duplicates, list):
+            skipped_duplicates = []
         report = load_report(job.period_id)
         return {
             "api_version": 1,
@@ -190,6 +198,7 @@ def get_job(job_id: int) -> dict | None:
             "error_message": job.error_message,
             "intake_discovered_count": job.intake_discovered_count,
             "intake_accepted_count": job.intake_accepted_count,
+            "skipped_duplicates": skipped_duplicates,
             "outcome_counts": _outcome_counts(files),
             "files": file_dicts,
             "warnings": _warnings_from_files(file_dicts, extra),
@@ -479,6 +488,56 @@ def _safe_name(name: str) -> str:
     return (cleaned or "file")[:120]
 
 
+def _sha256_of(path: Path) -> str:
+    digest = hashlib.sha256()
+    with path.open("rb") as handle:
+        for chunk in iter(lambda: handle.read(1024 * 1024), b""):
+            digest.update(chunk)
+    return digest.hexdigest()
+
+
+def _existing_hashes(session, period_id: int) -> dict[str, str]:
+    """Map content hash -> original name for files already in this period."""
+    rows = (
+        session.query(StoredFile.content_sha256, StoredFile.original_name)
+        .filter(
+            StoredFile.period_id == period_id,
+            StoredFile.content_sha256.isnot(None),
+            StoredFile.content_sha256 != "",
+        )
+        .all()
+    )
+    return {row[0]: row[1] for row in rows if row[0]}
+
+
+def _split_already_present(
+    sources: list[Path], present: dict[str, str]
+) -> tuple[list[Path], list[dict]]:
+    """Drop files whose bytes are already in the period.
+
+    Re-dropping a client folder used to store every document a second time, so
+    the pack counted the same bank lines and purchases twice.  Identical bytes
+    in the same period are the same document, so they are skipped - and named
+    in the import summary, never dropped silently.
+    """
+    unique: list[Path] = []
+    skipped: list[dict] = []
+    seen = dict(present)
+    for source in sources:
+        try:
+            digest = _sha256_of(source)
+        except OSError:
+            # Unreadable sources keep their existing per-file failure path.
+            unique.append(source)
+            continue
+        if digest in seen:
+            skipped.append({"name": source.name, "of": seen[digest]})
+            continue
+        seen[digest] = source.name
+        unique.append(source)
+    return unique, skipped
+
+
 def copy_verified(source: Path, dest: Path) -> tuple[str | None, str | None]:
     """Copy a file into the library, then verify and hash what was written.
 
@@ -549,8 +608,11 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             raise ValueError("Period was not found.")
 
         preflight = preflight_paths(paths)
-        to_copy = preflight.paths
-        assert_can_ingest(preflight.accepted_count)
+        to_copy, already_present = _split_already_present(
+            preflight.paths, _existing_hashes(session, period.id)
+        )
+        accepted_count = max(0, preflight.accepted_count - len(already_present))
+        assert_can_ingest(accepted_count)
         # Re-read the row: a cancel request committed after this job started
         # must not be overwritten by the routine queued→routing transition.
         session.expire(job)
@@ -559,7 +621,8 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             raise JobCancelled()
         job.status = "routing"
         job.intake_discovered_count = preflight.discovered_count
-        job.intake_accepted_count = preflight.accepted_count
+        job.intake_accepted_count = accepted_count
+        job.intake_duplicate_names_json = json.dumps(already_present[:50])
         manifest: list[tuple[Path, StoredFile]] = []
         for source in to_copy:
             mime, _ = mimetypes.guess_type(source.name)
@@ -663,7 +726,7 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             job.error_message = _job_error_message(pack_result, job.status)
             job.finished_at = utcnow()
             session.commit()
-        record_ingested(preflight.accepted_count)
+        record_ingested(accepted_count)
         return get_job(job_id) or {"id": job_id, "status": "done", "files": []}
     except JobCancelled:
         try:

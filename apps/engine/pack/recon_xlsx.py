@@ -42,11 +42,11 @@ DECISION_NOTE = (
     "A decision never changes the difference above; it only records what the firm decided."
 )
 COUNT_ORDER = (
-    ("matched", "matched"),
-    ("books_only", "books_only"),
-    ("portal_only", "portal_only"),
-    ("amount_mismatch", "amount_mismatch"),
-    ("likely", "likely"),
+    ("matched", "Matched"),
+    ("books_only", "In the books only"),
+    ("portal_only", "On the portal only"),
+    ("amount_mismatch", "Amount differs"),
+    ("likely", "Likely the same bill"),
     ("tax_mismatch", "Tax differs"),
     ("duplicate", "Duplicate"),
     ("split_merged", "Split or merged"),

@@ -1032,13 +1032,74 @@ function renderPeriods(periods) {
     const hint = document.createElement("span");
     hint.className = "period-action";
     hint.textContent = "Open Document Workspace";
-    row.append(name, hint);
+    // A mistyped month used to be permanent. Deleting the month leaves the
+    // client and their other months alone.
+    const del = document.createElement("button");
+    del.type = "button";
+    del.className = "row-delete";
+    del.textContent = "Delete";
+    del.setAttribute("aria-label", `Delete ${period.label}`);
+    del.addEventListener("click", (event) => {
+      event.stopPropagation();
+      deletePeriodRow(period);
+    });
+    row.append(name, hint, del);
     row.addEventListener("click", () => openPeriod(period.id));
     row.addEventListener("keydown", (event) => {
       if (event.key === "Enter") openPeriod(period.id);
     });
     periodListEl.append(row);
   }
+}
+
+let pendingPeriodDelete = null;
+
+function closePeriodDeleteModal() {
+  const modal = document.getElementById("delete-period-modal");
+  if (modal) modal.classList.add("hidden");
+  pendingPeriodDelete = null;
+}
+
+async function deletePeriodRow(period) {
+  const modal = document.getElementById("delete-period-modal");
+  const titleEl = document.getElementById("delete-period-title");
+  const copyEl = document.getElementById("delete-period-copy");
+  const errorEl = document.getElementById("delete-period-error");
+  const confirmBtn = document.getElementById("delete-period-confirm");
+  if (!modal || !titleEl || !copyEl || !confirmBtn) return;
+  const clientName = (currentClient && currentClient.name) || "this client";
+  pendingPeriodDelete = period;
+  titleEl.textContent = `Delete ${period.label}?`;
+  copyEl.textContent =
+    `Every file, row and Excel pack for ${clientName} in ${period.label} is deleted ` +
+    "from this PC, and the month's output folder is removed. Other months are not touched.";
+  showError(errorEl, "");
+  confirmBtn.disabled = false;
+  modal.classList.remove("hidden");
+  confirmBtn.focus();
+}
+
+async function confirmPeriodDelete() {
+  const period = pendingPeriodDelete;
+  if (!period) return;
+  const confirmBtn = document.getElementById("delete-period-confirm");
+  const errorEl = document.getElementById("delete-period-error");
+  if (confirmBtn) confirmBtn.disabled = true;
+  showError(errorEl, "");
+  let result;
+  try {
+    result = await window.pywebview.api.delete_period_desk(period.id);
+  } catch (err) {
+    result = { ok: false, error: "Could not delete this period." };
+  }
+  if (confirmBtn) confirmBtn.disabled = false;
+  if (!result.ok) {
+    showError(errorEl, result.error);
+    return;
+  }
+  closePeriodDeleteModal();
+  renderPeriods(result.periods || []);
+  syncGuide();
 }
 
 function kindSelect(file, compact) {
@@ -1151,8 +1212,39 @@ function setDumpStatus(summary) {
   if (summary.tone === "failure") dumpStatusEl.classList.add("status-failure");
 }
 
+// Files whose bytes were already in this period are skipped, not imported a
+// second time - otherwise a re-dropped folder doubles every total. Name them
+// so nothing disappears silently.
+function setSkippedNotice(items) {
+  const el = document.getElementById("dump-skipped");
+  if (!el) return;
+  const list = Array.isArray(items) ? items : [];
+  if (!list.length) {
+    el.hidden = true;
+    el.textContent = "";
+    return;
+  }
+  const names = list.map((item) => {
+    const name = (item && item.name) || String(item || "");
+    const of = item && item.of;
+    return of && of !== name ? `${name} (same as ${of})` : name;
+  });
+  const count = names.length;
+  el.textContent =
+    `${count} ${count === 1 ? "file was" : "files were"} already in this period and ` +
+    `${count === 1 ? "was" : "were"} not imported again: ${names.join(", ")}. ` +
+    "Remove the earlier copy first if you need to replace it.";
+  el.hidden = false;
+}
+
 function reviewFiles(files) {
   return (files || []).filter((file) => file.needs_review);
+}
+
+// "1 row", "2 rows" - used everywhere a count is shown to the CA.
+function rowsLabel(count) {
+  const n = Number(count) || 0;
+  return `${n} ${n === 1 ? "row" : "rows"}`;
 }
 
 function updateReviewNote() {
@@ -1739,6 +1831,7 @@ async function openClient(clientId) {
 
 async function openPeriod(periodId) {
   showError(dumpErrorEl, "");
+  setSkippedNotice([]);
   const result = await window.pywebview.api.get_period_desk(periodId);
   if (!result.ok) {
     showError(periodErrorEl, result.error);
@@ -1866,7 +1959,7 @@ function renderPack(pack) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "text-btn";
-    btn.textContent = `${out.label} · ${out.rows} rows${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
+    btn.textContent = `${out.label} · ${rowsLabel(out.rows)}${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
     btn.addEventListener("click", async () => {
       const opened = await window.pywebview.api.open_bank_pack(currentPeriod.id, out.key);
       if (!opened.ok) showError(dumpErrorEl, opened.error);
@@ -1920,7 +2013,21 @@ function preflightLine(issue, preflightApi) {
   chip.classList.add(issue && issue.level === "blocking" ? "mismatch" : "unknown");
   chip.textContent = preflightApi.levelLabel(issue && issue.level);
   const text = document.createElement("span");
-  text.textContent = preflightApi.issueText(issue);
+  // The message says what is wrong; every sample says where. One sample used to
+  // be appended to the sentence, which read as a run-on and hid the rest.
+  text.textContent = (issue && issue.message) || "";
+  const samples = (issue && issue.samples) || [];
+  if (samples.length) {
+    const list = document.createElement("span");
+    list.className = "pack-preflight-samples";
+    for (const sample of samples.slice(0, 5)) {
+      const item = document.createElement("span");
+      item.className = "pack-preflight-sample";
+      item.textContent = preflightApi.sampleText([sample]);
+      list.append(item);
+    }
+    text.append(list);
+  }
   line.append(chip, text);
   return line;
 }
@@ -3297,7 +3404,7 @@ function renderReports(packs) {
     const meta = document.createElement("p");
     meta.className = "practice-note";
     const when = formatWhen(pack.created_at);
-    meta.textContent = `${Number(pack.row_count) || 0} rows${when ? ` · ${when}` : ""}`;
+    meta.textContent = `${rowsLabel(pack.row_count)}${when ? ` · ${when}` : ""}`;
     titleWrap.append(title, meta);
     const folder = document.createElement("button");
     folder.type = "button";
@@ -3314,7 +3421,7 @@ function renderReports(packs) {
       name.textContent = output.label || output.key || "Excel";
       const details = document.createElement("span");
       details.className = "report-output-meta";
-      details.textContent = `${Number(output.rows) || 0} rows${output.status && output.status !== "ready" ? ` · ${output.status}` : ""}`;
+      details.textContent = `${rowsLabel(output.rows)}${output.status && output.status !== "ready" ? ` · ${output.status}` : ""}`;
       const open = document.createElement("button");
       open.type = "button";
       open.className = "ui-btn ui-btn-secondary";
@@ -3394,6 +3501,35 @@ function flagList(row) {
   return [];
 }
 
+// Plain words for the engine's flag codes. The workbook keeps the codes (they
+// are filterable), but a CA should never have to read "currency_unknown".
+const FLAG_LABELS = {
+  currency_unknown: "Currency not stated",
+  currency_ambiguous: "Currency unclear",
+  gstin_checksum: "GSTIN check digit wrong",
+  gstin_format: "GSTIN format wrong",
+  hsn_length: "HSN has the wrong length",
+  hsn_missing: "HSN missing",
+  hsn_rate: "HSN rate looks off",
+  invoice_math: "Total does not equal taxable + tax",
+  invoice_number_missing: "Invoice number missing",
+  date_missing: "Date missing",
+  date_unlabelled: "Date could not be labelled",
+  taxable_derived: "Taxable value worked out",
+  tax_derived: "Tax worked out",
+  invoice_value_derived: "Invoice value worked out",
+  item_layout_uncertain: "Line items uncertain",
+  unparsed_rows: "Some rows unread",
+  utgst: "UTGST, not SGST",
+};
+
+function flagLabel(flag) {
+  const key = String(flag || "").trim();
+  if (FLAG_LABELS[key]) return FLAG_LABELS[key];
+  if (key.startsWith("sap_")) return "SAP export note";
+  return key.replace(/_/g, " ");
+}
+
 function flagsCell(row) {
   const td = document.createElement("td");
   td.className = "flags";
@@ -3407,7 +3543,8 @@ function flagsCell(row) {
   for (const flag of flags) {
     const pill = document.createElement("span");
     pill.className = "pill mute";
-    pill.textContent = flag;
+    pill.textContent = flagLabel(flag);
+    pill.title = flag;
     wrap.append(pill);
   }
   td.append(wrap);
@@ -4263,6 +4400,7 @@ function pollJob(jobId) {
     const dumpVisible = !paneDump.classList.contains("hidden");
     if (dumpVisible && currentPeriod && currentPeriod.id === job.period_id) {
       await openPeriod(currentPeriod.id);
+      setSkippedNotice(job.skipped_duplicates || []);
       if (job.blocked) {
         setDumpStatus({
           tone: "failure",
@@ -4472,6 +4610,57 @@ async function reopenGuide() {
   syncGuide();
 }
 
+// The inline step card only fits the three Documents panes. Everywhere else the
+// Help link used to do nothing at all, so it now opens a plain checklist that
+// works on any screen.
+const GUIDE_STEPS = [
+  {
+    text: "Add the client",
+    detail: "Documents → type the legal name → Add client. GSTIN and profession are optional.",
+  },
+  {
+    text: "Open the client and create the month",
+    detail: "Click the client row, name the period (for example Oct 2026), then Add period.",
+  },
+  {
+    text: "Put this month's documents in",
+    detail:
+      "Add folder (or drag it in). Bank PDFs, bills, GSTR JSON and Tally exports can go in together. A file already in this period is skipped, never counted twice.",
+  },
+  {
+    text: "Read what the app says about each file",
+    detail:
+      "Each file shows processed, needs review, failed or unclassified with the reason. Change the type from the dropdown if it was read wrongly.",
+  },
+  {
+    text: "Reconcile and hand over",
+    detail:
+      "Reconciliation compares portal against books. Reports → Open folder gives the Excel pack to work from or send on.",
+  },
+];
+
+function openGuideModal() {
+  const modal = document.getElementById("guide-modal");
+  const list = document.getElementById("guide-modal-steps");
+  if (!modal || !list) return;
+  list.innerHTML = "";
+  for (const step of GUIDE_STEPS) {
+    const li = document.createElement("li");
+    const strong = document.createElement("strong");
+    strong.textContent = step.text;
+    const p = document.createElement("span");
+    p.textContent = step.detail;
+    li.append(strong, p);
+    list.append(li);
+  }
+  modal.classList.remove("hidden");
+  // The inline step card says the same thing; hide it while the checklist is open.
+  const inlineCard = document.getElementById("guide");
+  if (inlineCard) inlineCard.classList.add("hidden");
+  const close = document.getElementById("guide-modal-close");
+  if (close) close.focus();
+}
+
 function openRemoveFileModal(file) {
   const guard = window.CARemoveFile.guardRemoveFile({
     file,
@@ -4540,16 +4729,53 @@ async function confirmRemoveFile() {
   if (currentPeriod) await openPeriod(currentPeriod.id);
 }
 
+let pendingClientDelete = null;
+
+function closeDeleteClientModal() {
+  const modal = document.getElementById("delete-client-modal");
+  if (modal) modal.classList.add("hidden");
+  pendingClientDelete = null;
+}
+
 async function deleteClientRow(client) {
-  if (!window.confirm(`Delete ${client.name} and every file dumped for them on this PC?`)) {
+  // Use the app's own dialog: the embedded browser's "This page says" confirm
+  // looked like a different, unfinished product.
+  const modal = document.getElementById("delete-client-modal");
+  const titleEl = document.getElementById("delete-client-title");
+  const copyEl = document.getElementById("delete-client-copy");
+  const errorEl = document.getElementById("delete-client-error");
+  const confirmBtn = document.getElementById("delete-client-confirm");
+  if (!modal || !titleEl || !copyEl || !confirmBtn) return;
+  pendingClientDelete = client;
+  titleEl.textContent = `Delete ${client.name}?`;
+  copyEl.textContent =
+    "Their periods, every dumped file and the Excels in this client's output folder " +
+    "are deleted from this PC. Files you already copied elsewhere are not touched.";
+  showError(errorEl, "");
+  confirmBtn.disabled = false;
+  modal.classList.remove("hidden");
+  confirmBtn.focus();
+}
+
+async function confirmClientDelete() {
+  const client = pendingClientDelete;
+  if (!client) return;
+  const confirmBtn = document.getElementById("delete-client-confirm");
+  const errorEl = document.getElementById("delete-client-error");
+  if (confirmBtn) confirmBtn.disabled = true;
+  showError(errorEl, "");
+  let result;
+  try {
+    result = await window.pywebview.api.delete_client_desk(client.id);
+  } catch (err) {
+    result = { ok: false, error: "Could not delete this client." };
+  }
+  if (confirmBtn) confirmBtn.disabled = false;
+  if (!result || !result.ok) {
+    showError(errorEl, (result && result.error) || "Could not delete this client.");
     return;
   }
-  showError(deskErrorEl, "");
-  const result = await window.pywebview.api.delete_client_desk(client.id);
-  if (!result.ok) {
-    showError(deskErrorEl, result.error);
-    return;
-  }
+  closeDeleteClientModal();
   if (currentClient && currentClient.id === client.id) {
     currentClient = null;
     currentPeriod = null;
@@ -4902,7 +5128,24 @@ if (reconExportSummaryEl) {
 }
 
 document.getElementById("guide-skip").addEventListener("click", dismissGuide);
-document.getElementById("guide-open").addEventListener("click", reopenGuide);
+const guideModalEl = document.getElementById("guide-modal");
+const guideModalClose = document.getElementById("guide-modal-close");
+const closeGuideModal = () => {
+  guideModalEl.classList.add("hidden");
+  syncGuide();
+};
+if (guideModalClose) guideModalClose.addEventListener("click", closeGuideModal);
+if (guideModalEl) {
+  guideModalEl.addEventListener("click", (event) => {
+    if (event.target === guideModalEl) closeGuideModal();
+  });
+}
+document.getElementById("guide-open").addEventListener("click", async () => {
+  // Re-show the inline steps where they exist, and always open the checklist so
+  // the link is never a dead click on Dashboard, Reconciliation or Reports.
+  await reopenGuide();
+  openGuideModal();
+});
 
 const authForm = document.getElementById("auth-form");
 const authEmailEl = document.getElementById("auth-email");
@@ -5217,6 +5460,16 @@ if (removeFileModal) {
 }
 document.getElementById("remove-file-cancel").addEventListener("click", closeRemoveFileModal);
 removeFileConfirmBtn.addEventListener("click", confirmRemoveFile);
+
+const deleteClientConfirmBtn = document.getElementById("delete-client-confirm");
+const deleteClientCancelBtn = document.getElementById("delete-client-cancel");
+if (deleteClientConfirmBtn) deleteClientConfirmBtn.addEventListener("click", confirmClientDelete);
+if (deleteClientCancelBtn) deleteClientCancelBtn.addEventListener("click", closeDeleteClientModal);
+
+const deletePeriodConfirmBtn = document.getElementById("delete-period-confirm");
+const deletePeriodCancelBtn = document.getElementById("delete-period-cancel");
+if (deletePeriodConfirmBtn) deletePeriodConfirmBtn.addEventListener("click", confirmPeriodDelete);
+if (deletePeriodCancelBtn) deletePeriodCancelBtn.addEventListener("click", closePeriodDeleteModal);
 
 if (cropModal) {
   cropModal.addEventListener("click", (event) => {

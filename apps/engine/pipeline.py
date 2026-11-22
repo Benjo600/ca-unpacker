@@ -421,9 +421,13 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                     reason = stored.classify_reason or ""
                     if "password" not in reason.lower():
                         if extra.get("unreadable") or not items:
-                            stored.classify_reason = "recognised as invoice but no line items"
+                            stored.classify_reason = (
+                                "This looks like a bill but no line items could be read"
+                            )
                         else:
-                            stored.classify_reason = "recognised as invoice but no rows extracted"
+                            stored.classify_reason = (
+                                "This looks like a bill but no rows could be read"
+                            )
                     rows = []
                     items = []
                 else:
@@ -450,7 +454,10 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                 stored.classify_reason = (
                     str(extra.get("reason") or "").strip()[:300]
                     if kind == "sap" and extra.get("reason")
-                    else f"recognised as {kind} but no rows extracted"
+                    else (
+                        f"This looks like a {KIND_LABELS.get(kind, kind)} "
+                        "but no rows could be read"
+                    )
                 )
             persist_file_outcome(
                 stored,
@@ -850,7 +857,13 @@ def _review_status(stored: StoredFile) -> str | None:
         return "unknown"
     if "unreadable" in reason or "no line items" in reason:
         return "unreadable"
-    if reason.startswith("could not parse") or "no rows extracted" in reason:
+    # "no rows extracted" is the wording stored by older builds; keep matching it
+    # so an existing library still shows its review rows.
+    if (
+        reason.startswith("could not parse")
+        or "no rows extracted" in reason
+        or "no rows could be read" in reason
+    ):
         return "no rows"
     if kind == "sap" and getattr(stored, "parse_reason_code", None) == "no_rows":
         return "no rows"

@@ -1536,6 +1536,13 @@ def recon_filter_options(session=None) -> dict:
             .order_by(StoredFile.original_name.asc())
             .all()
         )
+        # How many documents each month holds, so a period with nothing in it is
+        # labelled instead of offered as if it could be reconciled.
+        file_counts = dict(
+            session.query(StoredFile.period_id, func.count(StoredFile.id))
+            .group_by(StoredFile.period_id)
+            .all()
+        )
         categories = sorted(
             {
                 row[0]
@@ -1562,6 +1569,7 @@ def recon_filter_options(session=None) -> dict:
                     "client_id": client.id,
                     "client_name": client.name,
                     "financial_year": financial_year(period.label),
+                    "file_count": int(file_counts.get(period.id, 0) or 0),
                 }
                 for period, client in periods
             ],

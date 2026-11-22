@@ -78,6 +78,12 @@ class Job(Base):
     intake_accepted_count: Mapped[int] = mapped_column(
         Integer, default=0, server_default=text("0")
     )
+    #: Files skipped because the same bytes were already in this period. Stored
+    #: as a JSON list of ``{"name": ..., "of": ...}`` so the import summary can
+    #: name them. Skipping keeps a re-dropped folder from double-counting.
+    intake_duplicate_names_json: Mapped[str] = mapped_column(
+        String, default="[]", server_default=text("'[]'")
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
     finished_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
 

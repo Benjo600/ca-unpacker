@@ -39,11 +39,17 @@ class RemovePeriodFileTests(unittest.TestCase):
         self._tmp.cleanup()
 
     def _two_bank_files(self) -> tuple[Path, Path]:
+        # Two genuinely different statements: identical bytes in one period are
+        # now skipped as the same document, so the fixture must differ.
         first = write_hdfc(self.inbox)
         first = first.rename(self.inbox / "HDFC_Statement_A.pdf")
-        second = write_hdfc(self.inbox)
-        second = second.rename(self.inbox / "HDFC_Statement_B.pdf")
-        return first, second
+        second_path = self.inbox / "HDFC_Statement_B.pdf"
+        second_path.write_bytes(
+            Path(first)
+            .read_bytes()
+            .replace(b"50100123456789", b"50100123000001")
+        )
+        return first, second_path
 
     def _ingest(self, *paths: Path) -> dict:
         from apps.engine.dump import ingest_paths, start_job

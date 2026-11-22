@@ -177,8 +177,8 @@ class DuplicateContentTests(unittest.TestCase):
         self._env.stop()
         self._tmp.cleanup()
 
-    def test_identical_file_ingested_twice_is_flagged_not_dropped(self) -> None:
-        from apps.engine.dump import ingest_paths, list_period_files, start_job
+    def test_identical_file_in_one_import_is_skipped_and_named(self) -> None:
+        from apps.engine.dump import get_job, ingest_paths, list_period_files, start_job
 
         period = self._period()
         payload = pdf_with_text(
@@ -203,16 +203,53 @@ class DuplicateContentTests(unittest.TestCase):
         files = list_period_files(period["id"])
         by_name = {row["original_name"]: row for row in files}
         self.assertIn("statement_a.pdf", by_name)
-        self.assertIn("statement_b.pdf", by_name)
-        duplicate = by_name["statement_b.pdf"]
-        original = by_name["statement_a.pdf"]
-        # Both copies are ingested, hashed and processed — nothing is dropped.
-        self.assertEqual(duplicate["content_sha256"], original["content_sha256"])
-        self.assertIsNotNone(duplicate["content_sha256"])
-        self.assertIn("duplicate content of statement_a.pdf", duplicate["classify_reason"])
-        self.assertTrue(duplicate["duplicate_content"])
-        # Both files still produce parsed rows for review.
-        self.assertEqual(original["parse_row_count"], 1)
+        # Identical bytes in the same period are the same document: the second
+        # copy is not stored, so it can never double the pack totals.
+        self.assertNotIn("statement_b.pdf", by_name)
+        self.assertEqual(by_name["statement_a.pdf"]["parse_row_count"], 1)
+
+        report = get_job(job["id"]) or {}
+        skipped = report.get("skipped_duplicates") or []
+        self.assertEqual([item["name"] for item in skipped], ["statement_b.pdf"])
+        self.assertEqual(skipped[0]["of"], "statement_a.pdf")
+
+    def test_reimporting_the_same_folder_does_not_double_totals(self) -> None:
+        from apps.engine.dump import get_job, ingest_paths, list_period_files, start_job
+
+        period = self._period()
+        inbox = Path(self._tmp.name)
+        statement = inbox / "statement.pdf"
+        statement.write_bytes(
+            pdf_with_text(
+                [
+                    "HDFC Bank Statement",
+                    "Account Number 50100123456789",
+                    "IFSC HDFC0001234",
+                    "Opening Balance 1,000.00",
+                    "01/07/2026 UPI 100.00 1,100.00",
+                    "Closing Balance 1,100.00",
+                ]
+            )
+        )
+
+        first_job = start_job(period["id"])
+        ingest_paths(first_job["id"], [str(statement)])
+        first_files = list_period_files(period["id"])
+        self.assertEqual(len(first_files), 1)
+
+        second_job = start_job(period["id"])
+        ingest_paths(second_job["id"], [str(statement)])
+
+        # Same bytes, same period: still one file, so the bank rows are not
+        # counted twice in the workbook.
+        files = list_period_files(period["id"])
+        self.assertEqual(len(files), 1)
+        self.assertEqual(files[0]["parse_row_count"], 1)
+
+        report = get_job(second_job["id"]) or {}
+        skipped = report.get("skipped_duplicates") or []
+        self.assertEqual([item["name"] for item in skipped], ["statement.pdf"])
+        self.assertEqual(report.get("intake_accepted_count"), 0)
 
     def test_different_content_is_not_flagged(self) -> None:
         from apps.engine.dump import ingest_paths, list_period_files, start_job

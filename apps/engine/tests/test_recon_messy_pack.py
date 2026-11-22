@@ -20,11 +20,11 @@ TAX_HEADERS = [
     "IGST (books)",
 ]
 COUNT_LABELS = [
-    "matched",
-    "books_only",
-    "portal_only",
-    "amount_mismatch",
-    "likely",
+    "Matched",
+    "In the books only",
+    "On the portal only",
+    "Amount differs",
+    "Likely the same bill",
     "Tax differs",
     "Duplicate",
     "Split or merged",
@@ -245,11 +245,11 @@ class ReconMessyPackTests(unittest.TestCase):
         book = self._load(self._write(_result()))
         pairs = _cover_pairs(book)
         expected = {
-            "matched": 1,
-            "books_only": 0,
-            "portal_only": 0,
-            "amount_mismatch": 0,
-            "likely": 0,
+            "Matched": 1,
+            "In the books only": 0,
+            "On the portal only": 0,
+            "Amount differs": 0,
+            "Likely the same bill": 0,
             "Tax differs": 1,
             "Duplicate": 1,
             "Split or merged": 1,
