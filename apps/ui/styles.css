@@ -1433,6 +1433,28 @@ button.danger:hover { background: #6e1f1f; }
   width: min(720px, 100%);
 }
 
+.modal-card.guide-card {
+  width: min(560px, 100%);
+}
+
+.guide-steps {
+  margin: 4px 0 16px;
+  padding-left: 20px;
+  display: grid;
+  gap: 10px;
+  font-size: 13.5px;
+  line-height: 1.45;
+}
+
+.guide-steps li strong {
+  display: block;
+  color: var(--ink);
+}
+
+.guide-steps li span {
+  color: var(--color-text-secondary, #555);
+}
+
 .crop-title {
   margin: 0;
   font-family: Cambria, "Palatino Linotype", serif;
@@ -1816,8 +1838,8 @@ button.source-amt:hover {
 }
 
 .file-actions .kind-pick {
-  flex: 1;
-  min-width: 0;
+  flex: 1 1 auto;
+  min-width: 130px;
 }
 
 .unlock-btn {
@@ -2166,6 +2188,24 @@ button.ghost:disabled:hover { background: transparent; }
 
 .pack-preflight-line .pill {
   flex: 0 0 auto;
+}
+
+.pack-preflight-samples {
+  display: block;
+  margin: 2px 0 0;
+}
+
+.pack-preflight-sample {
+  display: block;
+  padding-left: 10px;
+  position: relative;
+  color: var(--mute);
+}
+
+.pack-preflight-sample::before {
+  content: "·";
+  position: absolute;
+  left: 2px;
 }
 
 .preview {
@@ -3187,7 +3227,7 @@ select.kind-pick {
 
 #pane-periods .period-row {
   display: grid;
-  grid-template-columns: minmax(0, 1fr) auto;
+  grid-template-columns: minmax(0, 1fr) auto auto;
   gap: 16px;
   align-items: center;
   min-height: 44px;
@@ -3232,6 +3272,19 @@ select.kind-pick {
 
 #pane-periods .period-row:hover .period-action {
   color: var(--color-primary);
+}
+
+#pane-periods .period-row .row-delete {
+  background: none;
+  border: 0;
+  padding: 4px 6px;
+  font-size: var(--font-size-xs);
+  color: var(--bad);
+  cursor: pointer;
+}
+
+#pane-periods .period-row .row-delete:hover {
+  text-decoration: underline;
 }
 
 #pane-periods .empty {
@@ -3516,7 +3569,7 @@ select.kind-pick {
 #pane-dump .files-head,
 #pane-dump .file-row,
 #pane-dump .review-row {
-  grid-template-columns: minmax(0, 1fr) minmax(160px, 220px);
+  grid-template-columns: minmax(0, 1fr) minmax(210px, 280px);
   gap: 16px;
   padding: 12px 18px;
 }

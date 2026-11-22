@@ -629,8 +629,9 @@ def _unparsed_file_issues(files: Sequence[Any]) -> list[PreflightIssue]:
             level=WARNING,
             code="file_unparsed",
             message=(
-                f"{count} {_files_word(count)} were skipped or produced no rows. "
-                "The reason for each one is listed here."
+                f"{count} {_files_word(count)} could not be read, so "
+                f"{'it is' if count == 1 else 'they are'} not in the Excel. "
+                "Fix or reclassify each one, then run the pack again."
             ),
             count=count,
             samples=tuple(samples),

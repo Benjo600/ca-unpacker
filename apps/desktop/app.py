@@ -94,6 +94,7 @@ from apps.engine.settings import (
 )
 from apps.engine.periods import (
     create_period,
+    delete_period,
     get_period,
     list_periods,
     set_period_tolerances,
@@ -1132,6 +1133,17 @@ class DesktopApi:
             }
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
+
+    def delete_period_desk(self, period_id: int) -> dict:
+        try:
+            removed = delete_period(int(period_id))
+        except ValueError as exc:
+            return {"ok": False, "error": str(exc)}
+        return {
+            "ok": True,
+            "removed": removed,
+            "periods": list_periods(removed["client_id"]),
+        }
 
     def set_client_tolerances(self, client_id: int, days, amount) -> dict:
         try:

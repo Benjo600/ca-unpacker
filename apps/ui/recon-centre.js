@@ -500,8 +500,12 @@
     if (config.periodId) state.controlFilters.period_id = String(config.periodId);
     renderTabs();
     await Promise.all([loadControl(false), loadWorkspace()]);
-    if (state.tab === "control") renderControl();
-    else switchTab(state.tab);
+    if (state.tab === "control") {
+      if (await scopeToLatestPeriod()) {
+        renderTabs();
+      }
+      renderControl();
+    } else switchTab(state.tab);
   }
 
   async function refresh() {
@@ -540,6 +544,20 @@
     }
     state.control = result;
     showPageError("");
+  }
+
+  // A lifetime aggregate across every client and year is not a useful or fair
+  // first impression ("0.0% match rate", every rupee ever unresolved). Scope the
+  // landing view to the newest period that has a run; "All clients / all years"
+  // stays one click away in the filters.
+  async function scopeToLatestPeriod() {
+    if (filtersActive() || !state.control) return false;
+    const runs = state.control.runs || state.control.recent_runs || [];
+    const latest = runs.find((run) => run && run.period_id);
+    if (!latest) return false;
+    state.controlFilters.period_id = String(latest.period_id);
+    await loadControl(true);
+    return true;
   }
 
   function filtersActive() {
@@ -937,9 +955,21 @@
     });
     const periodItems = (workspace.periods || []).map((period) => ({
       value: period.id,
-      label: `${period.client_name} · ${period.label} · FY ${period.financial_year || financialYearGuess(period.label)}`,
+      label:
+        `${period.client_name} · ${period.label} · FY ${period.financial_year || financialYearGuess(period.label)}` +
+        (Number(period.file_count) > 0 ? "" : " · no documents yet"),
     }));
-    const periodSelect = optionList(periodItems, state.selectedPeriodId || "", "Choose a client period");
+    // Default to a month that actually holds documents, so Start is not pressed
+    // on an empty period; periods with nothing in them stay selectable but say so.
+    const firstWithDocuments = (workspace.periods || []).find(
+      (period) => Number(period.file_count) > 0
+    );
+    const defaultPeriod =
+      state.selectedPeriodId ||
+      state.controlFilters.period_id ||
+      (firstWithDocuments && firstWithDocuments.id) ||
+      "";
+    const periodSelect = optionList(periodItems, defaultPeriod, "Choose a client period");
     const workflowSelect = node("select", { class: "rc-select" });
     const rulesSelect = node("select", { class: "rc-select" });
     const availability = node("div", { class: "rc-run-availability" });
