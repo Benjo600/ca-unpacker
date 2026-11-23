@@ -2,6 +2,8 @@
 
 CA Unpacker: a **Windows-only, offline-first** desktop app that turns a CA client's document dump into GST-ready Excel packs. Client files never leave the PC; only license/auth may use the internet.
 
+**Who decides what:** see `docs/WORKING-AGREEMENT.md` — the split between the product owner (Ben) and the developer (agent), what can be pushed without asking, and the standing rules for this codebase.
+
 ## Layout
 
 - `apps/engine/` — all parsing, validation, Excel writing, SQLite/SQLAlchemy, reconciliation. Pure Python, importable without the UI.
