@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import logging
 from pathlib import Path
 
 from apps.engine.db import (
@@ -16,6 +17,8 @@ from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.periods import get_period
 from apps.engine.pipeline import get_period_pack
 from apps.engine.settings import period_output_dir
+
+_log = logging.getLogger(__name__)
 
 # A period that is mid-run must not be mutated underneath the parser.
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing")
@@ -233,8 +236,14 @@ def remove_period_file(file_id: int) -> dict:
         _restore_row(snapshot)
         try:
             reparse_period(period_id)
-        except Exception:
-            pass
+        except Exception as reparse_exc:
+            # The file is back but the packs are stale; the user is told only
+            # "nothing was changed", so keep the real cause in the log.
+            _log.warning(
+                "Could not rebuild period %s after a failed removal: %s",
+                period_id,
+                reparse_exc,
+            )
         raise FileRemovalError(
             "Could not remove this file. Nothing was changed."
         ) from exc

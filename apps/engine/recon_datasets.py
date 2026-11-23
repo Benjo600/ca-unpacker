@@ -10,7 +10,7 @@ from __future__ import annotations
 
 import json
 import re
-from datetime import date, datetime
+from datetime import date, datetime, timezone
 from typing import Iterable, Mapping
 
 from sqlalchemy import func
@@ -463,7 +463,7 @@ def reconciliation_workspace() -> dict:
         "periods": periods,
         "workflows": [_public_workflow(workflow) for workflow in WORKFLOWS],
         "selected_period_id": selected,
-        "generated_at": datetime.utcnow().isoformat() + "Z",
+        "generated_at": datetime.now(timezone.utc).isoformat().replace("+00:00", "Z"),
     }
 
 

@@ -16,6 +16,7 @@ import csv
 import hashlib
 import io
 import json
+import logging
 import uuid
 import zipfile
 from datetime import date, datetime
@@ -25,6 +26,8 @@ from apps.engine.db import StoredFile, get_session
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
 from apps.engine.library import init_library, resolve_storage_key
 from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
+
+_log = logging.getLogger(__name__)
 
 PDF_SUFFIXES = {".pdf"}
 JSON_SUFFIXES = {".json"}
@@ -515,8 +518,10 @@ def _safe_error(exc: BaseException, file_id: int) -> str:
     message = str(exc).strip()
     try:
         message = redact_known_passwords(message)
-    except Exception:  # noqa: BLE001
-        pass
+    except Exception as redact_exc:  # noqa: BLE001
+        # Without redaction a password can reach the UI in an error message;
+        # the message is still returned unchanged so the user sees the cause.
+        _log.warning("Could not redact a file error message: %s", redact_exc)
     if not message or "traceback (most recent call last)" in message.lower():
         return "Could not open this file."
     return message.splitlines()[0][:300]

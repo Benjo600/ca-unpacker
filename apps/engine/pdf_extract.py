@@ -3,6 +3,7 @@ from __future__ import annotations
 import contextvars
 import copy
 import hashlib
+import logging
 import os
 import re
 import tempfile
@@ -11,6 +12,8 @@ from collections import OrderedDict
 from contextlib import contextmanager
 from dataclasses import dataclass, field
 from pathlib import Path
+
+_log = logging.getLogger(__name__)
 
 
 @dataclass
@@ -416,8 +419,15 @@ def _extract_with_pymupdf(path: Path) -> ExtractedPdf | None:
                         ]
                         if any(any(c for c in row if c) for row in cleaned_grid):
                             tables.append(ExtractedTable(page=index, grid=cleaned_grid, bbox=bbox_str, engine="pymupdf"))
-            except Exception:
-                pass
+            except Exception as exc:
+                # A page whose tables fail to parse silently loses every row on
+                # that page, so keep a trace before carrying on with the rest.
+                _log.warning(
+                    "pymupdf table extraction failed on page %s of %s: %s",
+                    index,
+                    path.name,
+                    exc,
+                )
     finally:
         try:
             doc.close()
@@ -578,8 +588,13 @@ def _extract_with_pdfplumber(path: Path) -> ExtractedPdf | None:
                         usable = [t for t in raw_t if t and len(t) >= 2]
                         if usable:
                             found_page_tables = usable
-                    except Exception:
-                        pass
+                    except Exception as exc:
+                        _log.warning(
+                            "pdfplumber table extraction failed on page %s of %s: %s",
+                            index,
+                            path.name,
+                            exc,
+                        )
                 for t in found_page_tables:
                     cleaned_grid = [
                         [(str(cell).strip() if cell is not None and str(cell).strip() else None) for cell in row]

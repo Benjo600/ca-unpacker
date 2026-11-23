@@ -1,6 +1,7 @@
 from __future__ import annotations
 
 import json
+import logging
 import os
 import shutil
 import subprocess
@@ -118,6 +119,8 @@ from apps.engine.pipeline import (
 from apps.engine.preview import preview_file as build_preview, source_file_path
 from apps.engine.wipe import wipe_all
 from apps.version import APP_VERSION
+
+_log = logging.getLogger(__name__)
 
 _WINDOW: webview.Window | None = None
 _PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
@@ -509,15 +512,17 @@ def _schedule_startup_update_check() -> None:
             if not auth.get_auth_state().get("signed_in"):
                 return
             update_controller().check()
-        except Exception:
-            pass
+        except Exception as exc:
+            # Silent by design (nobody asked for this check), but an update
+            # path that never runs must still leave a trace in the log.
+            _log.warning("Startup update check failed: %s", exc)
 
     try:
         threading.Thread(
             target=work, name="update-startup-check", daemon=True
         ).start()
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Could not start the startup update check: %s", exc)
 
 
 def extract_deep_link_url(argv: list[str] | None = None) -> str | None:
@@ -1762,8 +1767,10 @@ def _show_fatal(message: str) -> None:
         ctypes.windll.user32.MessageBoxW(
             0, message, "CA Unpacker", 0x00000010 | 0x00000000
         )
-    except Exception:
-        pass
+    except Exception as exc:
+        # This is the last chance to tell the user why the app did not start;
+        # if the dialog fails, the log must carry the message instead.
+        _log.warning("Could not show a startup dialog (%s): %s", message, exc)
 
 
 def _friendly_startup_message(error: BaseException) -> str:
@@ -1819,8 +1826,8 @@ def _install_crash_hooks() -> None:
             _log_crash(f"thread {name} failed:\n{detail}")
 
         threading.excepthook = _thread_hook
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Could not install the thread exception hook: %s", exc)
 
 
 def _run_job_thread(job_id: int, fn) -> None:
@@ -1857,8 +1864,14 @@ def _run_job_thread(job_id: int, fn) -> None:
                     "cancel_requested",
                 }:
                     fail_job(job_id, "Could not process these files.")
-            except Exception:
-                pass
+            except Exception as fail_exc:
+                # The job would stay "parsing" and block the period until the
+                # library is reset, so record why the fallback failed.
+                _log.warning(
+                    "Could not mark job %s as failed after a crash: %s",
+                    job_id,
+                    fail_exc,
+                )
         finally:
             with _job_threads_lock:
                 _job_threads.discard(threading.current_thread())
@@ -2027,8 +2040,9 @@ def _check_pending_now(api: DesktopApi) -> None:
         pending = _read_pending_deep_link()
         if pending:
             _process_deep_link(api, pending)
-    except Exception:
-        pass
+    except Exception as exc:
+        # A dropped sign-in callback looks like nothing happened at all.
+        _log.warning("Could not process a pending sign-in link: %s", exc)
 
 
 def _start_deep_link_poller(api: DesktopApi) -> None:
@@ -2052,8 +2066,8 @@ def _on_window_shown(api: DesktopApi) -> None:
         pending = _read_pending_deep_link()
         if pending:
             _process_deep_link(api, pending)
-    except Exception:
-        pass
+    except Exception as exc:
+        _log.warning("Could not process a pending sign-in link: %s", exc)
     _start_deep_link_poller(api)
     # also check on load (helps if deep link processed after initial render)
     if _WINDOW is not None:
@@ -2097,8 +2111,9 @@ def main() -> None:
         # Free any period left mid-parse by the last crash or restart.
         try:
             reconcile_interrupted_work()
-        except Exception:
-            pass
+        except Exception as exc:
+            # Otherwise the period keeps saying it is already being processed.
+            _log.warning("Could not reconcile interrupted work at startup: %s", exc)
         # Claim caunpacker:// so browser sign-in can hand the session back.
         # Best effort: the in-app form still works if this fails.
         registered, err = ensure_registered()

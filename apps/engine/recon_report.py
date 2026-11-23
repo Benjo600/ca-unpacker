@@ -9,7 +9,7 @@ from the persisted run snapshot, never recalculated from a live dataset.
 from __future__ import annotations
 
 import json
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
@@ -189,11 +189,11 @@ def export_reconciliation(run_id: int) -> dict:
         source_files = _json_load(run.source_files_json, [])
         folder = period_output_dir(run.client_name, run.period_label) / "Reconciliation"
         folder.mkdir(parents=True, exist_ok=True)
-        stamp = datetime.now().strftime("%Y%m%d_%H%M%S")
+        stamp = datetime.now(timezone.utc).astimezone().strftime("%Y%m%d_%H%M%S")
         stem = f"Reconciliation_{run.workflow_id}_{run.run_uuid[:8]}_{stamp}"
         xlsx_path = folder / f"{stem}.xlsx"
         pdf_path = folder / f"{stem}_summary.pdf"
-        generated = datetime.now()
+        generated = datetime.now(timezone.utc).astimezone()
         workbook = Workbook()
         summary = workbook.active
         summary.title = "Executive Summary"
