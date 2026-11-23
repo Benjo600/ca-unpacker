@@ -77,11 +77,39 @@ def write_bank_pack(path: Path, rows: list[dict], check: dict, meta: dict) -> Pa
     )
 
 
+def _pending_approval_rows(rows: list[dict]) -> list[dict]:
+    """Rows invented from a balance gap, which a CA has to approve by hand."""
+    pending = []
+    for row in rows or []:
+        if row.get("needs_approval"):
+            pending.append(row)
+            continue
+        flags = row.get("flags") if row.get("flags") is not None else row.get("validation_flags")
+        if "inferred_from_balance" in _flag_tokens(_flag_text(flags)):
+            pending.append(row)
+    return pending
+
+
+def _write_pending_sheet(sheet, rows: list[dict], currency: dict) -> None:
+    sheet["A1"] = "Rows inferred from a gap in the balance"
+    sheet["A1"].font = TITLE_FONT
+    sheet["A2"] = (
+        f"{len(rows)} row(s) below are NOT printed in the statement. They exist only "
+        "because the running balance jumped. Check each one on its source page, then "
+        "approve it or remove it before using this pack."
+    )
+    sheet["A2"].font = SUBTITLE_FONT
+    sheet.append([])
+    _write_rows(sheet, rows, currency, header_row=4)
+
+
 def write_bank_workbook(path: Path, files: list[dict]) -> Path:
     path.parent.mkdir(parents=True, exist_ok=True)
     _guard_capacity(files)
     book = Workbook()
     cover = book.active
+    if cover is None:  # a new workbook always starts with one sheet
+        raise ValueError("Workbook has no active sheet")
     cover.title = "Balance Check"
 
     used: set[str] = {"Balance Check"}
@@ -98,13 +126,25 @@ def write_bank_workbook(path: Path, files: list[dict]) -> Path:
     _cover_multi(cover, files, names)
 
     for item, title in zip(files, names):
+        currency = item.get("currency") or _currency_from_rows(item["rows"])
         sheet = book.create_sheet(title)
-        _write_rows(
-            sheet,
-            item["rows"],
-            item.get("currency") or _currency_from_rows(item["rows"]),
-        )
+        _write_rows(sheet, item["rows"], currency)
+        pending = _pending_approval_rows(item["rows"])
+        if pending:
+            approval_sheet = book.create_sheet(_sheet_name(f"Approve {title}", used))
+            used.add(approval_sheet.title)
+            _write_pending_sheet(approval_sheet, pending, currency)
 
+    pending_total = sum(len(_pending_approval_rows(item["rows"])) for item in files)
+    if pending_total:
+        cover.append([])
+        note = cover.cell(
+            cover.max_row + 1,
+            1,
+            f"{pending_total} row(s) were inferred from a gap in the balance and are not in "
+            "the statement. Approve them on the \"Approve …\" sheet before using this pack.",
+        )
+        note.font = Font(bold=True, color="B45F06")
     book.save(path)
     return path
 
@@ -121,14 +161,14 @@ def _guard_capacity(files: list[dict]) -> None:
             )
 
 
-def _write_rows(sheet, rows: list[dict], currency: dict) -> None:
+def _write_rows(sheet, rows: list[dict], currency: dict, header_row: int = 1) -> None:
     if len(rows) > MAX_BANK_SHEET_ROWS:
         raise ValueError(
             f"This sheet would contain {len(rows):,} transaction rows. "
             f"Excel supports at most {MAX_BANK_SHEET_ROWS:,} data rows per sheet."
         )
     sheet.append(HEADERS)
-    _style_header(sheet, 1, HEADER_FILL, HEADER_FONT)
+    _style_header(sheet, header_row, HEADER_FILL, HEADER_FONT)
     for row in rows:
         flags = _flag_text(
             row.get("flags") if row.get("flags") is not None else row.get("validation_flags")
@@ -171,8 +211,8 @@ def _write_rows(sheet, rows: list[dict], currency: dict) -> None:
                 sheet.cell(excel_row, col).fill = fill
     last_col = get_column_letter(len(HEADERS))
     last_row = max(sheet.max_row, 1)
-    sheet.auto_filter.ref = f"A1:{last_col}{last_row}"
-    sheet.freeze_panes = "A2"
+    sheet.auto_filter.ref = f"A{header_row}:{last_col}{last_row}"
+    sheet.freeze_panes = f"A{header_row + 1}"
     widths = [14, 48, 16, 14, 14, 14, 36, 30, 18]
     for index, width in enumerate(widths, start=1):
         sheet.column_dimensions[get_column_letter(index)].width = width

@@ -3521,6 +3521,12 @@ const FLAG_LABELS = {
   item_layout_uncertain: "Line items uncertain",
   unparsed_rows: "Some rows unread",
   utgst: "UTGST, not SGST",
+  inferred_from_balance: "Inferred from balance — needs approval",
+  duplicate_source_row: "Repeated line in the statement",
+  running_balance_break: "Balance does not carry forward",
+  balance_mismatch: "Balance does not match the movement",
+  ocr_digit_repair: "Read from a scanned digit, check it",
+  inferred_from_balance_approved: "Inferred row approved",
 };
 
 function flagLabel(flag) {

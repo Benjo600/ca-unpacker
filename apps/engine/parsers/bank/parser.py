@@ -753,7 +753,11 @@ def _implied_gap_row(row: dict, running: Decimal | None) -> dict | None:
     flags = ["inferred_from_balance"]
     return {
         "date": row.get("date"),
-        "description": "Inferred missing row (statement wrap)",
+        "description": "Inferred from the balance gap — not in the statement",
+        # Never let this read as a normal transaction: it exists only because
+        # the running balance jumped, and a CA must confirm it by hand.
+        "needs_approval": True,
+        "approval": "pending",
         "cheque_ref": None,
         "debit": float(gap) if gap > 0 else None,
         "credit": float(-gap) if gap < 0 else None,
