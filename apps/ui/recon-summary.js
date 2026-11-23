@@ -13,6 +13,7 @@
     duplicate: "Duplicate",
     split_merged: "Split or merged",
     credit_note: "Credit note",
+    same_bill: "Same bill, other source",
   };
 
   // Every status that is not a clean match. "unmatched" means all of these.
@@ -25,6 +26,7 @@
     "duplicate",
     "split_merged",
     "credit_note",
+    "same_bill",
   ];
 
   const DECISION_REASONS = [
@@ -105,6 +107,7 @@
       { key: "duplicate", label: "Duplicate" },
       { key: "split_merged", label: "Split or merged" },
       { key: "credit_note", label: "Credit notes" },
+      { key: "same_bill", label: "Same bill, other source" },
     ];
     for (const extra of extras) {
       const value = Number(n[extra.key]) || 0;
@@ -143,7 +146,8 @@
       filter === "tax_mismatch" ||
       filter === "duplicate" ||
       filter === "split_merged" ||
-      filter === "credit_note"
+      filter === "credit_note" ||
+      filter === "same_bill"
     ) {
       list = list.filter((row) => row.status === filter);
     } else if (filter === "to_do") list = list.filter((row) => row.needs_decision === true && !isDecidedRow(row));
