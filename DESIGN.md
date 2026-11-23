@@ -362,33 +362,23 @@ The shell themes the parts of the WebView2 surface that CSS usually leaves defau
 
 ## Auth Surface
 
-`apps/ui/auth.html` — a single self-contained file (inline CSS and JS) that gates the practice desk. It inherits this world rather than starting a second one: same palette, same two typefaces, same 6px radius ceiling, same hairline grammar. Its only binary assets are the four shared woff2 files.
+The sign-in screen lives inside `apps/ui/index.html` (`#login`), the same document as the practice desk. It inherits this world rather than starting a second one: same palette, same two typefaces, same 6px radius ceiling, same hairline grammar.
 
 ### Screens and states
-- **Boot** — a full-bleed overlay on the ground: 52px mark, wordmark, sub-line, a 260px progress rule, and a leader-dot log in Spline Sans Mono that prints one line every 240ms. Each line lands with its `ok` right-aligned in green; the final `Ready` line sits at 600 weight and the rule turns green on completion. It auto-runs on load, any key/click/`Esc` skips it, and "Replay boot" runs it again.
-- **Sign in** — 17px heading, lede, work email and password fields, "Keep me signed in", "Forgot password?", a full-width primary action, and a footer link to sign-up.
-- **Sign up** — firm name, work email, password with strength meter, confirm password, a local-licence checkbox, the primary action, and a footer link back.
-- **Confirmations** — "Workspace ready" (carries the link into `shell.html`) and "Account created" (returns to sign-in with the email prefilled). Both are an inline check beside a 17px heading; there is no icon tile above the heading.
+- **Sign in** — a two-pane screen: a brand rail on the left carrying the mark, the wordmark, a "Practice software" kicker, the one-line tagline, and the local-only promise ("Your client documents stay on this PC"); a card on the right with a "Sign in" kicker, an "Open CA Unpacker" heading, a lede, username/email and password fields, and the primary action.
+- **Password reveal** — the password field carries a "Show" toggle whose pressed state is exposed as `aria-pressed`.
+- **Remember me / Forgot password** — a row under the fields: a checkbox on the left, the recovery link on the right.
+- **Error** — a hidden inline error line above the primary action, revealed with the failure message when the sign-in is rejected.
+- **Busy** — the primary action is the only element that changes while the gate is working; nothing else moves.
 
 ### Components
-- **Auth field** — a 38px control: inset ground, `hairline-strong` border, leading 15px authored SVG icon, 13px input, optional reveal toggle. Focus is a cobalt border plus a 3px cobalt-wash ring; invalid is the same in red.
-- **Strength meter** — three 3px segments plus a text label (Weak / Fair / Strong), driven by `data-level` 0–3 and stepping neutral → red → amber → green.
-- **Inline alert** — 1px red border on a red wash, a 16px alert icon, a bold problem line, and a plain recovery line. The success variant swaps to green and the check icon.
-- **Fact readout** — a bordered 11px definition list in the auth rail: label left, mono value right, hairline rows. It is the same information voice as the shell's status bar.
-- **Boot log** — an ordered list of mono rows: label left, dotted leader (`border-bottom: 1px dotted`), state right.
+- **Auth field** — a full-width labelled input (`Username or email`, `Password`) with a visible `<label>`, so the gate reads the same as every other field in the app.
+- **Inline alert** — the error line sits in the app's error voice, in place, above the action it blocks.
 
 ### Named Rules
-**The 38px Auth Field Rule.** The auth surface relaxes the 28px row to a 38px control and pays for it with a deliberately looser vertical rhythm. Auth is a low-frequency gate, not the dense work surface; the 28px Row Rule still governs everything behind it.
+**The One Gate Rule.** Sign-in is a low-frequency gate, not the dense work surface: it keeps the same tokens and type but buys a looser vertical rhythm. The 28px Row Rule still governs everything behind it.
 
-**The One Auth Moment Rule.** The boot sequence is this surface's single authored moment — per-line reveal, progress fill, and one exit transition. Everything after it is quiet by design: no entrance choreography on sign-in or sign-up, no motion on state changes beyond focus, invalid, and busy.
-
-**The Shared Theme Rule.** Both themes ship on the auth surface, and the choice persists under the same `caunpacker-theme` key as the shell, so the gate and the desk never disagree about theme.
-
-### Layout
-Split at ≥861px — a `minmax(320px, 400px)` facts rail plus a flexible pane, with a 392px card centred by `margin: auto` (which keeps the top reachable when the card is taller than the pane). At ≤860px it becomes one normal scrolling document: body rows `auto 28px`, the facts panel full width, the card top-aligned, the status bar sticky, and the optional status groups pruned.
-
-### Intentional behaviour
-The boot sequence re-runs on every load of this page; there is no per-session suppression, which is the requested behaviour. It is skippable in one keystroke and fully suppressed under `prefers-reduced-motion`.
+**The Quiet Gate Rule.** There is no entrance choreography, no boot sequence, and no motion on this screen beyond focus, invalid, and busy.
 
 ## Open Items
 

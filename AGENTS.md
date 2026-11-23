@@ -8,7 +8,7 @@ CA Unpacker: a **Windows-only, offline-first** desktop app that turns a CA clien
   - `parsers/` — `bank/` (profiles, tables, OCR), `invoice.py`, `gstr.py`, `tally.py`, `zoho.py`
   - `pack/` — xlsx writers; `validators/` — GSTIN/HSN/balance checks
 - `apps/desktop/` — pywebview shell. `app.py` exposes the JS bridge (`DesktopApi`); `protocol.py` = `caunpacker://`; `frozen_entry.py` = PyInstaller entry.
-- `apps/ui/` — the *desktop* UI (vanilla HTML/CSS/JS). Loaded via `apps/ui/index.html` (`shell.html`, `auth.html`, `redesign.html` are separate surfaces).
+- `apps/ui/` — the *desktop* UI (vanilla HTML/CSS/JS). `apps/ui/index.html` is the only surface the shell loads; it carries the sign-in screen and the practice desk.
 - `apps/web/` — separate React 19 + Vite SPA (signup/login/admin), deployed to Netlify. Not bundled in the app.
 - `supabase/` — Deno Edge Functions + SQL migrations. `designs/ca-unpacker-landing/` — static landing page (Netlify root site).
 - `test-dump/` — **gitignored, generated fixtures** (see `build_test_dump.py`); `dump_paths.py` auto-builds it on import.
