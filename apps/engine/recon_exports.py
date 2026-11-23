@@ -7,7 +7,7 @@ nothing leaves the computer.
 
 from __future__ import annotations
 
-from datetime import datetime
+from datetime import datetime, timezone
 from pathlib import Path
 
 from openpyxl import Workbook
@@ -117,7 +117,7 @@ def _header_block(sheet, title: str, client_name: str, period_label: str) -> Non
     style_title(sheet, "A1")
     sheet.append([f"Client: {client_name or '-'}   Period: {period_label or '-'}"])
     style_note(sheet, f"A{sheet.max_row}")
-    sheet.append([f"Prepared {datetime.now().strftime('%d %b %Y, %H:%M')} from the local pack."])
+    sheet.append([f"Prepared {datetime.now(timezone.utc).astimezone().strftime('%d %b %Y, %H:%M')} from the local pack."])
     style_note(sheet, f"A{sheet.max_row}")
     sheet.append([])
 

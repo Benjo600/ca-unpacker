@@ -13,7 +13,7 @@ import os
 import platform
 import re
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urljoin, urlsplit
@@ -338,7 +338,12 @@ def _cache_is_fresh(cache: dict) -> bool:
     when = _parse_when(cache.get("checked_at"))
     if when is None:
         return False
-    return datetime.now() - when < CACHE_TTL
+    if when.tzinfo is None:
+        # Caches written before the switch stored naive local time; read those
+        # as local so the TTL keeps its old meaning instead of shifting by the
+        # machine's UTC offset.
+        when = when.astimezone()
+    return datetime.now(timezone.utc) - when < CACHE_TTL
 
 
 # ---------------------------------------------------------------------------
@@ -441,7 +446,7 @@ def check_for_update(force: bool = False) -> UpdateState:
     except ValueError:
         return _fallback_state(cache, _TRANSIENT_MESSAGE)
 
-    checked_at = datetime.now().isoformat(timespec="seconds")
+    checked_at = datetime.now(timezone.utc).isoformat(timespec="seconds")
     save_update_cache(
         {
             "checked_at": checked_at,

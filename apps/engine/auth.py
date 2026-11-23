@@ -413,7 +413,7 @@ def save_quota_cache(cache: dict) -> dict:
         "files_used": int(cache.get("files_used") or 0),
         "file_limit": cache.get("file_limit"),
         "plan": str(cache.get("plan") or "starter"),
-        "synced_at": str(cache.get("synced_at") or datetime.now().isoformat(timespec="seconds")),
+        "synced_at": str(cache.get("synced_at") or datetime.now(timezone.utc).isoformat(timespec="seconds")),
     }
     if payload["file_limit"] is not None:
         payload["file_limit"] = int(payload["file_limit"])
@@ -439,7 +439,7 @@ def fetch_quota() -> dict:
                     "files_used": cached.get("files_used", 0),
                     "file_limit": 0,
                     "plan": "suspended",
-                    "synced_at": datetime.now().isoformat(timespec="seconds"),
+                    "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 }
             )
         return load_quota_cache()
@@ -448,7 +448,7 @@ def fetch_quota() -> dict:
             "files_used": result.get("files_used", 0),
             "file_limit": result.get("file_limit"),
             "plan": result.get("plan", "starter"),
-            "synced_at": datetime.now().isoformat(timespec="seconds"),
+            "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
         }
     )
     return cache
@@ -511,7 +511,7 @@ def check_can_ingest(file_count: int, today: date | None = None) -> None:
                 "files_used": result.get("files_used", 0),
                 "file_limit": result.get("file_limit"),
                 "plan": result.get("plan", "starter"),
-                "synced_at": datetime.now().isoformat(timespec="seconds"),
+                "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
             }
         )
         if not result.get("allowed", False):
@@ -537,14 +537,14 @@ def record_usage(file_count: int) -> dict:
                     "files_used": result.get("files_used", 0),
                     "file_limit": result.get("file_limit"),
                     "plan": result.get("plan", "starter"),
-                    "synced_at": datetime.now().isoformat(timespec="seconds"),
+                    "synced_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
                 }
             )
         except httpx.HTTPError:
             pass
     cache = load_quota_cache()
     cache["files_used"] = int(cache.get("files_used") or 0) + count
-    cache["synced_at"] = str(cache.get("synced_at") or datetime.now().isoformat(timespec="seconds"))
+    cache["synced_at"] = str(cache.get("synced_at") or datetime.now(timezone.utc).isoformat(timespec="seconds"))
     return save_quota_cache(cache)
 
 

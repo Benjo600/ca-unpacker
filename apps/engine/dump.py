@@ -2,6 +2,7 @@ from __future__ import annotations
 
 import hashlib
 import json
+import logging
 import mimetypes
 import re
 import shutil
@@ -21,6 +22,8 @@ from apps.engine.pdf_passwords import redact_known_passwords
 from apps.engine.periods import get_period
 from apps.engine.pipeline import parse_period_banks
 from apps.engine.preflight import load_report
+
+_log = logging.getLogger(__name__)
 
 MAX_FILE_BYTES = 100 * 1024 * 1024
 MAX_FOLDER_FILES = 400
@@ -326,11 +329,14 @@ def fail_job(job_id: int, message: str) -> None:
         job.error_message = redact_known_passwords(message or "Could not process these files.")[:500]
         job.finished_at = utcnow()
         session.commit()
-    except Exception:
+    except Exception as exc:
         try:
             session.rollback()
         except Exception:
             pass
+        # A job left in "parsing" blocks its period for good, so never lose
+        # this one without a trace.
+        _log.warning("Could not mark job %s as failed: %s", job_id, exc)
     finally:
         session.close()
 
@@ -379,11 +385,12 @@ def finish_cancelled_job(job_id: int) -> None:
         job.error_message = _CANCEL_MESSAGE
         job.finished_at = utcnow()
         session.commit()
-    except Exception:
+    except Exception as exc:
         try:
             session.rollback()
         except Exception:
             pass
+        _log.warning("Could not mark job %s as cancelled: %s", job_id, exc)
     finally:
         session.close()
 
@@ -426,11 +433,14 @@ def reconcile_interrupted_work(grace_minutes: int = 0) -> int:
             failed += 1
         if failed:
             session.commit()
-    except Exception:
+    except Exception as exc:
         try:
             session.rollback()
         except Exception:
             pass
+        # Return 0 as before, but say why: a period can stay blocked by an
+        # orphaned job and this is the only place that knows.
+        _log.warning("Could not reconcile interrupted work: %s", exc)
         return 0
     finally:
         session.close()
@@ -911,8 +921,13 @@ def _mark_unfinished_files_failed(session, job_id: int) -> None:
                 ),
             )
         session.commit()
-    except Exception:
+    except Exception as exc:
         try:
             session.rollback()
         except Exception:
             pass
+        # Files that stay "processing" are never retried, so a failure here
+        # hides itself from both the user and the log unless we say so.
+        _log.warning(
+            "Could not mark unfinished files of job %s as failed: %s", job_id, exc
+        )
