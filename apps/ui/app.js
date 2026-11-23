@@ -739,42 +739,6 @@ function fillProfileForm(client) {
   if (profileNoteEl) profileNoteEl.textContent = "";
 }
 
-function severityClass(severity) {
-  if (severity === "review") return "mismatch";
-  if (severity === "check") return "unknown";
-  return "mute";
-}
-
-function severityLabel(severity) {
-  if (severity === "review") return "Review";
-  if (severity === "check") return "Check";
-  return "Note";
-}
-
-function observedText(observed) {
-  if (!observed) return "";
-  const parts = [];
-  if (observed.count !== undefined) parts.push(`${observed.count} line(s)`);
-  if (observed.total !== undefined) parts.push(`total ${money(observed.total)}`);
-  if (observed.largest !== undefined) parts.push(`largest ${money(observed.largest)}`);
-  if (observed.turnover !== undefined) parts.push(`turnover ${money(observed.turnover)}`);
-  if (observed.sales_lines !== undefined && observed.count === undefined) {
-    parts.push(`${observed.sales_lines} sales line(s)`);
-  }
-  return parts.join(" · ");
-}
-
-function thresholdText(threshold) {
-  if (!threshold) return "";
-  const parts = [];
-  if (threshold.amount !== undefined) parts.push(`${money(threshold.amount)}`);
-  if (threshold.enhanced) parts.push(`enhanced ${money(threshold.enhanced)}`);
-  if (threshold.basis) parts.push(threshold.basis);
-  if (threshold.rate) parts.push(threshold.rate);
-  if (threshold.as_of) parts.push(threshold.as_of);
-  return parts.join(" · ");
-}
-
 function renderTreatment(pack) {
   if (!treatmentBlock) return;
   const treatment = pack && pack.treatment;
@@ -802,8 +766,8 @@ function renderTreatment(pack) {
     const head = document.createElement("div");
     head.className = "treatment-row-head";
     const chip = document.createElement("span");
-    chip.className = "pill " + severityClass(flag.severity);
-    chip.textContent = severityLabel(flag.severity);
+    chip.className = "pill " + window.CAFormat.severityClass(flag.severity);
+    chip.textContent = window.CAFormat.severityLabel(flag.severity);
     const title = document.createElement("span");
     title.className = "treatment-title";
     title.textContent = flag.title || flag.code;
@@ -815,9 +779,9 @@ function renderTreatment(pack) {
 
     const meta = [];
     if (flag.area) meta.push(flag.area);
-    const observed = observedText(flag.observed);
+    const observed = window.CAFormat.observedText(flag.observed);
     if (observed) meta.push(observed);
-    const threshold = thresholdText(flag.threshold);
+    const threshold = window.CAFormat.thresholdText(flag.threshold);
     if (threshold) meta.push(`limit ${threshold}`);
     if (flag.law_ref) meta.push(flag.law_ref);
     if (meta.length) {
@@ -912,8 +876,8 @@ function renderFileReview(pack) {
     const head = document.createElement("div");
     head.className = "treatment-row-head";
     const chip = document.createElement("span");
-    chip.className = "pill " + severityClass(flag.severity);
-    chip.textContent = severityLabel(flag.severity);
+    chip.className = "pill " + window.CAFormat.severityClass(flag.severity);
+    chip.textContent = window.CAFormat.severityLabel(flag.severity);
     const title = document.createElement("span");
     title.className = "treatment-title";
     title.textContent = flag.title || flag.code;
@@ -924,7 +888,7 @@ function renderFileReview(pack) {
     row.append(head, detail);
     const meta = [];
     if (flag.area) meta.push(flag.area);
-    const observed = observedText(flag.observed);
+    const observed = window.CAFormat.observedText(flag.observed);
     if (observed) meta.push(observed);
     if (flag.law_ref) meta.push(flag.law_ref);
     if (!flag.law_ref && flag.basis) meta.push(flag.basis);
@@ -1239,12 +1203,6 @@ function setSkippedNotice(items) {
 
 function reviewFiles(files) {
   return (files || []).filter((file) => file.needs_review);
-}
-
-// "1 row", "2 rows" - used everywhere a count is shown to the CA.
-function rowsLabel(count) {
-  const n = Number(count) || 0;
-  return `${n} ${n === 1 ? "row" : "rows"}`;
 }
 
 function updateReviewNote() {
@@ -1860,41 +1818,17 @@ async function openPeriod(periodId) {
   syncGuide();
 }
 
-function money(value, currency) {
-  if (value === null || value === undefined || value === "") return "—";
-  const number = Number(value);
-  if (!Number.isFinite(number)) return "—";
-  const code = typeof currency === "string" ? currency.trim().toUpperCase() : "";
-  if (/^[A-Z]{3}$/.test(code)) {
-    try {
-      return new Intl.NumberFormat("en-IN", {
-        style: "currency",
-        currency: code,
-        currencyDisplay: "code",
-      }).format(number);
-    } catch {
-      /* fall through to a neutral decimal format */
-    }
-  }
-  return number.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
-}
-
-function dash(value) {
-  if (value === null || value === undefined || value === "") return "—";
-  return String(value);
-}
-
 function textCell(value, className) {
   const td = document.createElement("td");
   if (className) td.className = className;
-  td.textContent = dash(value);
+  td.textContent = window.CAFormat.dash(value);
   return td;
 }
 
 function moneyCell(value, currency) {
   const td = document.createElement("td");
   td.className = "num";
-  td.textContent = money(value, currency);
+  td.textContent = window.CAFormat.money(value, currency);
   return td;
 }
 
@@ -1959,7 +1893,7 @@ function renderPack(pack) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "text-btn";
-    btn.textContent = `${out.label} · ${rowsLabel(out.rows)}${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
+    btn.textContent = `${out.label} · ${window.CAFormat.rowsLabel(out.rows)}${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
     btn.addEventListener("click", async () => {
       const opened = await window.pywebview.api.open_bank_pack(currentPeriod.id, out.key);
       if (!opened.ok) showError(dumpErrorEl, opened.error);
@@ -1989,7 +1923,7 @@ function renderPack(pack) {
     }
     head.append(name, chip);
     const moneyLine = document.createElement("p");
-    moneyLine.textContent = `Opening ${money(file.opening_balance, file.currency_code)} · Stated close ${money(file.stated_closing, file.currency_code)} · Computed close ${money(file.computed_closing, file.currency_code)}`;
+    moneyLine.textContent = `Opening ${window.CAFormat.money(file.opening_balance, file.currency_code)} · Stated close ${window.CAFormat.money(file.stated_closing, file.currency_code)} · Computed close ${window.CAFormat.money(file.computed_closing, file.currency_code)}`;
     if (file.currency_label) {
       const currencyLine = document.createElement("p");
       currencyLine.className = "file-meta";
@@ -2139,7 +2073,7 @@ function renderRecon(pack) {
     statusTd.append(reconStatusPill(row.status));
     const gstinTd = document.createElement("td");
     gstinTd.className = "gstin";
-    gstinTd.textContent = dash(row.gstin);
+    gstinTd.textContent = window.CAFormat.dash(row.gstin);
     tr.append(
       statusTd,
       textCell(row.party),
@@ -2162,7 +2096,7 @@ function reconDecisionCell(row, periodId) {
   const td = document.createElement("td");
   td.className = "recon-decision-cell";
   if (!row.row_key) {
-    td.textContent = dash("");
+    td.textContent = window.CAFormat.dash("");
     return td;
   }
   if (row.decision) {
@@ -2241,18 +2175,12 @@ function renderReconMonth(pack) {
       k.textContent = label;
       const v = document.createElement("strong");
       v.className = "recon-money-value";
-      v.textContent = formatReconMoney(value);
+      v.textContent = window.CAFormat.formatReconMoney(value);
       cell.append(k, v);
       reconMoneyEl.append(cell);
     }
   }
   loadReconTolerances(pack.period_id);
-}
-
-function formatReconMoney(value) {
-  const num = Number(value || 0);
-  if (!Number.isFinite(num)) return "₹0.00";
-  return "₹" + num.toLocaleString("en-IN", { minimumFractionDigits: 2, maximumFractionDigits: 2 });
 }
 
 let reconToleranceCache = { periodId: null, clientId: null };
@@ -2337,18 +2265,6 @@ function setText(id, value) {
   if (el) el.textContent = value === null || value === undefined ? "" : String(value);
 }
 
-function formatWhen(value) {
-  if (!value) return "";
-  const when = new Date(value);
-  if (Number.isNaN(when.getTime())) return "";
-  return when.toLocaleString("en-IN", {
-    day: "2-digit",
-    month: "short",
-    hour: "2-digit",
-    minute: "2-digit",
-  });
-}
-
 function clearNode(node) {
   if (node) node.innerHTML = "";
 }
@@ -2429,7 +2345,7 @@ function renderDashboard(data) {
     `${Number(totals.recon_ready_periods) || 0} with a comparison`
   );
   setText("dash-clients", Number(totals.clients) || 0);
-  const generated = formatWhen(data.generated_at);
+  const generated = window.CAFormat.formatWhen(data.generated_at);
   setText(
     "dashboard-sub",
     generated
@@ -2467,7 +2383,7 @@ function renderDashboardActivity(activity) {
     title.textContent = `${item.client_name || "Client"} · ${item.period_label || "Period"}`;
     const meta = document.createElement("span");
     meta.className = "practice-row-meta";
-    const when = formatWhen(item.finished_at || item.created_at);
+    const when = window.CAFormat.formatWhen(item.finished_at || item.created_at);
     meta.textContent = `${window.CAPracticeSummary.jobStatusLabel(item.status)} · ${Number(item.files) || 0} files${when ? ` · ${when}` : ""}`;
     main.append(title, meta);
     const side = document.createElement("span");
@@ -2583,7 +2499,7 @@ function renderDashboardRecon(latest) {
   title.textContent = latest.workflow_label || "Reconciliation";
   const line = document.createElement("p");
   line.className = "practice-recon-line";
-  line.textContent = `${latest.client_name || "Client"} · ${latest.period_label || "Period"}${latest.generated_at ? ` · ${formatWhen(latest.generated_at)}` : ""}`;
+  line.textContent = `${latest.client_name || "Client"} · ${latest.period_label || "Period"}${latest.generated_at ? ` · ${window.CAFormat.formatWhen(latest.generated_at)}` : ""}`;
   const counts = document.createElement("p");
   counts.className = "practice-recon-counts";
   let summary = "";
@@ -2880,7 +2796,7 @@ function renderReconPageResult(result) {
   if (reconResultTitleEl) reconResultTitleEl.textContent = workflow.label || "Reconciliation";
   setText(
     "recon-result-sub",
-    `${result.period?.client_name || "Client"} · ${result.period?.label || "Period"} · ${formatWhen(result.generated_at)}`
+    `${result.period?.client_name || "Client"} · ${result.period?.label || "Period"} · ${window.CAFormat.formatWhen(result.generated_at)}`
   );
   if (reconResultStampEl) {
     reconResultStampEl.textContent = `${result.datasets?.left?.count || 0} + ${result.datasets?.right?.count || 0} rows`;
@@ -2965,7 +2881,7 @@ function renderReconTotals(result) {
     key.textContent = label;
     const amount = document.createElement("span");
     amount.className = "recon-total-v";
-    amount.textContent = money(value);
+    amount.textContent = window.CAFormat.money(value);
     box.append(key, amount);
     reconTotalsEl.append(box);
   }
@@ -3019,7 +2935,7 @@ function reconDate(row) {
 function reconAmountCell(value, currency) {
   const td = document.createElement("td");
   td.className = "num";
-  td.textContent = money(value, currency);
+  td.textContent = window.CAFormat.money(value, currency);
   return td;
 }
 
@@ -3326,7 +3242,7 @@ function openReconDetail(row) {
     shown.className = "recon-total-v";
     shown.textContent =
       typeof value === "number" && label !== "Date gap"
-        ? money(value)
+        ? window.CAFormat.money(value)
         : sourceFieldValue(value);
     box.append(key, shown);
     reconDetailDiffsEl.append(box);
@@ -3403,8 +3319,8 @@ function renderReports(packs) {
     title.textContent = `${pack.client_name} · ${pack.period_label}`;
     const meta = document.createElement("p");
     meta.className = "practice-note";
-    const when = formatWhen(pack.created_at);
-    meta.textContent = `${rowsLabel(pack.row_count)}${when ? ` · ${when}` : ""}`;
+    const when = window.CAFormat.formatWhen(pack.created_at);
+    meta.textContent = `${window.CAFormat.rowsLabel(pack.row_count)}${when ? ` · ${when}` : ""}`;
     titleWrap.append(title, meta);
     const folder = document.createElement("button");
     folder.type = "button";
@@ -3421,7 +3337,7 @@ function renderReports(packs) {
       name.textContent = output.label || output.key || "Excel";
       const details = document.createElement("span");
       details.className = "report-output-meta";
-      details.textContent = `${rowsLabel(output.rows)}${output.status && output.status !== "ready" ? ` · ${output.status}` : ""}`;
+      details.textContent = `${window.CAFormat.rowsLabel(output.rows)}${output.status && output.status !== "ready" ? ` · ${output.status}` : ""}`;
       const open = document.createElement("button");
       open.type = "button";
       open.className = "ui-btn ui-btn-secondary";
@@ -3467,88 +3383,6 @@ async function openReportFolder(periodId) {
   }
 }
 
-function looksLikeGstin(value) {
-  if (value === null || value === undefined || value === "") return false;
-  return String(value).trim().length === 15;
-}
-
-function cropCaptionValue(field, value, currency) {
-  if (field === "supplier_gstin" || looksLikeGstin(value)) {
-    const raw = value === null || value === undefined ? "" : String(value).trim();
-    return raw || "—";
-  }
-  return money(value, currency);
-}
-
-function flagList(row) {
-  let raw = row && (row.flags != null ? row.flags : row.validation_flags);
-  if (raw == null || raw === "") return [];
-  if (Array.isArray(raw)) return raw.map(String).map((item) => item.trim()).filter(Boolean);
-  if (typeof raw === "string") {
-    const trimmed = raw.trim();
-    if (trimmed.startsWith("[")) {
-      try {
-        const parsed = JSON.parse(trimmed);
-        if (Array.isArray(parsed)) {
-          return parsed.map(String).map((item) => item.trim()).filter(Boolean);
-        }
-      } catch {
-        /* fall through */
-      }
-    }
-    return trimmed.split(/[,;]+/).map((item) => item.trim()).filter(Boolean);
-  }
-  return [];
-}
-
-// Plain words for the engine's flag codes. The workbook keeps the codes (they
-// are filterable), but a CA should never have to read "currency_unknown".
-const FLAG_LABELS = {
-  currency_unknown: "Currency not stated",
-  currency_ambiguous: "Currency unclear",
-  gstin_checksum: "GSTIN check digit wrong",
-  gstin_format: "GSTIN format wrong",
-  hsn_length: "HSN has the wrong length",
-  hsn_missing: "HSN missing",
-  hsn_rate: "HSN rate looks off",
-  invoice_math: "Total does not equal taxable + tax",
-  invoice_number_missing: "Invoice number missing",
-  date_missing: "Date missing",
-  date_unlabelled: "Date could not be labelled",
-  taxable_derived: "Taxable value worked out",
-  tax_derived: "Tax worked out",
-  invoice_value_derived: "Invoice value worked out",
-  item_layout_uncertain: "Line items uncertain",
-  unparsed_rows: "Some rows unread",
-  utgst: "UTGST, not SGST",
-  inferred_from_balance: "Inferred from balance — needs approval",
-  duplicate_source_row: "Repeated line in the statement",
-  running_balance_break: "Balance does not carry forward",
-  balance_mismatch: "Balance does not match the movement",
-  ocr_digit_repair: "Read from a scanned digit, check it",
-  inferred_from_balance_approved: "Inferred row approved",
-};
-
-function flagLabel(flag) {
-  const key = String(flag || "").trim();
-  if (FLAG_LABELS[key]) return FLAG_LABELS[key];
-  if (key.startsWith("sap_")) return "SAP export note";
-  return key.replace(/_/g, " ");
-}
-
-function approvalText(row) {
-  const approval = String(row.approval || "").toLowerCase();
-  if (approval === "approved") return "Approved — released into the pack";
-  if (approval === "rejected") return "Left out of the pack";
-  return "Inferred from the balance gap — not in the statement";
-}
-
-function isInferredRow(row) {
-  if (row && row.needs_approval === true) return true;
-  const flags = row && row.flags;
-  return Array.isArray(flags) && flags.indexOf("inferred_from_balance") !== -1;
-}
-
 async function decideApproval(row, decision, button) {
   const api = window.pywebview && window.pywebview.api;
   if (!api || typeof api.approve_bank_row !== "function" || !row.row_id) return;
@@ -3565,7 +3399,7 @@ async function decideApproval(row, decision, button) {
     if (cell) {
       cell.querySelectorAll(".approval-actions").forEach((node) => node.remove());
       const note = cell.querySelector(".approval-note");
-      if (note) note.textContent = approvalText(row);
+      if (note) note.textContent = window.CAFormat.approvalText(row);
     }
   } catch (err) {
     button.disabled = false;
@@ -3574,10 +3408,10 @@ async function decideApproval(row, decision, button) {
 }
 
 function maybeApprovalControl(cell, row) {
-  if (!isInferredRow(row)) return;
+  if (!window.CAFormat.isInferredRow(row)) return;
   const note = document.createElement("div");
   note.className = "approval-note";
-  note.textContent = approvalText(row);
+  note.textContent = window.CAFormat.approvalText(row);
   cell.append(note);
   const approval = String(row.approval || "").toLowerCase();
   if (approval === "approved" || approval === "rejected") return;
@@ -3600,7 +3434,7 @@ function maybeApprovalControl(cell, row) {
 function flagsCell(row) {
   const td = document.createElement("td");
   td.className = "flags";
-  const flags = flagList(row);
+  const flags = window.CAFormat.flagList(row);
   if (!flags.length) {
     td.textContent = "—";
     return td;
@@ -3610,7 +3444,7 @@ function flagsCell(row) {
   for (const flag of flags) {
     const pill = document.createElement("span");
     pill.className = "pill mute";
-    pill.textContent = flagLabel(flag);
+    pill.textContent = window.CAFormat.flagLabel(flag);
     pill.title = flag;
     wrap.append(pill);
   }
@@ -3620,12 +3454,12 @@ function flagsCell(row) {
 
 function amountCell(file, row, field, value, currency) {
   const td = document.createElement("td");
-  const gstinish = field === "supplier_gstin" || looksLikeGstin(value);
+  const gstinish = field === "supplier_gstin" || window.CAFormat.looksLikeGstin(value);
   td.className = gstinish ? "gstin" : "num";
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "source-amt";
-  btn.textContent = cropCaptionValue(field, value, currency);
+  btn.textContent = window.CAFormat.cropCaptionValue(field, value, currency);
   btn.title = "View source";
   btn.addEventListener("click", () => openSourceCrop(file, row, field, value));
   td.append(btn);
@@ -3785,13 +3619,13 @@ function renderPreview(preview) {
             const right = row.balance ?? row.invoice_value ?? row.amount;
             const leftTd = document.createElement("td");
             leftTd.className = "num";
-            leftTd.textContent = money(left);
+            leftTd.textContent = window.CAFormat.money(left);
             const midTd = document.createElement("td");
             midTd.className = "num";
-            midTd.textContent = money(mid);
+            midTd.textContent = window.CAFormat.money(mid);
             const rightTd = document.createElement("td");
             rightTd.className = "num";
-            rightTd.textContent = money(right);
+            rightTd.textContent = window.CAFormat.money(right);
             tr.append(dateTd, detailTd, leftTd, midTd, rightTd);
           }
         }
@@ -3881,7 +3715,7 @@ async function openSourceCrop(file, row, field, value) {
   cropCaptionEl.textContent = `Page ${page}${fieldName ? ` · ${fieldName}` : ""}`;
   const hasValue = Boolean(fieldName) && value !== null && value !== undefined;
   cropReadoutEl.hidden = !hasValue;
-  cropValueEl.textContent = hasValue ? cropCaptionValue(field, value) : "";
+  cropValueEl.textContent = hasValue ? window.CAFormat.cropCaptionValue(field, value) : "";
   cropImageEl.src = src;
   cropImageEl.alt = `${file.filename || "Statement"} page ${page}`;
   cropSource = { file, page, bbox };
@@ -3931,23 +3765,13 @@ function previewButton(label, onClick, className) {
   return button;
 }
 
-function formatFileSize(size) {
-  const value = Number(size);
-  if (!Number.isFinite(value) || value <= 0) return "";
-  if (value < 1024) return `${value} B`;
-  if (value < 1024 * 1024) {
-    return `${(value / 1024).toFixed(value < 10 * 1024 ? 1 : 0)} KB`;
-  }
-  return `${(value / (1024 * 1024)).toFixed(1)} MB`;
-}
-
 function previewMetaText(result) {
   const parts = [];
   if (result.kind_label) parts.push(result.kind_label);
   if (result.preview_type === "pdf" && result.page_count) {
     parts.push(`${result.page_count} ${result.page_count === 1 ? "page" : "pages"}`);
   }
-  const size = formatFileSize(result.size);
+  const size = window.CAFormat.formatFileSize(result.size);
   if (size) parts.push(size);
   return parts.join(" · ");
 }
@@ -4227,7 +4051,7 @@ function renderPreviewArchive(result) {
   for (const entry of entries) {
     const item = document.createElement("li");
     item.append(previewElement("span", "entry-name", entry.name));
-    item.append(previewElement("span", "entry-size", formatFileSize(entry.size) || "0 B"));
+    item.append(previewElement("span", "entry-size", window.CAFormat.formatFileSize(entry.size) || "0 B"));
     list.append(item);
   }
   previewBodyEl.append(list);
@@ -4351,13 +4175,6 @@ async function refreshTesseractNote() {
     }
   }
   updateScanNote();
-}
-
-function escapeHtml(value) {
-  return String(value)
-    .replace(/&/g, "&amp;")
-    .replace(/</g, "&lt;")
-    .replace(/>/g, "&gt;");
 }
 
 async function pathsFromDropEvent(event) {
