@@ -3,8 +3,14 @@ from __future__ import annotations
 import re
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal, InvalidOperation
+
+from apps.engine.recon_parsing import (
+    DATE_FORMATS as _DATE_FMTS,
+    parse_date_value,
+    parse_money_value,
+)
 
 AMOUNT_TOLERANCE = Decimal("1.00")
 COUNT_KEYS = (
@@ -35,15 +41,6 @@ _TAX_COMPONENTS = (
     ("sgst", ("sgst",), "state tax"),
     ("igst", ("igst",), "integrated tax"),
 )
-_DATE_FMTS = (
-    "%Y-%m-%d",
-    "%d-%m-%Y",
-    "%d/%m/%Y",
-    "%d.%m.%Y",
-    "%Y%m%d",
-    "%d-%m-%y",
-    "%d/%m/%y",
-)
 
 
 def normalize_gstin(value) -> str:
@@ -65,59 +62,13 @@ def normalize_invoice_number(value) -> str:
 
 
 def parse_recon_date(value) -> date | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value).strip()
-    if not text:
-        return None
-    if "T" in text:
-        text = text.split("T", 1)[0]
-    for fmt in _DATE_FMTS:
-        try:
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
-            continue
-    parts = re.split(r"[/\-.]", text)
-    if len(parts) == 3 and all(parts):
-        try:
-            a, b, c = (int(parts[0]), int(parts[1]), int(parts[2]))
-        except ValueError:
-            return None
-        if a > 31:
-            year, month, day = a, b, c
-        else:
-            day, month, year = a, b, c
-            if year < 100:
-                year += 2000
-        try:
-            return date(year, month, day)
-        except ValueError:
-            return None
-    return None
+    """Compatibility wrapper for :func:`apps.engine.recon_parsing.parse_date_value`."""
+    return parse_date_value(value)
 
 
 def money(value) -> Decimal | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, Decimal):
-        return value
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return Decimal(value)
-    if isinstance(value, float):
-        return Decimal(str(value))
-    text = str(value).strip().replace("₹", "").replace(",", "").replace(" ", "")
-    if not text:
-        return None
-    try:
-        return Decimal(text)
-    except InvalidOperation:
-        return None
+    """Compatibility wrapper for :func:`apps.engine.recon_parsing.parse_money_value`."""
+    return parse_money_value(value)
 
 
 def reconcile(

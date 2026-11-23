@@ -22,9 +22,15 @@ from __future__ import annotations
 import itertools
 import re
 from dataclasses import dataclass, field, replace
-from datetime import date, datetime
-from decimal import Decimal, InvalidOperation
+from datetime import date
+from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
+
+from apps.engine.recon_parsing import (
+    DATE_FORMATS as _DATE_FMTS,
+    parse_date_value,
+    parse_money_value,
+)
 
 ENGINE_VERSION = "2.0"
 ZERO = Decimal("0")
@@ -100,20 +106,6 @@ EXCEPTION_LABELS = {
     "balance_variance": "Balance variance",
 }
 
-_DATE_FMTS = (
-    "%Y-%m-%d",
-    "%d-%m-%Y",
-    "%d/%m/%Y",
-    "%d.%m.%Y",
-    "%Y%m%d",
-    "%d-%m-%y",
-    "%d/%m/%y",
-    "%d %b %Y",
-    "%d-%b-%Y",
-    "%d/%b/%Y",
-    "%d %B %Y",
-    "%b %d, %Y",
-)
 _REFERENCE_KEYS = (
     "invoice_number",
     "voucher_number",
@@ -224,88 +216,13 @@ def normalize_currency(value: Any) -> str:
 
 
 def parse_date(value: Any) -> date | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, datetime):
-        return value.date()
-    if isinstance(value, date):
-        return value
-    text = str(value).strip()
-    if not text:
-        return None
-    if "T" in text:
-        text = text.split("T", 1)[0]
-    if " " in text and re.match(r"^\d{4}-\d{2}-\d{2} ", text):
-        text = text.split(" ", 1)[0]
-    for fmt in _DATE_FMTS:
-        try:
-            return datetime.strptime(text, fmt).date()
-        except ValueError:
-            continue
-    parts = re.split(r"[/\-.]", text)
-    if len(parts) == 3 and all(parts):
-        try:
-            first, second, third = int(parts[0]), int(parts[1]), int(parts[2])
-        except ValueError:
-            return None
-        if first > 31:
-            year, month, day = first, second, third
-        else:
-            day, month, year = first, second, third
-            if year < 100:
-                year += 2000
-        try:
-            return date(year, month, day)
-        except ValueError:
-            return None
-    # Excel serial dates arrive as numbers.
-    try:
-        serial = int(float(text))
-    except (TypeError, ValueError):
-        return None
-    if 20000 <= serial <= 80000:
-        from datetime import timedelta
-
-        return date(1899, 12, 30) + timedelta(days=serial)
-    return None
+    """Compatibility wrapper for :func:`apps.engine.recon_parsing.parse_date_value`."""
+    return parse_date_value(value)
 
 
 def parse_money(value: Any) -> Decimal | None:
-    if value is None or value == "":
-        return None
-    if isinstance(value, Decimal):
-        return value
-    if isinstance(value, bool):
-        return None
-    if isinstance(value, int):
-        return Decimal(value)
-    if isinstance(value, float):
-        return Decimal(str(value))
-    text = str(value).strip()
-    if not text:
-        return None
-    negative = text.startswith("(") and text.endswith(")")
-    text = (
-        text.replace("₹", "")
-        .replace("$", "")
-        .replace("₹", "")
-        .replace(",", "")
-        .replace(" ", "")
-        .replace("Dr.", "")
-        .replace("Cr.", "")
-        .replace("Dr", "")
-        .replace("Cr", "")
-    )
-    text = re.sub(r"[^0-9.\-]", "", text)
-    if text in {"", "-", ".", "-."}:
-        return None
-    try:
-        number = Decimal(text)
-    except InvalidOperation:
-        return None
-    if negative and number > 0:
-        number = -number
-    return number
+    """Compatibility wrapper for :func:`apps.engine.recon_parsing.parse_money_value`."""
+    return parse_money_value(value)
 
 
 def _first_text(row: Mapping[str, Any], keys: Sequence[str]) -> str:
