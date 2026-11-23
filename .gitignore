@@ -19,6 +19,9 @@ designs/ca-unpacker-landing/*.exe
 .env
 supabase/.branches
 
+# Benchmark output is regenerated locally
+apps/engine/benchmarks/results/
+
 # Subagent worktrees and Netlify local state
 .claude/worktrees/
 apps/web/.netlify/
