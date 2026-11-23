@@ -30,6 +30,7 @@ MONEY_LABELS = (
     ("Credit at risk (portal only)", "credit_at_risk"),
     ("Credit claimed without support (books only)", "unsupported_credit"),
     ("Credit notes (kept separate)", "credit_note_total"),
+    ("Same bill from another source (not extra credit)", "same_bill_total"),
 )
 DECISION_LABELS = (
     ("Rows accepted", "accepted"),

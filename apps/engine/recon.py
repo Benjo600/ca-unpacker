@@ -17,6 +17,7 @@ COUNT_KEYS = (
     "duplicate",
     "split_merged",
     "credit_note",
+    "same_bill",
 )
 GENERIC_STATUS_KEYS = (
     "matched",
@@ -139,7 +140,7 @@ def reconcile(
 
     used_books: set[int] = set()
     used_2b: set[int] = set()
-    pairs: list[tuple[str, list[int], list[int], str, int]] = []
+    pairs: list[tuple[str, list[int], list[int], str, int, str]] = []
 
     def _claim(
         status: str,
@@ -147,12 +148,13 @@ def reconcile(
         portal_idx: list[int],
         side: str = "",
         size: int = 0,
+        note: str = "",
     ) -> None:
         for bi in books_idx:
             used_books.add(bi)
         for gi in portal_idx:
             used_2b.add(gi)
-        pairs.append((status, list(books_idx), list(portal_idx), side, size))
+        pairs.append((status, list(books_idx), list(portal_idx), side, size, note))
 
     # 1. Same supplier and invoice, date within the allowed days.
     for bi, book in enumerate(books):
@@ -217,6 +219,23 @@ def reconcile(
         else:
             _claim("duplicate", [], [index], "portal", size)
 
+    # 5b. The same bill recorded twice in the books — once in the accounting
+    #     ledger, once from the supplier's invoice PDF. When one copy is already
+    #     reconciled, the leftover copy is the same bill under a different
+    #     number, not credit claimed without support.
+    reconciled_books = [
+        (bi, gis[0])
+        for status, bis, gis, _side, _size, _note in pairs
+        if gis and status in {"matched", "tax_mismatch", "amount_mismatch", "likely"}
+        for bi in bis
+    ]
+    for bi, book in enumerate(books):
+        if bi in used_books:
+            continue
+        twin = _same_bill_twin(book, books, reconciled_books, twob, days, tolerance)
+        if twin is not None:
+            _claim("same_bill", [bi], [], "books", 0, note=twin)
+
     # 6. Whatever is genuinely one-sided.
     for gi in range(len(twob)):
         if gi not in used_2b:
@@ -227,7 +246,7 @@ def reconcile(
 
     rows = []
     counts = {key: 0 for key in COUNT_KEYS}
-    for status, bis, gis, side, size in pairs:
+    for status, bis, gis, side, size, note in pairs:
         book = books[bis[0]] if bis else {}
         portal = twob[gis[0]] if gis else {}
         extra = [twob[gi] for gi in gis[1:]]
@@ -239,6 +258,7 @@ def reconcile(
             tolerance=tolerance,
             group_size=size or max(len(bis), len(gis)),
             side=side,
+            same_bill_of=note,
         )
         row["bank_hint"] = _bank_hint(row, book, portal, bank, tolerance)
         rows.append(row)
@@ -267,6 +287,7 @@ def _totals(rows: list[dict]) -> dict:
     risk = Decimal("0")
     unsupported = Decimal("0")
     credit_notes = Decimal("0")
+    same_bill = Decimal("0")
     for row in rows:
         status = str(row.get("status") or "")
         amt_2b = _money_of(row, "amount_2b")
@@ -274,6 +295,12 @@ def _totals(rows: list[dict]) -> dict:
         if status == "credit_note":
             if amt_2b is not None:
                 credit_notes += amt_2b.copy_abs()
+            continue
+        if status == "same_bill":
+            # One bill recorded twice in the books is one bill, not two, so it
+            # must not inflate the books side of the comparison.
+            if amt_books is not None:
+                same_bill += amt_books
             continue
         if amt_2b is not None:
             portal += amt_2b
@@ -289,6 +316,7 @@ def _totals(rows: list[dict]) -> dict:
         "gap": float(portal - books),
         "credit_at_risk": float(risk),
         "unsupported_credit": float(unsupported),
+        "same_bill_total": float(same_bill),
         "credit_note_total": float(credit_notes),
     }
 
@@ -520,6 +548,99 @@ def _unclaimed_portal_same_key(
     return count
 
 
+_NAME_STOPWORDS = frozenset(
+    {"pvt", "ltd", "limited", "private", "and", "the", "co", "company", "traders", "trading",
+     "enterprises", "enterprise", "india", "inc", "llp"}
+)
+
+
+def _party_tokens(value: str) -> set[str]:
+    words = re.findall(r"[a-z0-9]+", (value or "").lower())
+    return {word for word in words if len(word) >= 3 and word not in _NAME_STOPWORDS}
+
+
+def _same_party(left: str, right: str) -> bool:
+    a = _party_tokens(left)
+    b = _party_tokens(right)
+    if not a or not b:
+        return False
+    return bool(a & b)
+
+
+def _books_party(row: dict) -> str:
+    return str(row.get("supplier_name") or row.get("party_name") or row.get("trade_name") or "")
+
+
+def _supplier_agrees(
+    book: dict,
+    other_book: dict,
+    portal: dict | None,
+) -> bool:
+    """Can these two rows be the same supplier?
+
+    One source often knows only the GSTIN (an invoice PDF) and the other only
+    the name (a Tally ledger), so the portal line the matched copy reconciled
+    against is used as the shared identity when the books disagree on shape.
+    """
+    book_gstin = _books_gstin(book)
+    other_gstin = _books_gstin(other_book)
+    portal_gstin = _gstr_gstin(portal) if portal else ""
+    book_party = _books_party(book)
+    other_party = _books_party(other_book)
+    portal_party = (
+        str(portal.get("trade_name") or portal.get("supplier_name") or "") if portal else ""
+    )
+    if book_gstin:
+        if other_gstin and book_gstin == other_gstin:
+            return True
+        if portal_gstin and book_gstin == portal_gstin:
+            return True
+    if book_party:
+        if other_party and _same_party(book_party, other_party):
+            return True
+        if portal_party and _same_party(book_party, portal_party):
+            return True
+    return False
+
+
+def _same_bill_twin(
+    book: dict,
+    books: list[dict],
+    candidates: list[tuple[int, int]],
+    twob: list[dict],
+    days: int,
+    tolerance: Decimal,
+) -> str | None:
+    """Return the invoice number of an already-reconciled copy of this bill.
+
+    Two book entries are the same bill when they share a supplier, agree on the
+    amount, and sit within a few days of each other — the only difference being
+    the invoice number each source happened to record.
+    """
+    amount = _books_amount(book)
+    if amount is None or not candidates:
+        return None
+    when = _books_date(book)
+    window = max(int(days or 0), 7)
+    for other_index, portal_index in candidates:
+        other = books[other_index]
+        other_amount = _books_amount(other)
+        if other_amount is None or (other_amount - amount).copy_abs() > tolerance:
+            continue
+        portal = twob[portal_index] if 0 <= portal_index < len(twob) else None
+        if not _supplier_agrees(book, other, portal):
+            continue
+        other_when = _books_date(other)
+        if when and other_when and abs((when - other_when).days) > window:
+            continue
+        invoice = str(other.get("invoice_number") or "").strip()
+        if not invoice and portal:
+            invoice = str(portal.get("invoice_number") or "").strip()
+        if invoice:
+            return invoice
+    return None
+
+
 def _duplicate_items(
     books: list[dict],
     twob: list[dict],
@@ -580,6 +701,7 @@ def _recon_row(
     tolerance: Decimal | None = None,
     group_size: int = 1,
     side: str = "",
+    same_bill_of: str = "",
 ) -> dict:
     extra = list(extra_portal or [])
     limit = tolerance if tolerance is not None else AMOUNT_TOLERANCE
@@ -625,6 +747,7 @@ def _recon_row(
             gaps=gaps,
             group_size=group_size,
             side=side,
+            same_bill_of=same_bill_of,
         ),
         "bank_hint": "",
         "source_2b": str(portal.get("source") or "") if portal else "",
@@ -648,6 +771,7 @@ def _reason(
     gaps: list[tuple[str, Decimal]] | None = None,
     group_size: int = 1,
     side: str = "",
+    same_bill_of: str = "",
 ) -> str:
     if status == "matched":
         return "Supplier, invoice number, date and amount all agree."
@@ -664,6 +788,17 @@ def _reason(
         return (
             "Date and amount agree, but the invoice numbers differ "
             f"(books '{invoice_books}' vs portal '{invoice_2b}') — confirm this is the same invoice."
+        )
+    if status == "same_bill":
+        other = (same_bill_of or "").strip()
+        if other:
+            return (
+                f"This is the same bill as invoice {other}, which is already matched; "
+                "it is a second copy from another book source, not extra credit."
+            )
+        return (
+            "This looks like the same bill already matched through another book "
+            "source, not extra credit."
         )
     if status == "books_only":
         return "This invoice appears only in the books; the GST portal download shows nothing like it."

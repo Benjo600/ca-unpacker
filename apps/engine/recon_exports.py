@@ -33,6 +33,7 @@ STATUS_LABELS = {
     "duplicate": "Duplicate",
     "split_merged": "Split or merged",
     "credit_note": "Credit note",
+    "same_bill": "Same bill, other source",
 }
 EXCEPTION_STATUSES = tuple(status for status in STATUS_LABELS if status != "matched")
 COUNT_ORDER = (
@@ -45,6 +46,7 @@ COUNT_ORDER = (
     ("duplicate", "Duplicate"),
     ("split_merged", "Split or merged"),
     ("credit_note", "Credit notes"),
+    ("same_bill", "Same bill, other source"),
 )
 MONEY_ORDER = (
     ("On the portal (2B)", "portal_total"),
@@ -53,6 +55,7 @@ MONEY_ORDER = (
     ("Credit at risk (portal only)", "credit_at_risk"),
     ("Credit claimed without support (books only)", "unsupported_credit"),
     ("Credit notes (kept separate)", "credit_note_total"),
+    ("Same bill from another source (not extra credit)", "same_bill_total"),
 )
 EXCEPTION_HEADERS = [
     "Status",
