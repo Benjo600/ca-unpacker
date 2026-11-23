@@ -33,3 +33,11 @@ build_log.txt
 .claude/worktrees/
 apps/web/.netlify/
 stress-dump/
+
+# Local tool scratch output (design detectors, install/test logs, pytest tmp dirs)
+.detector.json
+.detector-shell.json
+.pip-install.log
+.pytest-full.log
+tmp[0-9a-z]*/
+
