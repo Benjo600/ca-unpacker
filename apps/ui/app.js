@@ -3536,6 +3536,67 @@ function flagLabel(flag) {
   return key.replace(/_/g, " ");
 }
 
+function approvalText(row) {
+  const approval = String(row.approval || "").toLowerCase();
+  if (approval === "approved") return "Approved — released into the pack";
+  if (approval === "rejected") return "Left out of the pack";
+  return "Inferred from the balance gap — not in the statement";
+}
+
+function isInferredRow(row) {
+  if (row && row.needs_approval === true) return true;
+  const flags = row && row.flags;
+  return Array.isArray(flags) && flags.indexOf("inferred_from_balance") !== -1;
+}
+
+async function decideApproval(row, decision, button) {
+  const api = window.pywebview && window.pywebview.api;
+  if (!api || typeof api.approve_bank_row !== "function" || !row.row_id) return;
+  button.disabled = true;
+  try {
+    const result = await api.approve_bank_row(row.row_id, decision, "");
+    if (!result || result.ok === false) {
+      button.disabled = false;
+      console.warn("Could not save that decision", result);
+      return;
+    }
+    row.approval = decision;
+    const cell = button.closest("td");
+    if (cell) {
+      cell.querySelectorAll(".approval-actions").forEach((node) => node.remove());
+      const note = cell.querySelector(".approval-note");
+      if (note) note.textContent = approvalText(row);
+    }
+  } catch (err) {
+    button.disabled = false;
+    console.warn("Could not save that decision", err);
+  }
+}
+
+function maybeApprovalControl(cell, row) {
+  if (!isInferredRow(row)) return;
+  const note = document.createElement("div");
+  note.className = "approval-note";
+  note.textContent = approvalText(row);
+  cell.append(note);
+  const approval = String(row.approval || "").toLowerCase();
+  if (approval === "approved" || approval === "rejected") return;
+  const actions = document.createElement("div");
+  actions.className = "approval-actions";
+  const approve = document.createElement("button");
+  approve.type = "button";
+  approve.className = "approval-btn";
+  approve.textContent = "Approve this row";
+  approve.addEventListener("click", () => decideApproval(row, "approved", approve));
+  const reject = document.createElement("button");
+  reject.type = "button";
+  reject.className = "approval-btn ghost";
+  reject.textContent = "Leave it out";
+  reject.addEventListener("click", () => decideApproval(row, "rejected", reject));
+  actions.append(approve, reject);
+  cell.append(actions);
+}
+
 function flagsCell(row) {
   const td = document.createElement("td");
   td.className = "flags";
@@ -3691,6 +3752,7 @@ function renderPreview(preview) {
         } else {
           const detailTd = document.createElement("td");
           detailTd.textContent = detail;
+          if (isBank) maybeApprovalControl(detailTd, row);
           if (isBank) {
             const page = row.source_page == null ? "" : String(row.source_page);
             const pageTd = document.createElement("td");

@@ -376,6 +376,23 @@ class ReconDecision(Base):
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
 
 
+class RowApproval(Base):
+    """A CA's explicit decision on an inferred (not-printed) bank row."""
+
+    __tablename__ = "row_approvals"
+    __table_args__ = (UniqueConstraint("period_id", "row_key", name="uq_row_approval"),)
+
+    id: Mapped[int] = mapped_column(primary_key=True)
+    period_id: Mapped[int] = mapped_column(ForeignKey("periods.id"))
+    row_key: Mapped[str] = mapped_column(String(320))
+    decision: Mapped[str] = mapped_column(
+        String(20), default="approved", server_default=text("'approved'")
+    )
+    note: Mapped[str | None] = mapped_column(String(1000), nullable=True)
+    decided_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), default=utcnow)
+
+
 _engine = None
 SessionLocal = None
 
