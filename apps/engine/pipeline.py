@@ -31,6 +31,7 @@ from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
 from apps.engine.preflight import PreflightReport, load_report, run_preflight, save_report
 from apps.engine.settings import period_output_dir
 from apps.engine.pack.bank_xlsx import write_bank_workbook
+from apps.engine.row_approvals import apply_decisions, decisions_for, row_key
 from apps.engine.pack.file_review_xlsx import write_file_review_workbook
 from apps.engine.pack.gstr_json import (
     build_gstr1_json,
@@ -589,6 +590,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
             if bank_files:
                 dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
+                apply_decisions(period_id, bank_files)
                 write_bank_workbook(dest, bank_files)
                 all_match = all(item["check"].get("status") == "match" for item in bank_files)
                 if any(item["check"].get("status") == "mismatch" for item in bank_files):
@@ -1438,6 +1440,7 @@ def get_period_preview(period_id: int, limit: int = 8) -> dict:
             .order_by(ExtractedRow.id.asc())
             .all()
         )
+        approvals = decisions_for(period_id)
         grouped: dict[tuple[int, str], dict] = {}
         for extracted, stored in rows:
             key = (stored.id, extracted.kind)
@@ -1464,6 +1467,12 @@ def get_period_preview(period_id: int, limit: int = 8) -> dict:
             payload["row_id"] = extracted.id
             payload["source_page"] = extracted.source_page
             payload["source_bbox"] = extracted.source_bbox
+            if extracted.kind == "bank":
+                decision = approvals.get(row_key(stored.id, "bank", payload))
+                if decision:
+                    payload["approval"] = decision
+                elif payload.get("needs_approval"):
+                    payload["approval"] = "pending"
             bucket["rows"].append(payload)
         files = []
         for bucket in grouped.values():

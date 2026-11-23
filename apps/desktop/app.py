@@ -1006,6 +1006,22 @@ class DesktopApi:
         except Exception:
             return {"ok": False, "error": "Could not load generated packs."}
 
+    def approve_bank_row(self, row_id: int, decision: str = "approved", note: str = "") -> dict:
+        """Approve or reject one inferred bank row.
+
+        Inferred rows are not printed in the statement, so a person has to
+        accept them before they can leave the approval sheet.
+        """
+        try:
+            from apps.engine.row_approvals import decide_row
+
+            result = decide_row(int(row_id), decision, note or None)
+        except Exception:
+            return {"ok": False, "error": "Could not save that decision. Try again."}
+        if not result.get("ok"):
+            return result
+        return result
+
     def get_extracted_record(self, row_id: int) -> dict:
         try:
             row_pk = int(row_id)

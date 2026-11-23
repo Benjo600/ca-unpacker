@@ -81,6 +81,8 @@ def _pending_approval_rows(rows: list[dict]) -> list[dict]:
     """Rows invented from a balance gap, which a CA has to approve by hand."""
     pending = []
     for row in rows or []:
+        if str(row.get("approval") or "").lower() == "approved":
+            continue
         if row.get("needs_approval"):
             pending.append(row)
             continue

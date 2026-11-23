@@ -4652,3 +4652,35 @@ select.kind-pick {
   font-size: var(--font-size-sm);
   color: var(--color-text-secondary);
 }
+
+/* Inferred rows: not printed in the statement, so a person has to approve them. */
+.approval-note {
+  margin-top: 4px;
+  font-size: var(--font-size-xs, 12px);
+  color: var(--color-warning, #b45309);
+}
+
+.approval-actions {
+  display: flex;
+  gap: 6px;
+  margin-top: 6px;
+}
+
+.approval-btn {
+  border: 1px solid var(--color-border, #d0d5dd);
+  background: var(--color-surface, #fff);
+  border-radius: 6px;
+  padding: 2px 8px;
+  font-size: var(--font-size-xs, 12px);
+  cursor: pointer;
+}
+
+.approval-btn.ghost {
+  background: transparent;
+  color: var(--color-text-secondary, #667085);
+}
+
+.approval-btn:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
