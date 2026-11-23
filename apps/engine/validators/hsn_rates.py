@@ -314,7 +314,12 @@ def _prefix_rate(prefix: str) -> int | None:
 
 
 def _digits(hsn: Any) -> str:
-    if hsn is None:
+    if hsn is None or isinstance(hsn, bool):
+        return ""
+    # Only scalars can be a code. ``str(object())`` carries the memory address,
+    # whose digits would otherwise be read as an HSN code — which made lookups
+    # of junk values non-deterministic.
+    if not isinstance(hsn, (str, int, float, Decimal)):
         return ""
     text = str(hsn).strip()
     if not text:

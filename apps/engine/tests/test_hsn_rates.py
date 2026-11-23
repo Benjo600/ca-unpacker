@@ -79,6 +79,18 @@ class HsnRateTableTests(unittest.TestCase):
         self.assertIsNone(expected_rate("0000"))
         self.assertIsNone(expected_rate(object()))
 
+    def test_only_scalars_are_read_as_codes(self) -> None:
+        from apps.engine.validators.hsn_rates import expected_rate
+
+        class Sneaky:
+            def __str__(self) -> str:
+                return "998314"
+
+        # A non-scalar's string form is not a code, even when it looks like one:
+        # str(object()) used to leak its memory address into the lookup.
+        self.assertIsNone(expected_rate(Sneaky()))
+
+
 
 class HsnRateFlagTests(unittest.TestCase):
     def test_correct_rate_is_not_flagged(self) -> None:
