@@ -67,13 +67,13 @@ class FlpkRealInvoiceTests(InvoiceFixtureTestCase):
         self.assertEqual(parsed["ignored_documents"], [])
 
         rows = {row["invoice_number"]: row for row in parsed["rows"]}
-        self.assertEqual(set(rows), {"FAIH9X2500133941", "BFF9725004803384"})
+        self.assertEqual(set(rows), {"EXM9X2500001111", "EXM9X2500002222"})
 
-        first = rows["FAIH9X2500133941"]
+        first = rows["EXM9X2500001111"]
         self.assertEqual(first["invoice_date"], "2025-01-09")
-        self.assertEqual(first["supplier_name"], "Health & Happiness Private Limited")
-        self.assertEqual(first["supplier_gstin"], "29AADCH8449J1Z0")
-        self.assertEqual(first["customer_name"], "Darshan V")
+        self.assertEqual(first["supplier_name"], "Example Trading Private Limited")
+        self.assertEqual(first["supplier_gstin"], "29AAACX1234C1Z5")
+        self.assertEqual(first["customer_name"], "Test Buyer")
         self.assertTrue(first["customer_address"])
         self.assertEqual(first["currency"], "INR")
         self.assertEqual(first["hsn"], "84713010")
@@ -86,9 +86,9 @@ class FlpkRealInvoiceTests(InvoiceFixtureTestCase):
         self.assertEqual(first["tax_rate"], 18.0)
         self.assert_checks_ok(first)
 
-        second = rows["BFF9725004803384"]
+        second = rows["EXM9X2500002222"]
         self.assertEqual(second["invoice_date"], "2025-01-09")
-        self.assertEqual(second["supplier_gstin"], "29AADCH8449J1Z0")
+        self.assertEqual(second["supplier_gstin"], "29AAACX1234C1Z5")
         self.assertEqual(second["currency"], "INR")
         self.assertEqual(second["hsn"], "998599")
         self.assertAlmostEqual(second["taxable_value"], 24.58, places=2)
@@ -102,11 +102,11 @@ class FlpkRealInvoiceTests(InvoiceFixtureTestCase):
         items = parsed["line_items"]
         self.assertEqual(len(items), 3)
         counts = Counter(item["invoice_number"] for item in items)
-        self.assertEqual(counts["FAIH9X2500133941"], 2)
-        self.assertEqual(counts["BFF9725004803384"], 1)
+        self.assertEqual(counts["EXM9X2500001111"], 2)
+        self.assertEqual(counts["EXM9X2500002222"], 1)
 
         laptop = next(item for item in items if "ASUS Vivobook" in item["description"])
-        self.assertEqual(laptop["invoice_number"], "FAIH9X2500133941")
+        self.assertEqual(laptop["invoice_number"], "EXM9X2500001111")
         self.assertIn("E1504FA", laptop["description"])
         self.assertEqual(laptop["hsn"], "84713010")
         self.assertEqual(laptop["qty"], 1.0)
@@ -119,14 +119,14 @@ class FlpkRealInvoiceTests(InvoiceFixtureTestCase):
         self.assertAlmostEqual(laptop["amount"], 36490.0, places=2)
 
         shipping = next(item for item in items if "Shipping" in item["description"])
-        self.assertEqual(shipping["invoice_number"], "FAIH9X2500133941")
+        self.assertEqual(shipping["invoice_number"], "EXM9X2500001111")
         self.assertAlmostEqual(shipping["gross"], 70.0, places=2)
         self.assertAlmostEqual(shipping["discount"], -70.0, places=2)
         self.assertAlmostEqual(shipping["taxable"], 0.0, places=2)
         self.assertAlmostEqual(shipping["amount"], 0.0, places=2)
 
         protect = next(item for item in items if "Protect Promise" in item["description"])
-        self.assertEqual(protect["invoice_number"], "BFF9725004803384")
+        self.assertEqual(protect["invoice_number"], "EXM9X2500002222")
         self.assertEqual(protect["hsn"], "998599")
         self.assertEqual(protect["qty"], 1.0)
         self.assertAlmostEqual(protect["taxable"], 24.58, places=2)
@@ -511,8 +511,8 @@ class FlpkPipelineTests(InvoiceFixtureTestCase):
             row[invoice_headers.index("Invoice no")]: row
             for row in invoices.iter_rows(min_row=2, values_only=True)
         }
-        first = invoice_rows["FAIH9X2500133941"]
-        self.assertEqual(first[invoice_headers.index("Customer")], "Darshan V")
+        first = invoice_rows["EXM9X2500001111"]
+        self.assertEqual(first[invoice_headers.index("Customer")], "Test Buyer")
         self.assertAlmostEqual(first[invoice_headers.index("Taxable")], 30923.72, places=2)
         self.assertAlmostEqual(first[invoice_headers.index("CGST")], 2783.14, places=2)
         self.assertAlmostEqual(first[invoice_headers.index("SGST")], 2783.14, places=2)

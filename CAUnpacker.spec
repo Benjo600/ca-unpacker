@@ -5,8 +5,21 @@ from PyInstaller.utils.hooks import collect_all, collect_submodules
 
 ROOT = Path(SPECPATH)
 
-datas = [
-    (str(ROOT / "apps" / "ui"), "ui"),
+def _ui_assets():
+    """Bundle the UI, never its tests: customers have no use for our scripts."""
+    source = ROOT / "apps" / "ui"
+    assets = []
+    for path in sorted(source.rglob("*")):
+        if not path.is_file():
+            continue
+        relative = path.relative_to(source)
+        if relative.parts[0] == "tests":
+            continue
+        assets.append((str(path), str(Path("ui") / relative.parent)))
+    return assets
+
+
+datas = _ui_assets() + [
     # Supabase endpoints for the shipped build; read by apps/engine/auth_config.py.
     (str(ROOT / "apps" / "config.json"), "."),
 ]

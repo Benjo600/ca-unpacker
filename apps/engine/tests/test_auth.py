@@ -88,6 +88,49 @@ def test_refresh_token_is_encrypted_in_settings(tmp_path, monkeypatch):
     assert session["refresh_token"] == "refresh-token-plain"
 
 
+def test_access_token_is_also_encrypted_in_settings(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine.auth import get_session, login_via_tokens
+    from apps.engine.settings import load_settings
+
+    access = "header.payload.sig"
+    login_via_tokens(access, "refresh-token-plain")
+    stored = load_settings()
+    # A readable bearer token in the settings table is one shared-PC away from
+    # being someone else's session.
+    assert not stored.get("auth_access_token")
+    assert stored.get("auth_access_token_enc")
+    assert stored.get("auth_access_token_enc") != access
+    session = get_session()
+    assert session is not None
+    assert session["access_token"] == access
+
+
+def test_plaintext_access_token_from_an_older_build_is_migrated(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine.auth import _encrypt_refresh_token, get_session
+    from apps.engine.settings import load_settings, save_settings
+
+    save_settings(
+        {
+            "auth_access_token": "legacy-plain-token",
+            "auth_refresh_token_enc": _encrypt_refresh_token("refresh-token"),
+            "auth_email": "owner@example.com",
+        }
+    )
+    session = get_session()
+    assert session is not None
+    assert session["access_token"] == "legacy-plain-token"
+
+    stored = load_settings()
+    assert not stored.get("auth_access_token")
+    assert stored.get("auth_access_token_enc")
+    # The session still works after the upgrade.
+    again = get_session()
+    assert again is not None
+    assert again["access_token"] == "legacy-plain-token"
+
+
 def test_rejects_document_keys_in_request_body(tmp_path, monkeypatch):
     monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
     from apps.engine.auth import _reject_document_keys

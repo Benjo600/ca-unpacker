@@ -29,6 +29,7 @@ OFFLINE_GRACE_DAYS = 7
 _AUTH_SETTING_KEYS = (
     "auth_salt",
     "auth_access_token",
+    "auth_access_token_enc",
     "auth_refresh_token_enc",
     "auth_email",
     "auth_quota_cache",
@@ -91,12 +92,40 @@ def _encrypt_refresh_token(token: str) -> str:
 
 
 def _decrypt_refresh_token(token_enc: str) -> str | None:
+    return _decrypt_token(token_enc)
+
+
+def _encrypt_access_token(token: str) -> str:
+    return _encrypt_refresh_token(token)
+
+
+def _decrypt_token(token_enc: str) -> str | None:
     if not token_enc:
         return None
     try:
         return _fernet().decrypt(token_enc.encode("ascii")).decode("utf-8")
     except InvalidToken:
         return None
+
+
+def _read_access_token(data: dict) -> str:
+    """The access token, encrypted at rest. Older builds stored it in the clear.
+
+    A plaintext value found on disk is re-encrypted in place, so an existing
+    install upgrades itself on first read instead of staying exposed.
+    """
+    encrypted = str(data.get("auth_access_token_enc") or "").strip()
+    if encrypted:
+        return (_decrypt_token(encrypted) or "").strip()
+    legacy = str(data.get("auth_access_token") or "").strip()
+    if legacy:
+        save_settings(
+            {
+                "auth_access_token": "",
+                "auth_access_token_enc": _encrypt_access_token(legacy),
+            }
+        )
+    return legacy
 
 
 def _email_from_jwt(access_token: str) -> str | None:
@@ -130,7 +159,7 @@ def _access_expired(access_token: str, leeway_seconds: int = 60) -> bool:
 
 def get_session() -> dict | None:
     data = load_settings()
-    access = (data.get("auth_access_token") or "").strip()
+    access = _read_access_token(data)
     refresh_enc = (data.get("auth_refresh_token_enc") or "").strip()
     refresh = _decrypt_refresh_token(refresh_enc)
     if not access or not refresh:
@@ -147,6 +176,7 @@ def _clear_session() -> None:
     save_settings(
         {
             "auth_access_token": "",
+            "auth_access_token_enc": "",
             "auth_refresh_token_enc": "",
             "auth_email": "",
         }
@@ -178,7 +208,8 @@ def login_via_tokens(access_token: str, refresh_token: str) -> dict:
     email = _email_from_jwt(access) or ""
     save_settings(
         {
-            "auth_access_token": access,
+            "auth_access_token": "",
+            "auth_access_token_enc": _encrypt_access_token(access),
             "auth_refresh_token_enc": _encrypt_refresh_token(refresh),
             "auth_email": email,
         }
@@ -368,7 +399,8 @@ def refresh_session() -> dict | None:
     email = _email_from_jwt(access) or session.get("email") or ""
     save_settings(
         {
-            "auth_access_token": access,
+            "auth_access_token": "",
+            "auth_access_token_enc": _encrypt_access_token(access),
             "auth_refresh_token_enc": _encrypt_refresh_token(refresh),
             "auth_email": email,
         }
