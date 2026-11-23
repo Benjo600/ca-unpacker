@@ -24,6 +24,10 @@ from apps.engine.parsers.bank.patterns import (
 from apps.engine.parsers.bank.profiles import BankProfile
 from apps.engine.pdf_extract import WordBox
 
+_MONTH_FRAGMENTS = frozenset(
+    {"jan", "feb", "mar", "apr", "may", "jun", "jul", "aug", "sep", "sept", "oct", "nov", "dec"}
+)
+
 COL_HINTS = (
     ("date", ("txn date", "trans date", "transaction date", "value date", "tran date")),
     ("narration", ("narration", "particulars", "description", "remarks", "details")),
@@ -201,11 +205,16 @@ def _words_to_row(
     notes: list[str] = []
 
     description_words = []
+    narration_x = columns.get("narration")
     for word in ordered:
-        if DATE_RE.fullmatch(word.text.strip()):
-            continue
         token = word.text.strip()
+        if DATE_RE.fullmatch(token):
+            continue
         if AMOUNT_RE.fullmatch(token) or MONEY_TOKEN_RE.fullmatch(token):
+            continue
+        # The row serial ("#") and date fragments sit in their own columns to
+        # the left of the narration; they are not part of the particulars.
+        if _is_preamble_word(token, word, narration_x):
             continue
         description_words.append(word.text)
     description = clean_text(" ".join(description_words)) or text
@@ -253,6 +262,22 @@ def _words_to_row(
     else:
         row["extraction_method"] = "text"
     return row
+
+
+def _is_preamble_word(token: str, word: WordBox, narration_x: float | None) -> bool:
+    """True for the serial/date preamble that sits left of the narration.
+
+    Scanned statements put a row serial ("#") and the date in their own
+    columns before the description. Those fragments are not particulars, and
+    they only survive here because OCR splits "05 Jul 2026" into pieces.
+    """
+    if narration_x is None:
+        return False
+    if (word.x + word.width) > narration_x:
+        return False
+    if token.isdigit() and len(token) <= 4:
+        return True
+    return token.lower().strip(".") in _MONTH_FRAGMENTS
 
 
 def _first_amount(words: list[WordBox]) -> tuple[Decimal | None, object]:

@@ -91,7 +91,7 @@ def parse_bank_statement(
 
     separator = detect_decimal_separator(currency_text)
     with decimal_convention(separator):
-        opening = _balance_near(extracted, OPENING_RE)
+        opening = _balance_near(extracted, OPENING_RE, pick="first")
         closing = _balance_near(extracted, CLOSING_RE)
         line_rows, line_candidates = _rows_from_lines(
             extracted.lines,
@@ -686,18 +686,46 @@ def _search(text: str, pattern: re.Pattern) -> str | None:
     return match.group(1) if match else None
 
 
-def _balance_near(extracted: ExtractedPdf, pattern: re.Pattern) -> Decimal | None:
-    for line in extracted.lines:
-        if pattern.search(line.text):
-            amounts = amounts_in(line.text)
+def _balance_near(
+    extracted: ExtractedPdf,
+    pattern: re.Pattern,
+    pick: str = "last",
+) -> Decimal | None:
+    """Find a labelled balance, following its label onto the next line.
+
+    Summary blocks on scanned statements put the values on the line *after*
+    the labels ("Particulars Opening Balance Closing Balance" then
+    "Savings Account (SA): 11.71 1,177.74"), so a same-line-only search loses
+    the closing balance entirely.  ``pick`` chooses the first or last amount
+    once a line carries more than one.
+    """
+
+    def choose(amounts: list[Decimal]) -> Decimal:
+        return amounts[0] if pick == "first" else amounts[-1]
+
+    def scan(rows: list[str]) -> Decimal | None:
+        for index, raw in enumerate(rows):
+            if not pattern.search(raw):
+                continue
+            amounts = amounts_in(raw)
             if amounts:
-                return amounts[-1]
+                return choose(amounts)
+            for follow in rows[index + 1 : index + 3]:
+                if DATE_RE.search(follow):
+                    # A transaction row, not the value half of a summary block.
+                    break
+                later = amounts_in(follow)
+                if later:
+                    return choose(later)
+        return None
+
+    found = scan([line.text for line in extracted.lines])
+    if found is not None:
+        return found
     for page in extracted.pages:
-        for raw in page.text.splitlines():
-            if pattern.search(raw):
-                amounts = amounts_in(raw)
-                if amounts:
-                    return amounts[-1]
+        found = scan(page.text.splitlines())
+        if found is not None:
+            return found
     return None
 
 

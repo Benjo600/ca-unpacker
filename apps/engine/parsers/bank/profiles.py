@@ -4,6 +4,10 @@ import re
 
 from dataclasses import dataclass
 
+# Characters of the document head treated as the bank's letterhead when
+# deciding which bank a statement belongs to.
+_LETTERHEAD_CHARS = 1200
+
 
 @dataclass(frozen=True)
 class BankProfile:
@@ -102,7 +106,9 @@ def detect_profile(text: str, filename: str = "") -> BankProfile:
             return profile
 
     header = text[:4000]
-    ifsc_match = re.search(r"\b([A-Za-z]{4})0[A-Za-z0-9]{6}\b", header)
+    # IFSC codes come out of OCR glued to their label ("CodeKKBK0008120"), so
+    # match without requiring a word boundary before the four-letter prefix.
+    ifsc_match = re.search(r"([A-Za-z]{4})0[A-Za-z0-9]{6}", header)
     if ifsc_match:
         prefix = ifsc_match.group(1).lower()
         _IFSC_MAP = {"kkbk": "kotak", "hdfc": "hdfc", "icic": "icici", "sbin": "sbi", "utib": "axis"}
@@ -112,10 +118,21 @@ def detect_profile(text: str, filename: str = "") -> BankProfile:
                 if profile.key == target_key:
                     return profile
 
-    header_lower = header.lower()
-    for profile in PROFILES:
-        if any(re.search(rf"\b{re.escape(hint)}\b", header_lower) for hint in profile.hints):
-            return profile
+    # Bank hints are read from the letterhead only, and the earliest mention
+    # wins: a UPI narration such as "palac/hdfc/655..." deeper in the text must
+    # not outvote "Kotak Mahindra Bank" on line one.
+    for scope in (_LETTERHEAD_CHARS, len(header)):
+        best: tuple[int, str] | None = None
+        chunk = header[:scope].lower()
+        for profile in PROFILES:
+            for hint in profile.hints:
+                match = re.search(rf"\b{re.escape(hint)}\b", chunk)
+                if match and (best is None or match.start() < best[0]):
+                    best = (match.start(), profile.key)
+        if best is not None:
+            for profile in PROFILES:
+                if profile.key == best[1]:
+                    return profile
     return BankProfile(
         key="generic",
         label="Bank statement",
