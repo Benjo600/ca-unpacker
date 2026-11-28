@@ -12,6 +12,7 @@ const {
   formatReconMoney,
   formatWhen,
   formatFileSize,
+  countLabel,
   rowsLabel,
   looksLikeGstin,
   cropCaptionValue,
@@ -56,6 +57,13 @@ assert.equal(rowsLabel(1), "1 row");
 assert.equal(rowsLabel(3), "3 rows");
 assert.equal(rowsLabel("2"), "2 rows");
 assert.equal(rowsLabel(null), "0 rows");
+
+assert.equal(countLabel(0, "file"), "0 files");
+assert.equal(countLabel(1, "file"), "1 file");
+assert.equal(countLabel(2, "file"), "2 files");
+assert.equal(countLabel(1, "line"), "1 line");
+assert.equal(countLabel(1, "person", "people"), "1 person");
+assert.equal(countLabel(4, "person", "people"), "4 people");
 
 assert.equal(dash(null), "—");
 assert.equal(dash(undefined), "—");

@@ -547,7 +547,8 @@ class SapPipelineTests(unittest.TestCase):
 
         book = load_workbook(path, data_only=True)
         try:
-            sheet = book.active
+            # The workbook opens on its cover; the rows are on the next sheet.
+            sheet = book.worksheets[1]
             headers = [cell for cell in next(sheet.iter_rows(values_only=True))]
         finally:
             book.close()
@@ -613,7 +614,7 @@ class SapPipelineTests(unittest.TestCase):
         try:
             text = " ".join(
                 str(cell)
-                for row in book.active.iter_rows(values_only=True)
+                for row in book["Needs review"].iter_rows(values_only=True)
                 for cell in row
                 if cell is not None
             )

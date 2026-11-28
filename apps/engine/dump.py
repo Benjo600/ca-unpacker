@@ -745,13 +745,6 @@ def ingest_paths(job_id: int, paths: list[str]) -> dict:
             pass
         finish_cancelled_job(job_id)
         raise
-    except JobCancelled:
-        try:
-            session.rollback()
-        except Exception:
-            pass
-        finish_cancelled_job(job_id)
-        raise
     except Exception as exc:
         try:
             session.rollback()

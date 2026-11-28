@@ -104,7 +104,7 @@ class VisibleParseFailureTests(unittest.TestCase):
         review_path = Path(outputs["needs_review"]["path"])
         self.assertTrue(review_path.is_file(), review_path)
         names = []
-        for row in load_workbook(review_path).active.iter_rows(min_row=2, values_only=True):
+        for row in load_workbook(review_path)["Needs review"].iter_rows(min_row=2, values_only=True):
             names.append(str(row[0] or ""))
         blob = " ".join(names).lower()
         self.assertIn("meeting_notes", blob)

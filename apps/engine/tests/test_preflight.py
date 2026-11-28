@@ -306,11 +306,11 @@ class PreflightWorkbookTests(unittest.TestCase):
     def tearDown(self) -> None:
         self._tmp.cleanup()
 
-    def test_blocking_rows_are_painted_red_and_one_row_per_issue_is_written(self) -> None:
+    def test_blocking_rows_carry_the_exception_mark_and_one_row_per_issue_is_written(self) -> None:
         from openpyxl import load_workbook
 
         from apps.engine.pack.preflight_xlsx import PREFLIGHT_HEADERS, write_preflight_report
-        from apps.engine.pack.style import RED_BG
+        from apps.engine.pack.style import EXCEPTION_TINT
 
         report = PreflightReport(
             issues=(
@@ -339,8 +339,8 @@ class PreflightWorkbookTests(unittest.TestCase):
         self.assertEqual(sheet.max_row, 3)
         self.assertEqual(sheet.cell(2, 1).value, "BLOCKING")
         self.assertEqual(sheet.cell(3, 1).value, "WARNING")
-        self.assertTrue(str(sheet.cell(2, 1).fill.fgColor.rgb).endswith(RED_BG))
-        self.assertFalse(str(sheet.cell(3, 1).fill.fgColor.rgb).endswith(RED_BG))
+        self.assertTrue(str(sheet.cell(2, 1).fill.fgColor.rgb).endswith(EXCEPTION_TINT))
+        self.assertFalse(str(sheet.cell(3, 1).fill.fgColor.rgb).endswith(EXCEPTION_TINT))
         self.assertIn("row 4", str(sheet.cell(3, 5).value))
 
     def test_empty_report_writes_a_single_note_row(self) -> None:

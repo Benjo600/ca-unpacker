@@ -392,7 +392,7 @@ class EndToEndFileReviewTests(unittest.TestCase):
         workbook_path = Path(outputs["file_review"]["path"])
         self.assertTrue(workbook_path.is_file(), workbook_path)
         book = load_workbook(workbook_path)
-        self.assertEqual(set(book.sheetnames), {"Summary", "Checklist", "Cross-checks"})
+        self.assertEqual(set(book.sheetnames), {"Contents", "Checklist", "Cross-checks"})
 
     def test_no_file_review_without_a_profile(self) -> None:
         client = create_client("Acme")

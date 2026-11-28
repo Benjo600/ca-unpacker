@@ -15,7 +15,7 @@ has **Open full page**, which opens the same pane at the page the crop came from
 | JPG / PNG / WEBP / TIFF / BMP | The image, scaled to fit. |
 | JSON | The file text, indented for reading. **Show raw file** returns the exact bytes from disk. Invalid JSON is labelled invalid, never repaired. |
 | CSV | A table of the first rows, delimiter sniffed (`,` `;` tab `|`). |
-| XLSX | A table per sheet, with sheet tabs. |
+| XLSX | A table per sheet, with sheet tabs. A workbook opens on its data sheet: a sheet named `Contents`, `Cover` or `Balance Check` is a cover and is skipped. |
 | TXT / XML | Plain text, wrap on or off. |
 | ZIP | Entry names and sizes. Nothing is extracted. |
 | Anything else (e.g. DOCX) | "No preview for this file type" plus **Open in app**. |

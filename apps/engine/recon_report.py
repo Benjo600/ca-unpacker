@@ -14,7 +14,7 @@ from pathlib import Path
 from typing import Any, Iterable, Mapping, Sequence
 
 from openpyxl import Workbook
-from openpyxl.styles import Alignment, Border, Font, PatternFill, Side
+from openpyxl.styles import Alignment
 from openpyxl.utils import get_column_letter
 
 from apps.engine.db import (
@@ -23,6 +23,21 @@ from apps.engine.db import (
     ReconMatch,
     ReconRun,
     get_session,
+)
+from apps.engine.firm import get_firm
+from apps.engine.pack.style import (
+    BODY_FONT,
+    COVER_TITLE_FONT,
+    LABEL_FONT,
+    META_FONT,
+    MONEY_FORMAT,
+    ROW_RULE,
+    SECTION_FONT,
+    mark_exception,
+    print_setup,
+    sanitize_value,
+    style_body,
+    style_header,
 )
 from apps.engine.recon_engine import EXCEPTION_LABELS
 from apps.engine.settings import period_output_dir
@@ -35,30 +50,22 @@ def _json_load(text: str | None, fallback):
         return fallback
     return value
 
-HEADER_FILL = PatternFill("solid", fgColor="0F2B46")
-HEADER_FONT = Font(color="FFFFFF", bold=True)
-TITLE_FONT = Font(bold=True, size=16, color="0F2B46")
-SECTION_FONT = Font(bold=True, size=12, color="0F2B46")
-TOTAL_FILL = PatternFill("solid", fgColor="E8EEF5")
-WARNING_FILL = PatternFill("solid", fgColor="FFF4E5")
-DANGER_FILL = PatternFill("solid", fgColor="FDE8E8")
-GOOD_FILL = PatternFill("solid", fgColor="E7F4EC")
-THIN = Side(style="thin", color="D5DDE5")
-BORDER = Border(left=THIN, right=THIN, top=THIN, bottom=THIN)
-MONEY_FORMAT = '[>=10000000]"₹"##\\,##\\,##\\,##0.00;[>=100000]"₹"##\\,##\\,##0.00;"₹"##\\,##0.00'
-DATE_FORMAT = "DD-MMM-YYYY HH:MM"
 
-STATUS_TONES = {
-    "matched": GOOD_FILL,
-    "accepted": GOOD_FILL,
-    "manual": GOOD_FILL,
-    "timing_difference": GOOD_FILL,
-    "approved_adjustment": GOOD_FILL,
-    "proposed": WARNING_FILL,
-    "unmatched": DANGER_FILL,
-    "duplicate": DANGER_FILL,
-    "reversal_candidate": DANGER_FILL,
-    "rejected": DANGER_FILL,
+# The palette, fonts and rules live in pack.style.  A row is ruled with one
+# hairline; only a status cell that needs attention is set off.
+BORDER = ROW_RULE
+
+# Statuses that earn the exception mark on their status cell.
+EXCEPTION_STATUSES = {
+    "proposed",
+    "unmatched",
+    "duplicate",
+    "reversal_candidate",
+    "rejected",
+    "open",
+    "investigating",
+    "assigned",
+    "reopened",
 }
 
 
@@ -75,22 +82,18 @@ def _status_label(status: str) -> str:
 
 def _write_title(sheet, title: str, subtitle: str = "") -> int:
     sheet["A1"] = title
-    sheet["A1"].font = TITLE_FONT
+    sheet["A1"].font = COVER_TITLE_FONT
     if subtitle:
         sheet["A2"] = subtitle
-        sheet["A2"].font = Font(italic=True, color="5B6B7C")
+        sheet["A2"].font = META_FONT
         return 4
     return 3
 
 
 def _write_header(sheet, row: int, headers: Sequence[str]) -> int:
     for column, value in enumerate(headers, start=1):
-        cell = sheet.cell(row, column, value)
-        cell.fill = HEADER_FILL
-        cell.font = HEADER_FONT
-        cell.alignment = Alignment(vertical="center", wrap_text=True)
-        cell.border = BORDER
-    sheet.row_dimensions[row].height = 28
+        sheet.cell(row, column, sanitize_value(value))
+    style_header(sheet, len(headers), row)
     return row + 1
 
 
@@ -100,6 +103,14 @@ def _finish_table(sheet, header_row: int, last_row: int, last_column: int) -> No
             f"A{header_row}:{get_column_letter(last_column)}{last_row}"
         )
         sheet.freeze_panes = f"A{header_row + 1}"
+        style_body(
+            sheet,
+            header_row + 1,
+            last_row,
+            last_column,
+            row_height=None,
+            auto_align_numbers=True,
+        )
     for column in range(1, last_column + 1):
         width = 18
         for row in range(header_row, min(last_row, header_row + 80) + 1):
@@ -107,11 +118,21 @@ def _finish_table(sheet, header_row: int, last_row: int, last_column: int) -> No
             if value is not None:
                 width = max(width, min(52, len(str(value)) + 3))
         sheet.column_dimensions[get_column_letter(column)].width = width
+    print_setup(
+        sheet,
+        last_column,
+        header_row=header_row,
+        footer_parts=[sheet.title],
+    )
 
 
 def _write_kv(sheet, row: int, key: str, value: Any) -> int:
-    sheet.cell(row, 1, key).font = Font(bold=True)
-    sheet.cell(row, 2, value)
+    label = sheet.cell(row, 1, sanitize_value(key))
+    label.font = LABEL_FONT
+    label.border = BORDER
+    cell = sheet.cell(row, 2, sanitize_value(value))
+    cell.font = BODY_FONT
+    cell.border = BORDER
     return row + 1
 
 
@@ -194,11 +215,17 @@ def export_reconciliation(run_id: int) -> dict:
         xlsx_path = folder / f"{stem}.xlsx"
         pdf_path = folder / f"{stem}_summary.pdf"
         generated = datetime.now(timezone.utc).astimezone()
+        # The firm name is the one masthead line the run record does not hold.
+        try:
+            firm_name = str((get_firm() or {}).get("name") or "").strip()
+        except Exception:  # a missing firm only leaves the line out
+            firm_name = ""
         workbook = Workbook()
         summary = workbook.active
         summary.title = "Executive Summary"
         _write_summary(
-            summary, run, counts, totals, checks, rules, source_files, generated
+            summary, run, counts, totals, checks, rules, source_files, generated,
+            firm=firm_name,
         )
         _write_match_sheet(
             workbook,
@@ -265,13 +292,15 @@ def _write_summary(
     rules: Mapping,
     source_files: Sequence[Mapping],
     generated: datetime,
+    firm: str = "",
 ) -> None:
     row = _write_title(
         sheet,
         "Reconciliation Executive Summary",
         f"{run.client_name} · {run.period_label} · {run.workflow_label}",
     )
-    details = [
+    details = [("Firm", firm)] if firm else []
+    details.extend([
         ("Client", run.client_name),
         ("Financial year", run.financial_year),
         ("Period", run.period_label),
@@ -283,7 +312,7 @@ def _write_summary(
         ("Engine", rules.get("engine_version") or ""),
         ("Completion status", _status_label(run.completion_status)),
         ("Actor", run.actor or "local user"),
-    ]
+    ])
     for key, value in details:
         row = _write_kv(sheet, row, key, value)
     row += 1
@@ -374,6 +403,21 @@ def _write_summary(
     sheet.column_dimensions["C"].width = 22
     sheet.column_dimensions["D"].width = 70
     sheet.freeze_panes = "A4"
+    style_body(
+        sheet,
+        4,
+        max(sheet.max_row, 4),
+        4,
+        row_height=None,
+        auto_align_numbers=True,
+    )
+    print_setup(
+        sheet,
+        4,
+        header_row=None,
+        landscape=False,
+        footer_parts=[run.client_name or "", run.period_label or "", "Reconciliation summary"],
+    )
 
 
 MATCH_HEADERS = [
@@ -445,23 +489,26 @@ def _write_match_sheet(workbook: Workbook, title: str, matches: Sequence[ReconMa
             match.decision_reason or "",
         ]
         for column, value in enumerate(values, start=1):
-            cell = sheet.cell(row, column, value)
+            cell = sheet.cell(row, column, sanitize_value(value))
             cell.border = BORDER
-            cell.alignment = Alignment(vertical="top", wrap_text=column in {15, 21, 22})
+            if column in {15, 21, 22}:
+                cell.alignment = Alignment(vertical="top", wrap_text=True)
             if column in {10, 11, 12}:
                 cell.number_format = MONEY_FORMAT
-        fill = STATUS_TONES.get(match.status)
-        if fill is not None:
-            sheet.cell(row, 1).fill = fill
+        if str(match.status or "") in EXCEPTION_STATUSES:
+            mark_exception(sheet, row, 1)
         row += 1
     if matches:
-        sheet.cell(row, 1, "TOTAL").font = Font(bold=True)
-        sheet.cell(row, 10, _money(sum(float(match.left_amount or 0) for match in matches))).number_format = MONEY_FORMAT
-        sheet.cell(row, 11, _money(sum(float(match.right_amount or 0) for match in matches))).number_format = MONEY_FORMAT
-        sheet.cell(row, 12, _money(sum(float(match.difference_amount or 0) for match in matches))).number_format = MONEY_FORMAT
+        sheet.cell(row, 1, "TOTAL").font = LABEL_FONT
+        for column, total in (
+            (10, sum(float(match.left_amount or 0) for match in matches)),
+            (11, sum(float(match.right_amount or 0) for match in matches)),
+            (12, sum(float(match.difference_amount or 0) for match in matches)),
+        ):
+            cell = sheet.cell(row, column, _money(total))
+            cell.number_format = MONEY_FORMAT
+            cell.font = LABEL_FONT
         for column in range(1, len(MATCH_HEADERS) + 1):
-            sheet.cell(row, column).fill = TOTAL_FILL
-            sheet.cell(row, column).font = Font(bold=True)
             sheet.cell(row, column).border = BORDER
         row += 1
     else:
@@ -519,30 +566,21 @@ def _write_exceptions_sheet(
             exception.resolved_at.strftime("%d-%b-%Y %H:%M") if exception.resolved_at else "",
         ]
         for column, value in enumerate(values, start=1):
-            cell = sheet.cell(row, column, value)
+            cell = sheet.cell(row, column, sanitize_value(value))
             cell.border = BORDER
             if column == 6:
                 cell.number_format = MONEY_FORMAT
-        status_fill = {
-            "open": DANGER_FILL,
-            "investigating": WARNING_FILL,
-            "assigned": WARNING_FILL,
-            "resolved": GOOD_FILL,
-            "approved": GOOD_FILL,
-            "timing_difference": GOOD_FILL,
-            "approved_adjustment": GOOD_FILL,
-            "reopened": WARNING_FILL,
-        }.get(exception.status)
-        if status_fill is not None:
-            sheet.cell(row, 3).fill = status_fill
+        if str(exception.status or "") in EXCEPTION_STATUSES:
+            mark_exception(sheet, row, 3)
         row += 1
     if exceptions:
-        sheet.cell(row, 1, "TOTAL").font = Font(bold=True)
-        total_cell = sheet.cell(row, 6, _money(sum(float(exception.amount or 0) for exception in exceptions)))
+        sheet.cell(row, 1, "TOTAL").font = LABEL_FONT
+        total_cell = sheet.cell(
+            row, 6, _money(sum(float(exception.amount or 0) for exception in exceptions))
+        )
         total_cell.number_format = MONEY_FORMAT
+        total_cell.font = LABEL_FONT
         for column in range(1, len(headers) + 1):
-            sheet.cell(row, column).fill = TOTAL_FILL
-            sheet.cell(row, column).font = Font(bold=True)
             sheet.cell(row, column).border = BORDER
         row += 1
     else:

@@ -219,7 +219,8 @@ class UtgstWorkbookTests(unittest.TestCase):
     def test_b2b_flags_cell_and_cover_note_show_utgst(self) -> None:
         from openpyxl import load_workbook
 
-        from apps.engine.pack.gstr_xlsx import RED_FILL, write_gstr_2b
+        from apps.engine.pack.gstr_xlsx import write_gstr_2b
+        from apps.engine.pack.style import EXCEPTION_TINT
 
         rows = _parse(_gstr2b(CHANDIGARH_GSTIN, "04"), "gstr_2b")["rows"]
         rows += _parse(_gstr2b(KARNATAKA_GSTIN, "29"), "gstr_2b")["rows"]
@@ -235,11 +236,11 @@ class UtgstWorkbookTests(unittest.TestCase):
         self.assertTrue(any("utgst" in str(value) for value in flags), flags)
         self.assertTrue(any(not value for value in flags), flags)
 
-        red = RED_FILL.fgColor.rgb
+        red = EXCEPTION_TINT
         for row in range(2, sheet.max_row + 1):
             fill = sheet.cell(row, 1).fill
-            rgb = fill.fgColor.rgb if fill and fill.fgColor is not None else None
-            self.assertNotEqual(rgb, red, f"intra-UT row {row} must not look like a defect")
+            rgb = fill.fgColor.rgb if fill and fill.fgColor is not None else ""
+            self.assertNotEqual(str(rgb or "")[-6:], red, f"intra-UT row {row} must not look like a defect")
 
         cover_text = " ".join(
             str(cell.value) for line in book["Cover"].iter_rows() for cell in line if cell.value

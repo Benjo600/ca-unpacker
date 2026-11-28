@@ -537,3 +537,29 @@ def test_snapshot_and_restore_of_auth_settings(tmp_path, monkeypatch):
     assert session["refresh_token"] == "refresh-token"
     assert auth.load_quota_cache()["files_used"] == 4
     assert load_settings().get("auth_quota_cache", {}).get("files_used") == 4
+
+
+def test_heartbeat_reports_the_real_app_version(tmp_path, monkeypatch):
+    """The heartbeat must carry apps.version.APP_VERSION, not the 0.1.0 default.
+
+    The admin console tells builds apart by this number, so a stale constant
+    here made every installed app look identical.
+    """
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+    from apps.version import APP_VERSION
+
+    monkeypatch.setattr(auth, "get_session", lambda: {"access_token": "t", "refresh_token": "r"})
+    monkeypatch.setattr(auth, "_network_available", lambda: True)
+
+    sent: list[tuple] = []
+
+    def fake_call_function(name, body, session):
+        sent.append((name, body, session))
+        return {"ok": True}
+
+    monkeypatch.setattr(auth, "_call_function", fake_call_function)
+
+    assert auth.send_heartbeat() == {"ok": True}
+    assert sent[0][0] == "heartbeat"
+    assert sent[0][1]["app_version"] == APP_VERSION

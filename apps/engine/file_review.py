@@ -15,6 +15,7 @@ import re
 from dataclasses import dataclass
 from typing import Any, Mapping, Sequence
 
+from apps.engine.pack.formatting import plural
 from apps.engine.profiles import RULES_AS_OF, RULES_DISCLAIMER, resolve_profile
 from apps.engine.treatment import (
     CHECK,
@@ -306,7 +307,7 @@ def _attach_hint(inventory: Mapping[str, Mapping]) -> str:
     if not count:
         return ""
     return (
-        f"{count} unrecognised file(s) sit in Needs review; "
+        f"{plural(count, 'unrecognised file')} sit in Needs review; "
         "one of them may be the missing document — label it and re-run."
     )
 
@@ -404,7 +405,7 @@ def _escalation(
                 debit = _amount(row.get("debit")) or abs(_amount(row.get("amount")) or 0)
                 if debit and debit > 0 and _matches_any(SALARY_PATTERN, text):
                     return (
-                        "Staff salary payment(s) were seen in this period's money rows, "
+                        "Staff salary payments were seen in this period's money rows, "
                         "so the register is now essential."
                     )
     for code in need.escalate_on:
@@ -506,8 +507,10 @@ def _check_purchases_vs_2b(
             severity=severity,
             title="Purchase bills and GSTR-2B do not agree",
             detail=(
-                f"The purchase register shows {_money(purchase_total)} across {len(purchase_rows)} line(s); "
-                f"GSTR-2B shows {_money(portal_total)} across {len(gstr_2b_rows)} line(s). "
+                f"The purchase register shows {_money(purchase_total)} across "
+                f"{plural(len(purchase_rows), 'line')}; "
+                f"GSTR-2B shows {_money(portal_total)} across "
+                f"{plural(len(gstr_2b_rows), 'line')}. "
                 f"The register is {_money(abs(difference))} {direction} the portal ({ratio:.0%})."
             ),
             action=(
@@ -553,8 +556,10 @@ def _check_sales_vs_gstr1(
             severity=severity,
             title="Books sales and GSTR-1 do not agree",
             detail=(
-                f"The sales register shows {_money(books_total)} across {len(sales_rows)} line(s); "
-                f"GSTR-1 shows {_money(portal_total)} across {len(gstr_1_rows)} line(s). "
+                f"The sales register shows {_money(books_total)} across "
+                f"{plural(len(sales_rows), 'line')}; "
+                f"GSTR-1 shows {_money(portal_total)} across "
+                f"{plural(len(gstr_1_rows), 'line')}. "
                 f"The register is {_money(abs(difference))} {direction} the return ({ratio:.0%})."
             ),
             action=(
@@ -824,7 +829,8 @@ def _check_cash(
                 severity=CHECK,
                 title="Large cash payments in the bank rows",
                 detail=(
-                    f"{len(payments)} bank row(s) totalling {_money(total)} match cash words and are "
+                    f"{plural(len(payments), 'bank row')} totalling {_money(total)} match cash "
+                    "words and are "
                     "at or above the working limit of ₹10,000 in one cash payment."
                 ),
                 action=(
@@ -846,7 +852,8 @@ def _check_cash(
                 severity=CHECK,
                 title="Very large single cash receipts in the bank rows",
                 detail=(
-                    f"{len(receipts)} bank credit(s) of {_money(CASH_RECEIPT_LIMIT)} or more match cash words. "
+                    f"{plural(len(receipts), 'bank credit')} of {_money(CASH_RECEIPT_LIMIT)} or "
+                    "more match cash words. "
                     "A single receipt at this size in cash is restricted."
                 ),
                 action="Identify the counterparty and the mode in, before treating any of it as business receipt.",

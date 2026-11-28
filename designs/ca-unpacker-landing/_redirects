@@ -1,1 +1,5 @@
+# Fallback only. index.html repoints its Download buttons at the newest CI
+# release on load (see latest-build.js); releases/latest ignores prereleases,
+# so this rule can serve an older build if the API call fails. Keep it: it is
+# what stops the button ever being dead.
 /CAUnpacker-Setup.exe  https://github.com/Benjo600/ca-unpacker/releases/latest/download/CAUnpacker-Setup.exe  302

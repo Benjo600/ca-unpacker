@@ -19,6 +19,7 @@ from apps.engine.db import (
     get_session,
     utcnow,
 )
+from apps.engine.firm import get_firm
 from apps.engine.kinds import IMAGE_SUFFIXES, KIND_LABELS
 from apps.engine.periods import effective_tolerances
 from apps.engine.library import init_library, resolve_storage_key
@@ -300,6 +301,27 @@ def _recon_bank_rows(bank_files: list[dict]) -> list[dict]:
     return rows
 
 
+def pack_cover_identity(client, period) -> dict:
+    """The firm, client and period every pack cover shows.
+
+    The firm name is the only thing a writer cannot know from the data it is
+    handed, so it is read here, once, and passed in with the workbook call.  A
+    missing firm, client or period leaves that cover line out rather than
+    breaking the pack.
+    """
+    firm = ""
+    try:
+        record = get_firm()
+        firm = str((record or {}).get("name") or "").strip()
+    except Exception:
+        firm = ""
+    return {
+        "firm": firm,
+        "client": str(getattr(client, "name", "") or "").strip(),
+        "period": str(getattr(period, "label", "") or "").strip(),
+    }
+
+
 def parse_period_banks(period_id: int, job_id: int | None = None) -> dict | None:
     return parse_period(period_id, job_id)
 
@@ -516,6 +538,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
         period = session.get(Period, period_id)
         client = session.get(Client, period.client_id) if period else None
+        pack_identity = pack_cover_identity(client, period)
         dest_dir: Path | None = None
         destination_error: str | None = None
         try:
@@ -591,7 +614,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
             if bank_files:
                 dest = dest_dir / "Bank_Statement_Cleaned.xlsx"
                 apply_decisions(period_id, bank_files)
-                write_bank_workbook(dest, bank_files)
+                write_bank_workbook(dest, bank_files, identity=pack_identity)
                 all_match = all(item["check"].get("status") == "match" for item in bank_files)
                 if any(item["check"].get("status") == "mismatch" for item in bank_files):
                     bank_pack_status = "mismatch"
@@ -627,41 +650,55 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
             if purchase_rows and line_item_rows:
                 dest = dest_dir / "Purchase_Register_Extracted.xlsx"
-                write_purchase_workbook(dest, purchase_rows, line_item_rows, PURCHASE_COLS, LINE_COLS)
+                write_purchase_workbook(
+                    dest, purchase_rows, line_item_rows, PURCHASE_COLS, LINE_COLS,
+                    identity=pack_identity,
+                )
                 outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
             elif purchase_rows:
                 dest = dest_dir / "Purchase_Register_Extracted.xlsx"
-                write_table(dest, "Purchase register", purchase_rows, PURCHASE_COLS)
+                write_table(
+                    dest, "Purchase register", purchase_rows, PURCHASE_COLS,
+                    identity=pack_identity,
+                )
                 outputs.append(_simple_out("purchase", dest.name, dest, len(purchase_rows)))
 
             review_rows = _review_rows(files)
             if review_rows:
                 dest = dest_dir / "Needs_Review.xlsx"
-                write_table(dest, "Needs review", review_rows, REVIEW_COLS)
+                write_table(
+                    dest, "Needs review", review_rows, REVIEW_COLS,
+                    identity=pack_identity,
+                )
                 outputs.append(_simple_out("needs_review", dest.name, dest, len(review_rows)))
 
             if sales_rows:
                 dest = dest_dir / "Sales_Register_Extracted.xlsx"
-                write_table(dest, "Sales register", sales_rows, SALES_COLS)
+                write_table(
+                    dest, "Sales register", sales_rows, SALES_COLS,
+                    identity=pack_identity,
+                )
                 outputs.append(_simple_out("sales", dest.name, dest, len(sales_rows)))
 
             gstr_meta = {
                 "gstin": client.gstin if client else None,
                 "period": period.label if period else None,
+                "firm": pack_identity.get("firm") or "",
+                "client": pack_identity.get("client") or "",
             }
             if gstr_2b:
                 dest = dest_dir / "GSTR_2B_Formatted.xlsx"
-                write_gstr_2b(dest, gstr_2b, gstr_meta)
+                write_gstr_2b(dest, gstr_2b, gstr_meta, identity=pack_identity)
                 outputs.append(_simple_out("gstr_2b", dest.name, dest, len(gstr_2b)))
 
             if gstr_1:
                 dest = dest_dir / "GSTR_1_Formatted.xlsx"
-                write_gstr_1(dest, gstr_1, gstr_meta)
+                write_gstr_1(dest, gstr_1, gstr_meta, identity=pack_identity)
                 outputs.append(_simple_out("gstr_1", dest.name, dest, len(gstr_1)))
 
             if gstr_3b:
                 dest = dest_dir / "GSTR_3B_Formatted.xlsx"
-                write_gstr_3b(dest, gstr_3b, gstr_meta)
+                write_gstr_3b(dest, gstr_3b, gstr_meta, identity=pack_identity)
                 outputs.append(_simple_out("gstr_3b", dest.name, dest, len(gstr_3b)))
 
             try:
@@ -675,23 +712,29 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
             if books_rows:
                 dest = dest_dir / "Books_Register_Extracted.xlsx"
-                write_table(dest, "Books", books_rows, BOOKS_COLS)
+                write_table(
+                    dest, "Books", books_rows, BOOKS_COLS,
+                    identity=pack_identity,
+                )
                 outputs.append(_simple_out("books", dest.name, dest, len(books_rows)))
 
             if sap_rows:
                 dest = dest_dir / "SAP_Reports_Extracted.xlsx"
-                write_table(dest, "SAP reports", sap_rows, SAP_COLS)
+                write_table(
+                    dest, "SAP reports", sap_rows, SAP_COLS,
+                    identity=pack_identity,
+                )
                 outputs.append(_simple_out("sap", dest.name, dest, len(sap_rows)))
 
             if recon_result is not None:
                 dest = dest_dir / "Master_Reconciliation_Grid.xlsx"
-                write_master_grid(dest, recon_result)
+                write_master_grid(dest, recon_result, identity=pack_identity)
                 outputs.append(
                     _simple_out("master", dest.name, dest, len(recon_result.get("rows") or []))
                 )
 
             dest = dest_dir / "Preflight_Report.xlsx"
-            write_preflight_report(dest, report)
+            write_preflight_report(dest, report, identity=pack_identity)
             outputs.append(_simple_out("preflight", dest.name, dest, len(report.issues)))
 
             # The preflight report is a finding list, so its rows never inflate the
@@ -717,7 +760,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         gstr_1_rows=gstr_1,
                     )
                     dest = dest_dir / "Treatment_Review.xlsx"
-                    write_treatment_workbook(dest, treatment)
+                    write_treatment_workbook(dest, treatment, identity=pack_identity)
                     outputs.append(
                         _simple_out("treatment", dest.name, dest, len(treatment["flags"]))
                     )
@@ -736,7 +779,7 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
                         treatment_flags=treatment["flags"],
                     )
                     dest = dest_dir / "File_Review.xlsx"
-                    write_file_review_workbook(dest, file_review)
+                    write_file_review_workbook(dest, file_review, identity=pack_identity)
                     outputs.append(
                         _simple_out("file_review", dest.name, dest, len(file_review["checks"]))
                     )
@@ -1300,6 +1343,12 @@ def _dispatch(path: Path, kind: str, filename: str, client_id: int | None = None
             "meta": meta,
             "currency": parsed.get("currency") or {},
             "error": parsed.get("error"),
+            # A statement can be valid and hold no transactions; the outcome
+            # evaluator needs that positive evidence to say "processed" with a
+            # plain warning instead of sending it to review.
+            "valid_empty": parsed.get("valid_empty"),
+            "reason": parsed.get("reason"),
+            "warnings": parsed.get("warnings") or [],
         }
     if kind == "invoice":
         parsed = parse_invoice_file(path, filename)

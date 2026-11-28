@@ -1,4 +1,3 @@
-const loginEl = document.getElementById("login");
 const welcomeEl = document.getElementById("welcome");
 const setupEl = document.getElementById("setup");
 const deskEl = document.getElementById("desk");
@@ -11,6 +10,11 @@ const navLabelEl = document.getElementById("nav-label");
 const clientCountEl = document.getElementById("client-count");
 const clientListEl = document.getElementById("client-list");
 const emptyEl = document.getElementById("empty");
+const clientSearchEl = document.getElementById("client-search");
+const clientSearchClearEl = document.getElementById("client-search-clear");
+const clientSearchNoteEl = document.getElementById("client-search-note");
+const clientSearchEmptyEl = document.getElementById("client-search-empty");
+const clientSearchWrapEl = clientSearchEl ? clientSearchEl.closest(".client-search") : null;
 const addForm = document.getElementById("add-form");
 const clientNameEl = document.getElementById("client-name");
 const clientGstinEl = document.getElementById("client-gstin");
@@ -117,6 +121,10 @@ const reportsLoadingEl = document.getElementById("reports-loading");
 const reportsErrorEl = document.getElementById("reports-error");
 const reportsListEl = document.getElementById("reports-list");
 const reportsEmptyEl = document.getElementById("reports-empty");
+const reportsClientFilterEl = document.getElementById("reports-client-filter");
+const reportsTypeFilterEl = document.getElementById("reports-type-filter");
+const reportsClearFiltersEl = document.getElementById("reports-clear-filters");
+const reportsFilterNoteEl = document.getElementById("reports-filter-note");
 const previewBlock = document.getElementById("preview-block");
 const previewListEl = document.getElementById("preview-list");
 const scanNoteEl = document.getElementById("scan-note");
@@ -220,6 +228,9 @@ let reconPageFilter = "all";
 let reconPageSearch = "";
 let reconPageBusy = false;
 let reportsData = null;
+let clientsCache = [];
+let clientQuery = "";
+let reportsFilters = { client: "", kind: "" };
 let updateState = null;
 let updatePollTimer = null;
 let updateCheckTimer = null;
@@ -230,7 +241,6 @@ let updatePopupDismissedVersion = "";
 const UPDATE_CHECK_INTERVAL_MS = 6 * 60 * 60 * 1000;
 
 const UI_SESSION_KEY = "caUnpackerUiSession";
-const UI_REMEMBER_KEY = "caUnpackerRememberUser";
 
 function desktopApi() {
   return (window.pywebview && window.pywebview.api) || null;
@@ -531,7 +541,6 @@ function isTypingTarget(el) {
 }
 
 function showScreen(name) {
-  if (loginEl) loginEl.classList.toggle("hidden", name !== "login");
   setupEl.classList.toggle("hidden", name !== "setup");
   if (welcomeEl) welcomeEl.classList.toggle("hidden", name !== "welcome");
   deskEl.classList.toggle("hidden", name !== "desk");
@@ -550,35 +559,6 @@ function setUiSession() {
   }
 }
 
-function restoreLoginForm() {
-  const userEl = document.getElementById("login-user");
-  const rememberEl = document.getElementById("login-remember");
-  if (!userEl) return;
-  try {
-    const saved = localStorage.getItem(UI_REMEMBER_KEY) || "";
-    if (saved) {
-      userEl.value = saved;
-      if (rememberEl) rememberEl.checked = true;
-    }
-  } catch {
-    /* localStorage is optional in this host */
-  }
-}
-
-function persistRememberedUser() {
-  const userEl = document.getElementById("login-user");
-  const rememberEl = document.getElementById("login-remember");
-  try {
-    if (rememberEl && rememberEl.checked && userEl && userEl.value) {
-      localStorage.setItem(UI_REMEMBER_KEY, userEl.value);
-    } else {
-      localStorage.removeItem(UI_REMEMBER_KEY);
-    }
-  } catch {
-    /* localStorage is optional in this host */
-  }
-}
-
 function fillWelcome(state) {
   const firmEl = document.getElementById("welcome-firm");
   if (firmEl) {
@@ -592,9 +572,9 @@ function fillWelcome(state) {
     let text = "";
     if (license && license.plan_label) {
       if (license.file_limit == null) {
-        text = `${license.plan_label} · unlimited files`;
+        text = `${license.plan_label} · unlimited files imported this month`;
       } else {
-        text = `${license.plan_label} · ${license.files_used}/${license.file_limit} files this month`;
+        text = `${license.plan_label} · ${license.files_used} of ${license.file_limit} files imported this month`;
       }
     }
     licenseEl.textContent = text;
@@ -947,40 +927,113 @@ function renderTreatmentHint(client, pack) {
 }
 
 function renderClients(clients) {
+  clientsCache = Array.isArray(clients) ? clients.slice() : [];
+  if (!clientQuery) {
+    // A fresh list (after an add or a delete) should not keep a stale filter
+    // unless the user is actively typing in the search box.
+    if (clientSearchEl) clientSearchEl.value = "";
+  }
+  renderClientRows();
+}
+
+function renderClientRows() {
+  const view = window.CAClientsView;
+  const visible = view ? view.filterClients(clientsCache, clientQuery) : clientsCache;
+  const total = clientsCache.length;
+  const filtering = Boolean(clientQuery.trim());
+
   clientListEl.innerHTML = "";
-  clientCountEl.textContent = String(clients.length);
-  emptyEl.classList.toggle("hidden", clients.length > 0);
-  for (const client of clients) {
+  clientCountEl.textContent = String(total);
+  emptyEl.classList.toggle("hidden", total > 0);
+  if (clientSearchWrapEl) clientSearchWrapEl.classList.toggle("hidden", total === 0);
+  if (clientSearchClearEl) clientSearchClearEl.hidden = !filtering;
+  if (clientSearchNoteEl) {
+    clientSearchNoteEl.textContent = filtering
+      ? view
+        ? view.filterSummary(total, visible.length)
+        : `${visible.length} of ${total} clients match`
+      : "";
+  }
+  if (clientSearchEmptyEl) {
+    clientSearchEmptyEl.classList.toggle("hidden", !(total > 0 && visible.length === 0));
+    if (total > 0 && visible.length === 0) {
+      clientSearchEmptyEl.textContent = `No clients match “${clientQuery.trim()}”. Clear the search to see all ${total} ${total === 1 ? "client" : "clients"}.`;
+    }
+  }
+
+  for (const client of visible) {
     const row = document.createElement("div");
     row.className = "client-row";
-    row.tabIndex = 0;
+    row.setAttribute("role", "listitem");
+    // A real button, so Enter, Space, a mouse click and the accessibility
+    // invoke path all do the same thing. Delete sits beside it, not inside it.
+    const open = document.createElement("button");
+    open.type = "button";
+    open.className = "client-open";
+    open.title = `Open ${client.name}`;
     const name = document.createElement("span");
     name.className = "name";
     name.textContent = client.name;
-    const gstin = document.createElement("span");
-    gstin.className = "gstin";
-    gstin.textContent = client.gstin || "—";
+    name.title = client.name;
     const profile = document.createElement("span");
     profile.className = "client-profile" + (client.profile_is_set ? "" : " muted");
     profile.textContent = client.profile_is_set
       ? client.profile_summary || "Profile set"
       : "No profile";
     profile.title = profile.textContent;
+    const gstin = document.createElement("span");
+    gstin.className = "gstin";
+    gstin.textContent = client.gstin || "—";
+    gstin.title = client.gstin ? `GSTIN ${client.gstin}` : "No GSTIN recorded";
+    const docs = document.createElement("span");
+    docs.className = "client-docs";
+    const docCount = view ? view.documentCount(client) : Number(client.document_count) || 0;
+    docs.textContent = String(docCount);
+    docs.title = docCount
+      ? `${docCount} ${docCount === 1 ? "document" : "documents"} on this PC`
+      : "No documents imported yet";
+    const latest = document.createElement("span");
+    latest.className = "client-latest";
+    latest.textContent = view ? view.latestPeriodLabel(client) : client.latest_period || "No periods yet";
+    latest.title = client.latest_period
+      ? `Latest month worked: ${client.latest_period}`
+      : "No periods yet";
+    open.append(name, profile, gstin, docs, latest);
+    const docsText = docCount
+      ? `${docCount} ${docCount === 1 ? "document" : "documents"} on this PC`
+      : "no documents yet";
+    const periodText = client.latest_period
+      ? `latest month ${client.latest_period}`
+      : "no periods yet";
+    open.setAttribute(
+      "aria-label",
+      `Open ${client.name}${client.gstin ? `, GSTIN ${client.gstin}` : ""}. ${docsText}, ${periodText}.`
+    );
+    open.addEventListener("click", () => openClient(client.id));
     const del = document.createElement("button");
     del.type = "button";
     del.className = "row-delete";
     del.textContent = "Delete";
+    del.setAttribute("aria-label", `Delete ${client.name}`);
     del.addEventListener("click", (event) => {
       event.stopPropagation();
       deleteClientRow(client);
     });
-    row.append(name, profile, gstin, del);
-    row.addEventListener("click", () => openClient(client.id));
-    row.addEventListener("keydown", (event) => {
-      if (event.key === "Enter") openClient(client.id);
+    // Clicking the empty part of the row still opens it, but the button owns
+    // the keyboard and accessibility path.
+    row.append(open, del);
+    row.addEventListener("click", (event) => {
+      if (event.target === row) openClient(client.id);
     });
     clientListEl.append(row);
   }
+}
+
+function clearClientSearch() {
+  clientQuery = "";
+  if (clientSearchEl) clientSearchEl.value = "";
+  renderClientRows();
+  if (clientSearchEl) clientSearchEl.focus();
 }
 
 function renderPeriods(periods) {
@@ -1348,11 +1401,16 @@ function renderLicense(license) {
     return;
   }
   if (nameEl) nameEl.textContent = license.plan_label || "";
+  // The plan quota is a monthly import allowance, not the size of the library.
+  // Say so, because the dashboard shows a different (lifetime) document count.
   if (license.file_limit == null) {
-    el.textContent = "Unlimited files";
+    el.textContent = "Unlimited files imported this month";
   } else {
-    el.textContent = `${license.files_used} / ${license.file_limit} files`;
+    el.textContent = `${license.files_used} of ${license.file_limit} files imported this month`;
   }
+  el.title =
+    "Files imported into this PC's library since the 1st of this month. " +
+    "Re-importing the same file does not count twice.";
   const copy = document.getElementById("license-copy");
   if (copy) {
     copy.textContent =
@@ -1401,10 +1459,10 @@ function renderQuotaBanner(state) {
   const used = Number(auth.files_used || 0);
   const limit = auth.file_limit;
   if (limit == null) {
-    quotaTextEl.textContent = "Unlimited files this month";
+    quotaTextEl.textContent = "Unlimited files imported this month";
     if (profileMeterEl) profileMeterEl.hidden = true;
   } else {
-    quotaTextEl.textContent = `${used} of ${limit} files this month`;
+    quotaTextEl.textContent = `${used} of ${limit} files imported this month`;
     if (profileMeterEl && profileMeterFillEl) {
       profileMeterEl.hidden = false;
       const ratio = limit > 0 ? Math.min(1, used / limit) : 0;
@@ -1412,6 +1470,31 @@ function renderQuotaBanner(state) {
       profileMeterFillEl.classList.toggle("near-limit", ratio >= 0.8 && ratio < 1);
       profileMeterFillEl.classList.toggle("at-limit", ratio >= 1);
     }
+  }
+}
+
+// The rail quota and the client list counts are computed by the bridge. A new
+// import changes both, and the rail used to keep the number from the last
+// navigation (it read 47 while the library already held 54).
+async function refreshCabinetCounts() {
+  const api = desktopApi();
+  if (!api || typeof api.get_state !== "function") return;
+  let state;
+  try {
+    state = await api.get_state();
+  } catch {
+    return;
+  }
+  if (!state) return;
+  lastAppState = state;
+  renderLicense(state.license);
+  if (state.auth) {
+    authState = state.auth;
+    renderQuotaBanner(state.auth);
+  }
+  if (Array.isArray(state.clients)) {
+    clientsCache = state.clients;
+    if (paneClients && !paneClients.classList.contains("hidden")) renderClientRows();
   }
 }
 
@@ -1734,6 +1817,10 @@ async function ensurePostAuth() {
 function showDesk(state) {
   lastAppState = state;
   showScreen("desk");
+  // Landing on the client list always starts from the full list; a filter the
+  // user left behind yesterday should not hide half their clients.
+  clientQuery = "";
+  if (clientSearchEl) clientSearchEl.value = "";
   firmLabelEl.textContent = state.firm ? state.firm.name : "";
   setOutputLabel(state.output_path || "");
   setPathWarnings(state.path_warnings || []);
@@ -1821,14 +1908,20 @@ async function openPeriod(periodId) {
 function textCell(value, className) {
   const td = document.createElement("td");
   if (className) td.className = className;
-  td.textContent = window.CAFormat.dash(value);
+  const text = window.CAFormat.dash(value);
+  td.textContent = text;
+  // Every cell can be truncated by the fixed column widths, so the full text
+  // stays one hover away.
+  if (value !== null && value !== undefined && value !== "") td.title = text;
   return td;
 }
 
 function moneyCell(value, currency) {
   const td = document.createElement("td");
   td.className = "num";
-  td.textContent = window.CAFormat.money(value, currency);
+  const text = window.CAFormat.money(value, currency);
+  td.textContent = text;
+  if (value !== null && value !== undefined && value !== "") td.title = text;
   return td;
 }
 
@@ -1893,7 +1986,10 @@ function renderPack(pack) {
     const btn = document.createElement("button");
     btn.type = "button";
     btn.className = "text-btn";
-    btn.textContent = `${out.label} · ${window.CAFormat.rowsLabel(out.rows)}${out.status && out.status !== "ready" ? " · " + out.status : ""}`;
+    const statusText = window.CAReportsView
+      ? window.CAReportsView.packStatusLabel(out.status)
+      : "";
+    btn.textContent = `${out.label} · ${window.CAFormat.rowsLabel(out.rows)}${statusText ? " · " + statusText : ""}`;
     btn.addEventListener("click", async () => {
       const opened = await window.pywebview.api.open_bank_pack(currentPeriod.id, out.key);
       if (!opened.ok) showError(dumpErrorEl, opened.error);
@@ -1907,7 +2003,7 @@ function renderPack(pack) {
     const head = document.createElement("div");
     head.className = "pack-file-head";
     const name = document.createElement("span");
-    name.textContent = `${file.filename} · ${file.row_count} lines`;
+    name.textContent = `${file.filename} · ${window.CAFormat.countLabel(file.row_count, "line", "lines")}`;
     const chip = document.createElement("span");
     chip.className = "pill";
     if (file.status === "match") {
@@ -2331,7 +2427,7 @@ function renderDashboard(data) {
   setText("dash-documents", Number(totals.documents) || 0);
   setText(
     "dash-documents-note",
-    `${Number(totals.rows_extracted) || 0} rows extracted`
+    `${window.CAFormat.rowsLabel(Number(totals.rows_extracted) || 0)} extracted`
   );
   setText("dash-processed", Number(totals.processed) || 0);
   setText("dash-attention-count", Number(totals.attention) || 0);
@@ -2384,7 +2480,7 @@ function renderDashboardActivity(activity) {
     const meta = document.createElement("span");
     meta.className = "practice-row-meta";
     const when = window.CAFormat.formatWhen(item.finished_at || item.created_at);
-    meta.textContent = `${window.CAPracticeSummary.jobStatusLabel(item.status)} · ${Number(item.files) || 0} files${when ? ` · ${when}` : ""}`;
+    meta.textContent = `${window.CAPracticeSummary.jobStatusLabel(item.status)} · ${window.CAFormat.countLabel(item.files, "file", "files")}${when ? ` · ${when}` : ""}`;
     main.append(title, meta);
     const side = document.createElement("span");
     side.className = "practice-row-side";
@@ -2652,7 +2748,7 @@ function renderReconWorkspaceForSelection(activeId) {
   if (!period) return;
   setText(
     "recon-period-meta",
-    `${period.client_name} · ${Number(period.file_count) || 0} files · GSTR-2B ${Number(period.datasets.gstr_2b) || 0} · Invoices ${Number(period.datasets.invoices) || 0} · Purchase register ${Number(period.datasets.purchase_register) || 0} · Bank ${Number(period.datasets.bank) || 0} · Ledger ${Number(period.datasets.bank_ledger) || 0}`
+    `${period.client_name} · ${window.CAFormat.countLabel(period.file_count, "file", "files")} · GSTR-2B ${Number(period.datasets.gstr_2b) || 0} · Invoices ${Number(period.datasets.invoices) || 0} · Purchase register ${Number(period.datasets.purchase_register) || 0} · Bank ${Number(period.datasets.bank) || 0} · Ledger ${Number(period.datasets.bank_ledger) || 0}`
   );
   renderReconWorkflowCards(period, activeId);
 }
@@ -2799,7 +2895,9 @@ function renderReconPageResult(result) {
     `${result.period?.client_name || "Client"} · ${result.period?.label || "Period"} · ${window.CAFormat.formatWhen(result.generated_at)}`
   );
   if (reconResultStampEl) {
-    reconResultStampEl.textContent = `${result.datasets?.left?.count || 0} + ${result.datasets?.right?.count || 0} rows`;
+    const left = Number(result.datasets?.left?.count) || 0;
+    const right = Number(result.datasets?.right?.count) || 0;
+    reconResultStampEl.textContent = `${window.CAFormat.rowsLabel(left + right)} in this comparison (${left} + ${right})`;
   }
   if (reconRulesEl) {
     reconRulesEl.textContent = `Rules: ${(workflow.rules || []).join(" ")}`;
@@ -2822,7 +2920,7 @@ function renderReconDatasets(result) {
     const item = document.createElement("div");
     item.className = "recon-dataset";
     const label = document.createElement("strong");
-    label.textContent = `${data.label || (side === "left" ? "Left" : "Right")} · ${Number(data.count) || 0} rows`;
+    label.textContent = `${data.label || (side === "left" ? "Left" : "Right")} · ${window.CAFormat.rowsLabel(data.count)}`;
     const files = (data.sources || [])
       .map((source) => source.file_name)
       .filter(Boolean);
@@ -3306,50 +3404,160 @@ async function loadReports() {
 }
 
 function renderReports(packs) {
+  const all = Array.isArray(packs) ? packs : [];
+  const view = window.CAReportsView;
+  syncReportFilters(all, view);
+  const filtered = view ? view.filterPacks(all, reportsFilters) : all;
   clearNode(reportsListEl);
-  reportsEmptyEl.classList.toggle("hidden", packs.length > 0);
-  reportsListEl.classList.toggle("hidden", packs.length === 0);
-  for (const pack of packs) {
-    const section = document.createElement("section");
-    section.className = "report-pack";
-    const head = document.createElement("div");
-    head.className = "report-pack-head";
-    const titleWrap = document.createElement("div");
-    const title = document.createElement("h2");
-    title.textContent = `${pack.client_name} · ${pack.period_label}`;
-    const meta = document.createElement("p");
-    meta.className = "practice-note";
-    const when = window.CAFormat.formatWhen(pack.created_at);
-    meta.textContent = `${window.CAFormat.rowsLabel(pack.row_count)}${when ? ` · ${when}` : ""}`;
-    titleWrap.append(title, meta);
-    const folder = document.createElement("button");
-    folder.type = "button";
-    folder.className = "ui-btn ui-btn-secondary";
-    folder.textContent = "Open folder";
-    folder.addEventListener("click", () => openReportFolder(pack.period_id));
-    head.append(titleWrap, folder);
-    section.append(head);
-    for (const output of pack.outputs || []) {
-      const row = document.createElement("div");
-      row.className = "report-output";
-      const name = document.createElement("span");
-      name.className = "report-output-name";
-      name.textContent = output.label || output.key || "Excel";
-      const details = document.createElement("span");
-      details.className = "report-output-meta";
-      details.textContent = `${window.CAFormat.rowsLabel(output.rows)}${output.status && output.status !== "ready" ? ` · ${output.status}` : ""}`;
-      const open = document.createElement("button");
-      open.type = "button";
-      open.className = "ui-btn ui-btn-secondary";
-      open.textContent = "Open";
-      open.addEventListener("click", () =>
-        openReportOutput(pack.period_id, output.key)
-      );
-      row.append(name, details, open);
-      section.append(row);
+  const filtering = view ? view.anyFilterActive(reportsFilters) : false;
+
+  const emptyTitle = reportsEmptyEl ? reportsEmptyEl.querySelector("h2") : null;
+  const emptyCopy = reportsEmptyEl ? reportsEmptyEl.querySelector("p") : null;
+  const emptyButton = document.getElementById("reports-go-workspace");
+  if (emptyTitle && emptyCopy) {
+    if (filtering && all.length > 0) {
+      emptyTitle.textContent = "No packs match these filters";
+      emptyCopy.textContent =
+        "Try another client or pack type, or clear the filters to see every generated pack.";
+      if (emptyButton) emptyButton.classList.add("hidden");
+    } else {
+      emptyTitle.textContent = "No generated packs yet";
+      emptyCopy.textContent =
+        "Process a period in the Document Workspace. Excel packs appear here after the files are parsed.";
+      if (emptyButton) emptyButton.classList.remove("hidden");
     }
-    reportsListEl.append(section);
   }
+  reportsEmptyEl.classList.toggle("hidden", filtered.length > 0);
+  reportsListEl.classList.toggle("hidden", filtered.length === 0);
+  if (reportsFilterNoteEl) {
+    reportsFilterNoteEl.textContent = filtering
+      ? `${filtered.length} of ${all.length} ${all.length === 1 ? "pack" : "packs"} shown`
+      : "";
+  }
+
+  const groups = view ? view.groupByClient(filtered) : [];
+  for (const group of groups) {
+    const groupSection = document.createElement("section");
+    groupSection.className = "report-client";
+    const groupHead = document.createElement("div");
+    groupHead.className = "report-client-head";
+    const groupTitle = document.createElement("h2");
+    groupTitle.textContent = group.name;
+    const groupCount = document.createElement("span");
+    groupCount.className = "practice-note";
+    groupCount.textContent = `${group.packs.length} ${group.packs.length === 1 ? "pack" : "packs"}`;
+    groupHead.append(groupTitle, groupCount);
+    groupSection.append(groupHead);
+
+    for (const pack of group.packs) {
+      const section = document.createElement("section");
+      section.className = "report-pack";
+      const head = document.createElement("div");
+      head.className = "report-pack-head";
+      const titleWrap = document.createElement("div");
+      const title = document.createElement("h3");
+      title.className = "report-pack-title";
+      title.textContent = pack.period_label || "Period";
+      const meta = document.createElement("p");
+      meta.className = "practice-note";
+      const when = window.CAFormat.formatWhen(pack.created_at);
+      meta.textContent = `${window.CAFormat.rowsLabel(pack.row_count)}${when ? ` · ${when}` : ""}`;
+      titleWrap.append(title, meta);
+      const folder = document.createElement("button");
+      folder.type = "button";
+      folder.className = "ui-btn ui-btn-secondary";
+      folder.textContent = "Open folder";
+      folder.setAttribute("aria-label", `Open the pack folder for ${group.name} ${pack.period_label || ""}`.trim());
+      folder.addEventListener("click", () => openReportFolder(pack.period_id));
+      head.append(titleWrap, folder);
+      section.append(head);
+      for (const output of pack.outputs || []) {
+        const row = document.createElement("div");
+        row.className = "report-output";
+        const name = document.createElement("span");
+        name.className = "report-output-name";
+        name.textContent = output.label || output.key || "Excel";
+        name.title = name.textContent;
+        const statusText = view ? view.packStatusLabel(output.status) : "";
+        const details = document.createElement("span");
+        details.className = "report-output-meta";
+        details.textContent = `${window.CAFormat.rowsLabel(output.rows)}${statusText ? ` · ${statusText}` : ""}`;
+        const open = document.createElement("button");
+        open.type = "button";
+        open.className = "ui-btn ui-btn-secondary";
+        open.textContent = "Open";
+        open.setAttribute("aria-label", `Open ${name.textContent} for ${group.name} ${pack.period_label || ""}`.trim());
+        open.addEventListener("click", () =>
+          openReportOutput(pack.period_id, output.key)
+        );
+        row.append(name, details, open);
+        section.append(row);
+      }
+      groupSection.append(section);
+    }
+    reportsListEl.append(groupSection);
+  }
+}
+
+// Rebuild the two dropdowns from the packs on hand, keeping the current choice
+// when it still exists.
+function syncReportFilters(packs, view) {
+  if (!view) return;
+  fillReportFilter(
+    reportsClientFilterEl,
+    view.clientOptions(packs),
+    "All clients",
+    "client"
+  );
+  fillReportFilter(
+    reportsTypeFilterEl,
+    view.kindOptions(packs),
+    "All pack types",
+    "kind"
+  );
+  updateReportsClearButton();
+}
+
+function fillReportFilter(select, options, blankLabel, key) {
+  if (!select) return;
+  const current = reportsFilters[key] || "";
+  clearNode(select);
+  const blank = document.createElement("option");
+  blank.value = "";
+  blank.textContent = blankLabel;
+  select.append(blank);
+  let kept = !current;
+  for (const option of options) {
+    const node = document.createElement("option");
+    node.value = option.value;
+    node.textContent = option.label;
+    if (option.value === current) kept = true;
+    select.append(node);
+  }
+  if (!kept) {
+    // The filtered client or type no longer exists after a refresh.
+    reportsFilters[key] = "";
+    select.value = "";
+  } else {
+    select.value = current;
+  }
+}
+
+function updateReportsClearButton() {
+  if (!reportsClearFiltersEl) return;
+  const active = window.CAReportsView
+    ? window.CAReportsView.anyFilterActive(reportsFilters)
+    : Boolean(reportsFilters.client || reportsFilters.kind);
+  reportsClearFiltersEl.hidden = !active;
+}
+
+function applyReportFilters() {
+  reportsFilters = {
+    client: reportsClientFilterEl ? reportsClientFilterEl.value : "",
+    kind: reportsTypeFilterEl ? reportsTypeFilterEl.value : "",
+  };
+  updateReportsClearButton();
+  renderReports((reportsData && reportsData.packs) || []);
 }
 
 async function openReportOutput(periodId, key) {
@@ -3459,8 +3667,9 @@ function amountCell(file, row, field, value, currency) {
   const btn = document.createElement("button");
   btn.type = "button";
   btn.className = "source-amt";
-  btn.textContent = window.CAFormat.cropCaptionValue(field, value, currency);
-  btn.title = "View source";
+  const text = window.CAFormat.cropCaptionValue(field, value, currency);
+  btn.textContent = text;
+  btn.title = text && text !== "—" ? `${text} · click to see it on the page` : "View source";
   btn.addEventListener("click", () => openSourceCrop(file, row, field, value));
   td.append(btn);
   return td;
@@ -3495,7 +3704,7 @@ function renderPreview(preview) {
     const currencyNote = file.currency && file.currency.currency_label
       ? ` · ${file.currency.currency_label}`
       : "";
-    title.textContent = `${file.filename} · ${file.kind || ""} · ${file.row_count} rows${currencyNote}`;
+    title.textContent = `${file.filename} · ${file.kind || ""} · ${window.CAFormat.rowsLabel(file.row_count)}${currencyNote}`;
     const table = document.createElement("table");
     table.className = "preview-table";
     const isBank = file.kind === "bank";
@@ -3504,19 +3713,53 @@ function renderPreview(preview) {
     const isGstr3b = file.kind === "gstr_3b";
     const isBooks = file.kind === "tally" || file.kind === "zoho";
     const isSap = file.kind === "sap";
-    table.innerHTML = isGstrInv
-      ? "<thead><tr><th>Date</th><th>GSTIN</th><th>Trade</th><th>Invoice no</th><th>Taxable</th><th>Value</th><th>Flags</th></tr></thead>"
+    // Fixed column widths keep the table inside a 1280px laptop screen. The
+    // percentages match the number of columns in each shape below.
+    const shape = isGstrInv
+      ? "gstrInv"
       : isGstr3b
-        ? "<thead><tr><th>Section</th><th>Taxable</th><th>IGST</th><th>CGST</th><th>SGST</th><th>Cess</th></tr></thead>"
+        ? "gstr3b"
         : isInvoice
-          ? "<thead><tr><th>Date</th><th>Supplier</th><th>GSTIN</th><th>Invoice no</th><th>Taxable</th><th>Tax</th><th>Value</th><th>Flags</th></tr></thead>"
+          ? "invoice"
           : isBank
-            ? "<thead><tr><th>Date</th><th>Detail</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Page</th></tr></thead>"
+            ? "bank"
             : isSap
-              ? "<thead><tr><th>Report</th><th>Date</th><th>Account / party</th><th>Document</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Flags</th></tr></thead>"
+              ? "sap"
               : isBooks
-                ? "<thead><tr><th>Register</th><th>Date</th><th>Party</th><th>GSTIN</th><th>Invoice no</th><th>Value</th><th>Flags</th></tr></thead>"
-                : "<thead><tr><th>Date</th><th>Detail</th><th>Debit / Taxable</th><th>Credit / Tax</th><th>Balance / Value</th></tr></thead>";
+                ? "books"
+                : "default";
+    const colWidths = {
+      gstrInv: ["9%", "14%", "24%", "12%", "12%", "12%", "17%"],
+      gstr3b: ["20%", "20%", "15%", "15%", "15%", "15%"],
+      invoice: ["9%", "16%", "13%", "10%", "11%", "9%", "12%", "20%"],
+      bank: ["10%", "34%", "15%", "15%", "17%", "9%"],
+      sap: ["11%", "9%", "18%", "12%", "12%", "12%", "12%", "14%"],
+      books: ["12%", "10%", "19%", "13%", "12%", "13%", "21%"],
+      default: ["12%", "48%", "14%", "13%", "13%"],
+    }[shape];
+    table.classList.add("preview-table--cols");
+    const colgroup = document.createElement("colgroup");
+    for (const width of colWidths) {
+      const col = document.createElement("col");
+      col.style.width = width;
+      colgroup.append(col);
+    }
+    table.append(colgroup);
+    const thead = document.createElement("thead");
+    thead.innerHTML = isGstrInv
+      ? "<tr><th>Date</th><th>GSTIN</th><th>Trade</th><th>Invoice no</th><th>Taxable</th><th>Value</th><th>Flags</th></tr>"
+      : isGstr3b
+        ? "<tr><th>Section</th><th>Taxable</th><th>IGST</th><th>CGST</th><th>SGST</th><th>Cess</th></tr>"
+        : isInvoice
+          ? "<tr><th>Date</th><th>Supplier</th><th>GSTIN</th><th>Invoice no</th><th>Taxable</th><th>Tax</th><th>Value</th><th>Flags</th></tr>"
+          : isBank
+            ? "<tr><th>Date</th><th>Detail</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Page</th></tr>"
+            : isSap
+              ? "<tr><th>Report</th><th>Date</th><th>Account / party</th><th>Document</th><th>Debit</th><th>Credit</th><th>Balance</th><th>Flags</th></tr>"
+              : isBooks
+                ? "<tr><th>Register</th><th>Date</th><th>Party</th><th>GSTIN</th><th>Invoice no</th><th>Value</th><th>Flags</th></tr>"
+                : "<tr><th>Date</th><th>Detail</th><th>Debit / Taxable</th><th>Credit / Tax</th><th>Balance / Value</th></tr>";
+    table.append(thead);
     const body = document.createElement("tbody");
     const rows = file.preview || [];
     for (const row of rows) {
@@ -3563,8 +3806,10 @@ function renderPreview(preview) {
         );
       } else {
         const detail = row.description || row.trade_name || row.party_name || row.section || row.invoice_number || "";
+        const dateText = row.date || row.invoice_date || "";
         const dateTd = document.createElement("td");
-        dateTd.textContent = row.date || row.invoice_date || "";
+        dateTd.textContent = dateText;
+        if (dateText) dateTd.title = dateText;
         if (isInvoice) {
           const supplierTd = document.createElement("td");
           supplierTd.textContent = row.supplier_name || row.trade_name || row.party_name || "";
@@ -3586,6 +3831,7 @@ function renderPreview(preview) {
         } else {
           const detailTd = document.createElement("td");
           detailTd.textContent = detail;
+          if (detail) detailTd.title = detail;
           if (isBank) maybeApprovalControl(detailTd, row);
           if (isBank) {
             const page = row.source_page == null ? "" : String(row.source_page);
@@ -4303,6 +4549,8 @@ function pollJob(jobId) {
     if (job.warnings && job.warnings.length) {
       showError(dumpErrorEl, job.warnings.join(" · "));
     }
+    // Re-read the rail quota and the per-client counts once an import lands.
+    refreshCabinetCounts();
     syncGuide();
   }, 350);
 }
@@ -4676,8 +4924,10 @@ async function boot(prefetched) {
   try {
     state = prefetched || (await window.pywebview.api.get_state());
   } catch (err) {
-    // Without this, one failed bridge call left the window blank forever.
-    showScreen("login");
+    // Without this, one failed bridge call left the window blank forever. The
+    // old #login screen had no submit handler, so showing it stranded the user
+    // on a form that could not log in; the auth gate is the live sign-in now.
+    setAuthLocked(true);
     showError(
       authErrorEl,
       "CA Unpacker could not read this PC's library. Close the app and open it again. " +
@@ -4778,6 +5028,34 @@ addForm.addEventListener("submit", async (event) => {
 
 clientProfessionEl.addEventListener("change", syncProfileCustomFields);
 profileProfessionEl.addEventListener("change", syncProfileCustomFields);
+
+if (clientSearchEl) {
+  clientSearchEl.addEventListener("input", () => {
+    clientQuery = clientSearchEl.value || "";
+    renderClientRows();
+  });
+  clientSearchEl.addEventListener("keydown", (event) => {
+    if (event.key === "Escape") {
+      event.stopPropagation();
+      clearClientSearch();
+      return;
+    }
+    if (event.key !== "Enter") return;
+    // Enter opens the only remaining match; with several matches it does
+    // nothing so the user keeps narrowing the list.
+    const view = window.CAClientsView;
+    const matches = view
+      ? view.filterClients(clientsCache, clientQuery)
+      : clientsCache;
+    if (matches.length === 1) {
+      event.preventDefault();
+      openClient(matches[0].id);
+    }
+  });
+}
+if (clientSearchClearEl) {
+  clientSearchClearEl.addEventListener("click", clearClientSearch);
+}
 
 profileForm.addEventListener("submit", async (event) => {
   event.preventDefault();
@@ -4905,6 +5183,21 @@ const reconDetailCloseBtn = document.getElementById("recon-detail-close");
 if (reconDetailCloseBtn) reconDetailCloseBtn.addEventListener("click", closeReconDetail);
 const reportsRefreshBtn = document.getElementById("reports-refresh");
 if (reportsRefreshBtn) reportsRefreshBtn.addEventListener("click", loadReports);
+if (reportsClientFilterEl) {
+  reportsClientFilterEl.addEventListener("change", applyReportFilters);
+}
+if (reportsTypeFilterEl) {
+  reportsTypeFilterEl.addEventListener("change", applyReportFilters);
+}
+if (reportsClearFiltersEl) {
+  reportsClearFiltersEl.addEventListener("click", () => {
+    reportsFilters = { client: "", kind: "" };
+    if (reportsClientFilterEl) reportsClientFilterEl.value = "";
+    if (reportsTypeFilterEl) reportsTypeFilterEl.value = "";
+    applyReportFilters();
+    if (reportsClientFilterEl) reportsClientFilterEl.focus();
+  });
+}
 
 document.getElementById("open-pack").addEventListener("click", async () => {
   if (!currentPeriod) return;
@@ -5316,6 +5609,10 @@ function resetWorkspaceState() {
   previewSheet = "";
   navHistory = [];
   navIndex = -1;
+  clientQuery = "";
+  clientsCache = [];
+  reportsFilters = { client: "", kind: "" };
+  if (clientSearchEl) clientSearchEl.value = "";
   closeCropModal();
   closeFilePreview();
   closeUnlockModal();

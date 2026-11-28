@@ -13,6 +13,7 @@ from pathlib import Path
 from urllib.parse import parse_qs, urlparse
 
 import webview
+from sqlalchemy import func
 
 from apps.desktop import updater
 from apps.engine import updates
@@ -26,7 +27,7 @@ from apps.engine.clients import (
 )
 from apps.engine.currency import currency_options
 from apps.engine.dashboard import get_dashboard as dashboard_state
-from apps.engine.db import ExtractedRow, StoredFile, get_engine, get_session
+from apps.engine.db import ExtractedRow, Period, StoredFile, get_engine, get_session
 from apps.engine.dump import (
     fail_job,
     get_job,
@@ -542,6 +543,74 @@ def _dialog_folder():
     return getattr(webview, "FileDialog", None).FOLDER if hasattr(webview, "FileDialog") else webview.FOLDER_DIALOG
 
 
+_MONTH_NUMBERS = {
+    "jan": 1, "feb": 2, "mar": 3, "apr": 4, "may": 5, "jun": 6,
+    "jul": 7, "aug": 8, "sep": 9, "oct": 10, "nov": 11, "dec": 12,
+}
+
+
+def _period_month_sort_key(period: Period) -> tuple:
+    """Order months by the month they name, not by when the row was created."""
+    parts = str(period.label or "").replace(",", " ").split()
+    month = _MONTH_NUMBERS.get(parts[0][:3].lower()) if len(parts) == 2 else None
+    year = parts[1] if len(parts) == 2 else ""
+    try:
+        stamp = period.created_at.timestamp() if period.created_at else 0.0
+    except (AttributeError, OSError, ValueError):
+        stamp = 0.0
+    if month and year.isdigit() and len(year) == 4:
+        return (1, int(year), month, stamp)
+    return (0, 0, 0, stamp)
+
+
+def _client_document_summary() -> dict[int, dict]:
+    """Documents per client and the newest month, in two queries total.
+
+    The client list shows a document count and a latest month for every row.
+    Counting per row would be one query per client, which is what a practice
+    with a hundred clients cannot afford.
+    """
+    session = get_session()
+    try:
+        counts = dict(
+            session.query(Period.client_id, func.count(StoredFile.id))
+            .outerjoin(StoredFile, StoredFile.period_id == Period.id)
+            .group_by(Period.client_id)
+            .all()
+        )
+        periods = session.query(Period).all()
+    finally:
+        session.close()
+
+    summary: dict[int, dict] = {}
+    newest: dict[int, tuple] = {}
+    for period in periods:
+        key = _period_month_sort_key(period)
+        if period.client_id not in newest or key > newest[period.client_id]:
+            newest[period.client_id] = key
+            bucket = summary.setdefault(
+                period.client_id, {"document_count": 0, "latest_period": ""}
+            )
+            bucket["latest_period"] = str(period.label or "")
+    for client_id, count in counts.items():
+        bucket = summary.setdefault(
+            client_id, {"document_count": 0, "latest_period": ""}
+        )
+        bucket["document_count"] = int(count or 0)
+    return summary
+
+
+def _clients_payload() -> list[dict]:
+    """list_clients() plus the two numbers the client table shows."""
+    clients = list_clients()
+    summary = _client_document_summary()
+    for client in clients:
+        info = summary.get(client["id"]) or {}
+        client["document_count"] = int(info.get("document_count") or 0)
+        client["latest_period"] = info.get("latest_period") or ""
+    return clients
+
+
 class DesktopApi:
     def __init__(self) -> None:
         self._current_period_id: int | None = None
@@ -725,7 +794,7 @@ class DesktopApi:
         return {
             "app_version": APP_VERSION,
             "firm": get_firm(),
-            "clients": list_clients(),
+            "clients": _clients_payload(),
             "library_path": str(library),
             "output_path": str(output) if output else "",
             "snapshot_retention_days": get_snapshot_retention_days(),
@@ -1092,7 +1161,7 @@ class DesktopApi:
             return {
                 "ok": True,
                 "firm": firm,
-                "clients": list_clients(),
+                "clients": _clients_payload(),
                 "license": get_license_status(),
             }
         except ValueError as exc:
@@ -1105,14 +1174,14 @@ class DesktopApi:
     def create_client(self, name: str, gstin: str = "", profile: dict | None = None) -> dict:
         try:
             client = create_client(name, gstin, profile)
-            return {"ok": True, "client": client, "clients": list_clients()}
+            return {"ok": True, "client": client, "clients": _clients_payload()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
     def update_client_profile(self, client_id: int, profile: dict | None = None) -> dict:
         try:
             client = update_client_profile(int(client_id), profile)
-            return {"ok": True, "client": client, "clients": list_clients()}
+            return {"ok": True, "client": client, "clients": _clients_payload()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -1122,7 +1191,7 @@ class DesktopApi:
     def delete_client_desk(self, client_id: int) -> dict:
         try:
             delete_client(int(client_id))
-            return {"ok": True, "clients": list_clients()}
+            return {"ok": True, "clients": _clients_payload()}
         except ValueError as exc:
             return {"ok": False, "error": str(exc)}
 
@@ -1449,6 +1518,11 @@ class DesktopApi:
             else "Reconciliation_Summary.xlsx"
         )
         dest = folder / name
+        firm_name = ""
+        try:
+            firm_name = str((get_firm() or {}).get("name") or "").strip()
+        except Exception:  # a missing firm only leaves the masthead line out
+            firm_name = ""
         try:
             if kind == "exceptions":
                 write_exceptions_workbook(
@@ -1456,6 +1530,7 @@ class DesktopApi:
                     client_name=(client or {}).get("name") or "",
                     period_label=(period or {}).get("label") or "",
                     recon=pack.get("recon") or {},
+                    firm=firm_name,
                 )
             else:
                 write_audit_summary(
@@ -1463,6 +1538,7 @@ class DesktopApi:
                     client_name=(client or {}).get("name") or "",
                     period_label=(period or {}).get("label") or "",
                     recon=pack.get("recon") or {},
+                    firm=firm_name,
                 )
         except OSError as exc:
             return {"ok": False, "error": f"Could not write the file: {exc}"}

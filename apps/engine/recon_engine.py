@@ -26,6 +26,7 @@ from datetime import date
 from decimal import Decimal
 from typing import Any, Iterable, Mapping, Sequence
 
+from apps.engine.pack.formatting import plural
 from apps.engine.recon_parsing import (
     DATE_FORMATS as _DATE_FMTS,
     parse_date_value,
@@ -424,7 +425,8 @@ def rule_summary(config: Mapping[str, Any] | None) -> list[str]:
     rules = normalise_rules(config)
     notes = [
         f"Amount tolerance: ₹{rules['amount_tolerance']:,.2f}.",
-        f"Date tolerance: {rules['date_tolerance_days']} days (bank reference window {rules['bank_date_tolerance_days']} days).",
+        f"Date tolerance: {plural(rules['date_tolerance_days'], 'day')} (bank "
+        f"reference window {plural(rules['bank_date_tolerance_days'], 'day')}).",
         "Invoice/voucher references are normalised for case, spaces, punctuation and leading zeros."
         if rules["normalize_references"]
         else "Reference normalisation is disabled.",
@@ -780,7 +782,7 @@ def _matched_fields(
             right.date_display,
             None if date_diff is None else date_diff <= date_window,
             "Date missing on one side" if date_diff is None else (
-                f"{date_diff} day(s) apart" if date_diff else "Same date"
+                f"{plural(date_diff, 'day')} apart" if date_diff else "Same date"
             ),
         )
     )
@@ -900,7 +902,8 @@ def _tolerance_notes(
         diff_days = differences.get("date_days") or 0
         verdict = "within" if diff_days <= window else "outside"
         notes.append(
-            f"Date tolerance {window} days applied: gap {diff_days} day(s) is {verdict} tolerance."
+            f"Date tolerance {plural(window, 'day')} applied: gap "
+            f"{plural(diff_days, 'day')} is {verdict} tolerance."
         )
     else:
         notes.append("Date tolerance was not applied because one side has no readable date.")
@@ -2014,7 +2017,7 @@ def _allocate_groups(
                 differences=differences,
                 tolerances=[
                     f"Amount tolerance ₹{rules['amount_tolerance']:,.2f} applied to the allocated total.",
-                    f"Date tolerance {rules['date_tolerance_days']} days applied to every member.",
+                    f"Date tolerance {plural(rules['date_tolerance_days'], 'day')} applied to every member.",
                 ],
                 exception_categories=["allocation_required"] + (["partial_settlement"] if classification == "partial" else []),
                 allocations=allocations,

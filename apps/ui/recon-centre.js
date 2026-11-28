@@ -930,11 +930,33 @@
   // Run modal and polling
   // ---------------------------------------------------------------------
 
+  let runModalOpen = false;
+
   async function openRunModal() {
-    await loadWorkspace();
+    // A double click used to stack two run modals; only one may be open at once.
+    // The flag is released when the modal closes (or if the modal never opens).
+    if (runModalOpen) return;
+    runModalOpen = true;
+    const releaseRunModal = () => {
+      runModalOpen = false;
+    };
+    try {
+      await loadWorkspace();
+      buildRunModal(releaseRunModal);
+    } catch (error) {
+      releaseRunModal();
+      throw error;
+    }
+  }
+
+  function buildRunModal(releaseRunModal) {
     const workspace = state.workspace;
     if (!workspace || !(workspace.periods || []).length) {
-      const modal = createModal({ title: "Run reconciliation", subtitle: "No client periods are available yet." });
+      const modal = createModal({
+        title: "Run reconciliation",
+        subtitle: "No client periods are available yet.",
+        onClose: releaseRunModal,
+      });
       modal.body.append(
         emptyState(
           "Process documents first",
@@ -952,6 +974,7 @@
       title: "Run reconciliation",
       subtitle: "Every run is saved with a snapshot of the rules and source values.",
       wide: true,
+      onClose: releaseRunModal,
     });
     const periodItems = (workspace.periods || []).map((period) => ({
       value: period.id,

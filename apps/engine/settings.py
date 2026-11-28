@@ -1,10 +1,17 @@
 from __future__ import annotations
 
 import json
+import os
 import re
+import threading
 from pathlib import Path
 
 from apps.engine.library import get_library_path, init_library
+
+# settings.json is written from several threads (the UI thread, the import
+# worker, the auth refresh). Read-merge-write has to be serialised or two
+# saves interleave and leave invalid JSON. One lock for the whole process.
+_SAVE_LOCK = threading.RLock()
 
 
 def settings_path() -> Path:
@@ -17,17 +24,37 @@ def load_settings() -> dict:
         return {}
     try:
         data = json.loads(path.read_text(encoding="utf-8"))
-    except json.JSONDecodeError:
+    except (OSError, ValueError):
+        # A half-written or locked file must never crash the app; the caller
+        # treats it as "nothing saved yet" and the next save rewrites it.
         return {}
     return data if isinstance(data, dict) else {}
+
+
+def _write_settings_atomic(path: Path, payload: dict) -> None:
+    """Write settings.json through a temp file so readers never see half a file."""
+
+    temp = path.with_name(f"{path.name}.{os.getpid()}.{threading.get_ident()}.tmp")
+    try:
+        with temp.open("w", encoding="utf-8") as handle:
+            json.dump(payload, handle, indent=2)
+            handle.flush()
+            os.fsync(handle.fileno())
+        os.replace(temp, path)
+    finally:
+        try:
+            temp.unlink(missing_ok=True)
+        except OSError:
+            pass
 
 
 def save_settings(data: dict) -> dict:
     init_library()
     path = settings_path()
-    current = load_settings()
-    current.update(data)
-    path.write_text(json.dumps(current, indent=2), encoding="utf-8")
+    with _SAVE_LOCK:
+        current = load_settings()
+        current.update(data)
+        _write_settings_atomic(path, current)
     return current
 
 

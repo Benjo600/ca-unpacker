@@ -5,17 +5,24 @@ from pathlib import Path
 from openpyxl import Workbook
 from openpyxl.utils import get_column_letter
 
-from apps.engine.pack.formatting import guard_sheet_capacity
+from apps.engine.pack.formatting import (
+    guard_sheet_capacity,
+    parse_date_value,
+    plural,
+)
 from apps.engine.pack.style import (
-    MONEY_FORMAT,
-    RED_FILL,
-    fill_row,
+    append_row,
+    cover_identity,
+    cover_print_setup,
+    cover_sheet,
+    folder_identity,
+    mark_exception,
     print_setup,
+    put,
+    set_widths,
     style_body,
-    style_count_pairs,
     style_header,
     style_note,
-    style_title,
 )
 
 
@@ -112,6 +119,8 @@ GRID_KEYS = [
     "source_books",
 ]
 MONEY_COLS = (14, 15, 16, 17, 18, 19, 20, 21, 22, 23, 24)
+DATE_COLS = (12, 13)
+WRAP_COLS = (2, 4, 5, 9, 25, 26, 27)
 UNMATCHED_STATUSES = {
     "books_only",
     "portal_only",
@@ -128,9 +137,21 @@ WIDTHS = [
     14, 14, 14, 14, 14, 14, 14, 14,
     28, 28, 28,
 ]
+LEGEND = (
+    (
+        "Shaded status",
+        "That row needs your eye: the Why column says what does not agree.",
+    ),
+    (
+        "Decision",
+        "Recorded by the firm; it never changes the amounts above.",
+    ),
+)
 
 
-def write_master_grid(path: Path, result: dict) -> Path:
+def write_master_grid(
+    path: Path, result: dict, identity: dict | None = None
+) -> Path:
     rows = list((result or {}).get("rows") or [])
     counts = (result or {}).get("counts") or {}
     totals = (result or {}).get("totals") or {}
@@ -138,10 +159,11 @@ def write_master_grid(path: Path, result: dict) -> Path:
     book = Workbook()
     cover = book.active
     cover.title = "Cover"
-    _write_cover(cover, counts, len(rows), totals, decisions)
-    _write_table(book.create_sheet("Grid"), rows)
+    identity = cover_identity(identity or {}, result or {}, folder_identity(path))
     unmatched = [row for row in rows if str(row.get("status") or "") in UNMATCHED_STATUSES]
-    _write_table(book.create_sheet("Unmatched"), unmatched)
+    _write_cover(cover, counts, len(rows), totals, decisions, identity, unmatched)
+    _write_table(book.create_sheet("Grid"), rows, identity)
+    _write_table(book.create_sheet("Unmatched"), unmatched, identity)
     path = Path(path)
     path.parent.mkdir(parents=True, exist_ok=True)
     book.save(path)
@@ -152,66 +174,121 @@ def _write_cover(
     sheet,
     counts: dict,
     row_count: int,
-    totals: dict | None = None,
-    decisions: dict | None = None,
+    totals: dict | None,
+    decisions: dict | None,
+    identity: dict,
+    unmatched: list[dict] | None = None,
 ) -> None:
-    sheet["A1"] = "Master reconciliation"
-    style_title(sheet, "A1")
-    sheet.append([])
-    first_pair = 3
-    for key, label in COUNT_ORDER:
-        sheet.append([label, int(counts.get(key) or 0)])
-    sheet.append(["Total rows", row_count])
-    last_pair = sheet.max_row
-    sheet.append([])
-    money_first = sheet.max_row + 1
-    for label, key in MONEY_LABELS:
-        value = (totals or {}).get(key)
-        sheet.append([label, float(value or 0) + 0.0])
-        sheet.cell(sheet.max_row, 2).number_format = MONEY_FORMAT
-    money_last = sheet.max_row
-    sheet.append([])
+    facts = [
+        identity.get("client") or "",
+        identity.get("period") or "",
+        plural(row_count, "row"),
+        f"generated {identity['generated']}",
+    ]
+    count_pairs = [(label, int(counts.get(key) or 0)) for key, label in COUNT_ORDER]
+    count_pairs.append(("Total rows", row_count))
+    money_pairs = [
+        (label, float((totals or {}).get(key) or 0) + 0.0) for label, key in MONEY_LABELS
+    ]
     decision_counts = (decisions or {}).get("counts") or {}
-    decision_first = sheet.max_row + 1
-    for label, key in DECISION_LABELS:
-        sheet.append([label, int(decision_counts.get(key) or 0)])
-    decision_last = sheet.max_row
-    sheet.append([DECISION_NOTE])
-    style_note(sheet, f"A{sheet.max_row}")
-    sheet.append([])
-    sheet.append([BANK_NOTE])
-    style_note(sheet, f"A{sheet.max_row}")
-    sheet.append([MONEY_NOTE])
-    style_note(sheet, f"A{sheet.max_row}")
-    style_count_pairs(sheet, first_pair, last_pair)
-    style_count_pairs(sheet, money_first, money_last)
-    style_count_pairs(sheet, decision_first, decision_last)
-    sheet.column_dimensions["A"].width = 44
-    sheet.column_dimensions["B"].width = 16
+    decision_pairs = [
+        (label, int(decision_counts.get(key) or 0)) for label, key in DECISION_LABELS
+    ]
+    cover_sheet(
+        sheet,
+        firm=identity.get("firm") or "",
+        title="Master reconciliation",
+        lines=["  ·  ".join(part for part in facts if part)],
+        entries=[
+            (
+                "Grid",
+                "Every row side by side, with the firm's decision.",
+                row_count,
+            ),
+            (
+                "Unmatched",
+                "Only the rows that do not agree.",
+                len(unmatched or []),
+            ),
+        ],
+        blocks=[
+            ("How the month stands", count_pairs),
+            ("Money at stake", money_pairs),
+            ("What the firm decided", decision_pairs),
+        ],
+        notes=[DECISION_NOTE, BANK_NOTE, MONEY_NOTE],
+        legend=LEGEND,
+        width=2,
+    )
+    sheet.column_dimensions["A"].width = 46
+    sheet.column_dimensions["B"].width = 18
+    sheet.column_dimensions["C"].width = 8
     sheet.freeze_panes = "A2"
-    print_setup(sheet, 2, landscape=False)
+    sheet.sheet_view.showGridLines = False
+    cover_print_setup(
+        sheet,
+        2,
+        footer_parts=[
+            identity.get("client") or "",
+            identity.get("period") or "",
+            "Master reconciliation",
+        ],
+    )
 
 
-def _write_table(sheet, rows: list[dict]) -> None:
+def _date_cell(value):
+    """A real date when the text is unambiguous, otherwise the text as received."""
+    if value is None or value == "":
+        return value
+    parsed = parse_date_value(value)
+    return parsed if parsed is not None else value
+
+
+def _write_table(sheet, rows: list[dict], identity: dict | None = None) -> None:
     guard_sheet_capacity(rows, sheet.title)
-    sheet.append(GRID_HEADERS)
-    style_header(sheet, len(GRID_HEADERS))
+    for col, header in enumerate(GRID_HEADERS, start=1):
+        put(sheet, 1, col, header)
+    style_header(sheet, len(GRID_HEADERS), 1, money_cols=MONEY_COLS)
     flagged: list[int] = []
     for row in rows:
-        values = [row.get(key) for key in GRID_KEYS]
-        sheet.append(values)
+        values = [
+            _date_cell(value) if index in DATE_COLS else value
+            for index, value in enumerate(
+                (row.get(key) for key in GRID_KEYS), start=1
+            )
+        ]
+        append_row(sheet, values)
         if str(row.get("status") or "") in FLAG_STATUSES:
             flagged.append(sheet.max_row)
     if not rows:
-        sheet.append(["No rows"])
+        append_row(sheet, ["No rows"])
         style_note(sheet, f"A{sheet.max_row}")
-    style_body(sheet, 2, max(sheet.max_row, 1), len(GRID_HEADERS), money_cols=MONEY_COLS)
+    if sheet.max_row > 1:
+        style_body(
+            sheet,
+            2,
+            sheet.max_row,
+            len(GRID_HEADERS),
+            money_cols=MONEY_COLS,
+            date_cols=DATE_COLS,
+            wrap_cols=WRAP_COLS,
+            row_height=None,
+        )
     for excel_row in flagged:
-        fill_row(sheet, excel_row, len(GRID_HEADERS), RED_FILL)
+        mark_exception(sheet, excel_row, 1)
     last_col = get_column_letter(len(GRID_HEADERS))
     last_row = max(sheet.max_row, 1)
     sheet.auto_filter.ref = f"A1:{last_col}{last_row}"
     sheet.freeze_panes = "A2"
-    for index, width in enumerate(WIDTHS, start=1):
-        sheet.column_dimensions[get_column_letter(index)].width = width
-    print_setup(sheet, len(GRID_HEADERS), header_row=1)
+    set_widths(sheet, WIDTHS)
+    footer = identity or {}
+    print_setup(
+        sheet,
+        len(GRID_HEADERS),
+        header_row=1,
+        footer_parts=[
+            footer.get("client") or "",
+            footer.get("period") or "",
+            f"Master reconciliation — {sheet.title}",
+        ],
+    )

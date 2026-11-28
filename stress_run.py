@@ -17,13 +17,15 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent
 sys.path.insert(0, str(ROOT))
 
+# A period label must be canonical "Mon YYYY" (see periods.normalize_period_label);
+# one month per folder keeps the labels unique inside the single stress client.
 SCENARIOS = [
-    ("banks", "01-banks-stress"),
-    ("invoices", "02-invoices-stress"),
-    ("gst", "03-gst-stress"),
-    ("books", "04-books-stress"),
-    ("junk", "05-junk-stress"),
-    ("mixed", "06-mixed-stress"),
+    ("banks", "01-banks-stress", "Jul 2026"),
+    ("invoices", "02-invoices-stress", "Aug 2026"),
+    ("gst", "03-gst-stress", "Sep 2026"),
+    ("books", "04-books-stress", "Oct 2026"),
+    ("junk", "05-junk-stress", "Nov 2026"),
+    ("mixed", "06-mixed-stress", "Dec 2026"),
 ]
 
 
@@ -78,12 +80,12 @@ def main() -> int:
     reset_engine()
     try:
         client = create_client("Stress Client")
-        for label, folder in SCENARIOS:
+        for label, folder, period_label in SCENARIOS:
             files = find_files(dump_root / folder)
             if not files:
                 report["pipeline"].append({"scenario": label, "error": "no files"})
                 continue
-            period = create_period(client["id"], f"Stress {label}")
+            period = create_period(client["id"], period_label)
             job = start_job(period["id"])
             ingest_paths(job["id"], files)
             parse_period(period["id"])

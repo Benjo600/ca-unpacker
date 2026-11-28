@@ -113,6 +113,8 @@
     }
     .cta { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
     .fine { margin: 14px 0 0; font-size: 12px; color: #9aa89f; }
+    .build-line { margin: 12px 0 0; font-size: 12px; color: #9aa89f; }
+    .closing .build-line { color: #ffe9dd; }
     .docket {
       background: var(--paper);
       color: var(--ink);
@@ -269,6 +271,7 @@
           <a class="btn btn-ghost" id="dl-samples" href="/CAUnpacker-Test-Files.zip" download="CAUnpacker-Test-Files.zip">Download test files</a>
           <a class="btn btn-ghost" href="#how">See the clicks</a>
         </div>
+        <p class="build-line" data-build-line aria-live="polite" hidden></p>
         <p class="fine">Setup is one file: <code>CAUnpacker-Setup.exe</code>. Test files are a zip — unzip, then Add folder on one numbered folder. Windows 10 or 11. No Python, no Docker.</p>
         <p class="fine"><strong>The Windows installer includes strict in-app email/password sign up and login</strong> before firm setup. No browser redirect is required.</p>
         <p class="fine">Developers: <a id="dl-start" href="/start.bat" download="start.bat">download start.bat</a> after cloning the repo (loads .env + auto venv) to run from source.</p>
@@ -488,6 +491,7 @@
         <a class="btn btn-paper" id="dl-foot" href="/CAUnpacker-Setup.exe" download="CAUnpacker-Setup.exe">Download for Windows</a>
         <a class="btn btn-ghost" id="dl-samples-foot" href="/CAUnpacker-Test-Files.zip" download="CAUnpacker-Test-Files.zip">Download test files</a>
       </div>
+      <p class="build-line" data-build-line aria-live="polite" hidden></p>
       <p class="fine">Source: <a id="dl-start-foot" href="/start.bat" download="start.bat">start.bat</a> (clone repo first)</p>
     </div>
   </section>
@@ -521,5 +525,6 @@
       });
     })();
   </script>
+  <script src="latest-build.js"></script>
 </body>
 </html>

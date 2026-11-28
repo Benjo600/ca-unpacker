@@ -43,15 +43,54 @@ MONEY_TOKEN_RE = re.compile(
     r"(?![\w])"
 )
 
-DATE_RE = re.compile(
-    r"\b("
+_DATE_BODY = (
     r"\d{4}-\d{1,2}-\d{1,2}"
     r"|"
     r"\d{1,2}[/\-.]\d{1,2}[/\-.]\d{2,4}"
     r"|"
     r"\d{1,2}[.\s]*[A-Za-z]{3,9}\.?\s*\d{2,4}"
-    r")\b"
 )
+DATE_RE = re.compile(r"\b(" + _DATE_BODY + r")\b")
+# OCR can append exactly one stray digit to a date token ("07/07/20261 UPI
+# ...").  DATE_RE needs a word boundary and misses that row, which is how two
+# printed transactions get merged into one amount.  This weaker form accepts a
+# single trailing digit followed by a break; a longer reference number
+# ("...2026123") still cannot match.
+DATE_GLUED_TAIL_RE = re.compile(r"\b(" + _DATE_BODY + r")(?=\d(?:\s|$))")
+# A whole date token, including the optional glued digit, for token filtering.
+DATE_TOKEN_RE = re.compile(r"(?:" + _DATE_BODY + r")\d?")
+
+
+def date_match(text: str) -> re.Match | None:
+    """Find a date token, tolerating one OCR-glued digit on its tail.
+
+    A scanned row such as ``07/07/20261 UPI merchant ...`` is a real
+    transaction whose date kept one stray OCR digit.  Plain ``DATE_RE`` needs
+    a word boundary and misses it, so the row is never treated as a new
+    transaction and its amounts are folded into the row above.  Callers that
+    only need the dated value can read ``group(1)``: it is the clean date in
+    both forms.
+    """
+    body = str(text or "")
+    match = DATE_RE.search(body)
+    if match is not None:
+        return match
+    return DATE_GLUED_TAIL_RE.search(body)
+
+
+def remove_first_date(text: str) -> str:
+    """Remove the first date token (and any digit glued to its tail)."""
+    body = str(text or "")
+    match = date_match(body)
+    if match is None:
+        return body
+    end = match.end()
+    if end < len(body) and body[end].isdigit():
+        # The OCR-glued tail digit belongs to the date token, not the text.
+        end += 1
+    return body[: match.start()] + body[end:]
+
+
 _MONTHS = {
     "jan": 1,
     "feb": 2,

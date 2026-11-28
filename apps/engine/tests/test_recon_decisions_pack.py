@@ -246,17 +246,21 @@ class ReconDecisionsPackTests(unittest.TestCase):
             self.assertIn(label, pairs)
             self.assertEqual(int(pairs[label] or 0), 0, label)
 
-    def test_flagged_rows_keep_red_fill_and_freeze_panes(self) -> None:
-        from apps.engine.pack.style import RED_BG
+    def test_flagged_rows_carry_the_exception_mark_and_freeze_panes(self) -> None:
+        from apps.engine.pack.style import EXCEPTION_TINT
 
         book = self._load(self._write(_result()))
         sheet = book["Grid"]
         self.assertEqual(sheet.freeze_panes, "A2")
         self.assertEqual(sheet.auto_filter.ref, f"A1:{_last_col(sheet)}{sheet.max_row}")
         for row in range(2, sheet.max_row + 1):
-            fill = sheet.cell(row, 1).fill
-            self.assertIsNotNone(fill)
-            self.assertEqual(str(fill.fgColor.rgb)[-6:], RED_BG, f"row {row}")
+            cell = sheet.cell(row, 1)
+            self.assertEqual(str(cell.fill.fgColor.rgb)[-6:], EXCEPTION_TINT, f"row {row}")
+            # Only the status cell is marked, never the whole row.
+            self.assertNotEqual(
+                str(sheet.cell(row, 2).fill.fgColor.rgb)[-6:], EXCEPTION_TINT, f"row {row}"
+            )
+            self.assertEqual(cell.border.left.style, "medium", f"row {row}")
 
 
 if __name__ == "__main__":

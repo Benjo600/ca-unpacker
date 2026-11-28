@@ -372,8 +372,8 @@ class ReconMessyPackTests(unittest.TestCase):
         self.assertEqual(sheet.freeze_panes, "A2")
         self.assertEqual(sheet.auto_filter.ref, f"A1:{_last_col(sheet)}{sheet.max_row}")
 
-    def test_unmatched_rows_carry_red_fill(self) -> None:
-        from apps.engine.pack.style import RED_BG
+    def test_unmatched_rows_carry_the_exception_mark(self) -> None:
+        from apps.engine.pack.style import EXCEPTION_TINT
 
         book = self._load(self._write(_result()))
         for sheet_name in ("Grid", "Unmatched"):
@@ -381,15 +381,25 @@ class ReconMessyPackTests(unittest.TestCase):
             status_col = _column_map(sheet)["Status"]
             for row in range(2, sheet.max_row + 1):
                 status = _text(sheet.cell(row, status_col).value)
-                fill = sheet.cell(row, 1).fill
-                self.assertIsNotNone(fill, f"{sheet_name} row {row}")
+                cell = sheet.cell(row, 1)
                 if status == "matched":
                     self.assertNotEqual(
-                        str(fill.fgColor.rgb)[-6:], RED_BG, f"{sheet_name} row {row}"
+                        str(cell.fill.fgColor.rgb)[-6:], EXCEPTION_TINT, f"{sheet_name} row {row}"
                     )
+                    self.assertIsNone(cell.border.left, f"{sheet_name} row {row}")
                 else:
                     self.assertEqual(
-                        str(fill.fgColor.rgb)[-6:], RED_BG, f"{sheet_name}/{status} row {row}"
+                        str(cell.fill.fgColor.rgb)[-6:], EXCEPTION_TINT,
+                        f"{sheet_name}/{status} row {row}",
+                    )
+                    self.assertEqual(
+                        cell.border.left.style, "medium",
+                        f"{sheet_name}/{status} row {row}",
+                    )
+                    # The mark stays on the status cell; the row is never painted.
+                    self.assertNotEqual(
+                        str(sheet.cell(row, 2).fill.fgColor.rgb)[-6:], EXCEPTION_TINT,
+                        f"{sheet_name}/{status} row {row}",
                     )
 
     # --- tolerance --------------------------------------------------------

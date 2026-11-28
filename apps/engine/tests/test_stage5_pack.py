@@ -14,6 +14,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 from apps.engine.pack.formatting import INR_MONEY_FORMAT
+from apps.engine.pack.style import EXCEPTION_TINT
 from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
 from apps.engine.pipeline import LINE_COLS, PURCHASE_COLS, get_source_crop
 
@@ -46,7 +47,7 @@ class PurchaseTableTests(unittest.TestCase):
             path = Path(tmp) / "Purchase_Register_Extracted.xlsx"
             write_table(path, "Purchase register", rows, PURCHASE_COLS)
             book = load_workbook(path)
-            sheet = book.active
+            sheet = book["Purchase register"]
             self.assertEqual(sheet.title, "Purchase register")
             headers = [cell.value for cell in sheet[1]]
             self.assertIn("Supplier", headers)
@@ -55,7 +56,7 @@ class PurchaseTableTests(unittest.TestCase):
             self.assertEqual(sheet.freeze_panes, "A2")
             self.assertTrue(sheet.auto_filter.ref)
 
-    def test_flag_row_fill_when_gstin_checksum(self) -> None:
+    def test_flag_cell_carries_the_exception_mark_when_gstin_checksum(self) -> None:
         rows = [
             {
                 "supplier_name": "Bad GSTIN Co",
@@ -85,12 +86,17 @@ class PurchaseTableTests(unittest.TestCase):
         with tempfile.TemporaryDirectory() as tmp:
             path = Path(tmp) / "purchase.xlsx"
             write_table(path, "Purchase register", rows, PURCHASE_COLS)
-            sheet = load_workbook(path).active
-            flagged = [_fill_rgb(cell) for cell in sheet[2]]
-            clean = [_fill_rgb(cell) for cell in sheet[3]]
-            self.assertTrue(any("FFCDD2" in value for value in flagged), flagged)
-            self.assertFalse(any("FFCDD2" in value for value in clean), clean)
-            tax_col = [cell.value for cell in sheet[1]].index("Taxable") + 1
+            sheet = load_workbook(path)["Purchase register"]
+            headers = [cell.value for cell in sheet[1]]
+            flags_col = headers.index("Flags") + 1
+            flagged = _fill_rgb(sheet.cell(2, flags_col))
+            clean = _fill_rgb(sheet.cell(3, flags_col))
+            self.assertIn(EXCEPTION_TINT, flagged)
+            self.assertNotIn(EXCEPTION_TINT, clean)
+            # The mark never paints the row: the supplier cell stays plain.
+            self.assertNotIn(EXCEPTION_TINT, _fill_rgb(sheet.cell(2, 1)))
+            self.assertEqual(sheet.cell(2, flags_col).border.left.style, "medium")
+            tax_col = headers.index("Taxable") + 1
             self.assertEqual(sheet.cell(2, tax_col).number_format, INR_MONEY_FORMAT)
 
     def test_purchase_workbook_has_invoice_and_line_item_sheets(self) -> None:

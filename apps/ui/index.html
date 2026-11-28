@@ -31,63 +31,6 @@
     </div>
   </div>
 
-  <div id="login" class="screen hidden">
-    <aside class="login-brand">
-      <div class="brand brand--on-dark brand--lg">
-        <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-          <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-          <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-        </svg>
-        <h1 class="brand-wordmark login-mark">
-          <span class="brand-wordmark-ca">CA</span>
-          <span class="brand-wordmark-name">Unpacker</span>
-        </h1>
-      </div>
-      <p class="login-kicker">Practice software</p>
-      <p class="login-tagline">Bank statements, GST returns and books — unpacked on this PC for the firm.</p>
-      <p class="login-privacy">Your client documents stay on this PC.</p>
-    </aside>
-    <div class="login-panel">
-      <form id="login-form" class="login-card" autocomplete="off">
-        <div class="brand brand--on-light brand--sm">
-          <svg class="brand-mark" viewBox="0 0 32 32" aria-hidden="true" focusable="false">
-            <rect width="32" height="32" rx="7" fill="var(--brand-mark-bg)" />
-            <rect x="7.5" y="8" width="2" height="16" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="8" width="12.5" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="14.75" width="9.25" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-            <rect x="12" y="21.5" width="6" height="2.5" rx="0.5" fill="var(--brand-mark-fg)" />
-          </svg>
-          <p class="brand-wordmark">
-            <span class="brand-wordmark-ca">CA</span>
-            <span class="brand-wordmark-name">Unpacker</span>
-          </p>
-        </div>
-        <p class="login-card-kicker">Sign in</p>
-        <h2 class="login-card-title">Open CA Unpacker</h2>
-        <p class="login-card-lede">Sign in to open the firm workspace on this computer.</p>
-        <label for="login-user">Username or email</label>
-        <input id="login-user" type="text" maxlength="200" placeholder="e.g. office@firm.in" autocomplete="username" />
-        <label for="login-password">Password</label>
-        <div class="login-password-row">
-          <input id="login-password" type="password" maxlength="200" placeholder="Enter password" autocomplete="current-password" />
-          <button type="button" class="login-toggle" id="login-show-password" aria-pressed="false">Show</button>
-        </div>
-        <div class="login-row">
-          <label class="login-remember" for="login-remember">
-            <input id="login-remember" type="checkbox" />
-            Remember me
-          </label>
-          <a href="#" id="login-forgot" class="login-forgot">Forgot password</a>
-        </div>
-        <p id="login-error" class="error" hidden></p>
-        <button type="submit" id="login-submit">Log in</button>
-      </form>
-    </div>
-  </div>
-
   <div id="welcome" class="screen hidden">
     <aside class="login-brand">
       <div class="brand brand--on-dark brand--lg">
@@ -188,7 +131,7 @@
 
       <p class="rail-section">Practice</p>
       <nav class="rail-nav" aria-label="Practice">
-        <button type="button" class="rail-nav-item is-active" id="nav-documents">Documents</button>
+        <button type="button" class="rail-nav-item is-active" id="nav-documents" aria-current="page">Documents</button>
         <button type="button" class="rail-nav-item" id="nav-dashboard">Dashboard</button>
         <button type="button" class="rail-nav-item" id="nav-recon">Reconciliation</button>
         <button type="button" class="rail-nav-item" id="nav-reports">Reports</button>
@@ -203,7 +146,6 @@
           <p class="rail-foot" id="license-label"></p>
         </div>
         <div class="rail-actions">
-          <span class="rail-later">Settings <span class="rail-soon">Coming soon</span></span>
           <div id="profile" class="rail-account hidden">
             <button type="button" id="profile-button" class="rail-account-btn" aria-haspopup="menu" aria-expanded="false">
               <span id="profile-initial" class="rail-account-seal" aria-hidden="true">·</span>
@@ -318,15 +260,41 @@
       <p class="add-row-hint type-muted">The profile decides which treatment checks run on this client's packs. You can change it later.</p>
       <p id="desk-error" class="error type-status" hidden></p>
 
+      <div class="client-search" role="search" aria-label="Find a client">
+        <label class="ui-field-label" for="client-search">Find a client</label>
+        <div class="client-search-row">
+          <input
+            id="client-search"
+            class="ui-input"
+            type="text"
+            placeholder="Type a name or GSTIN"
+            autocomplete="off"
+            spellcheck="false"
+            aria-controls="client-list"
+          />
+          <button
+            type="button"
+            class="ghost client-search-clear"
+            id="client-search-clear"
+            aria-label="Clear the client search"
+            hidden
+          >Clear</button>
+        </div>
+        <p id="client-search-note" class="client-search-note" role="status" aria-live="polite"></p>
+      </div>
+
       <div class="ledger ui-list">
         <div class="ledger-head ui-table-head">
           <span>Client</span>
           <span>Profile</span>
           <span>GSTIN</span>
-          <span></span>
+          <span>Documents</span>
+          <span>Latest month</span>
+          <span><span class="sr-only">Actions</span></span>
         </div>
-        <div id="client-list"></div>
+        <div id="client-list" role="list" aria-label="Clients"></div>
         <p id="empty" class="empty ui-empty hidden">No clients on this PC yet. Add a legal name above to open the first file.</p>
+        <p id="client-search-empty" class="empty ui-empty hidden"></p>
       </div>
     </main>
 
@@ -541,7 +509,7 @@
       <div id="dashboard-content" class="hidden">
         <section class="practice-totals" aria-label="Library totals">
           <div class="practice-total">
-            <span class="practice-total-k">Documents</span>
+            <span class="practice-total-k">Documents on this PC</span>
             <strong class="num" id="dash-documents">0</strong>
             <span class="practice-total-note" id="dash-documents-note">0 rows extracted</span>
           </div>
@@ -663,6 +631,22 @@
       </header>
 
       <p id="reports-error" class="error" hidden></p>
+      <div class="reports-filters" role="group" aria-label="Filter generated packs">
+        <label class="reports-filter" for="reports-client-filter">
+          <span class="ui-field-label">Client</span>
+          <select id="reports-client-filter" class="ui-select">
+            <option value="">All clients</option>
+          </select>
+        </label>
+        <label class="reports-filter" for="reports-type-filter">
+          <span class="ui-field-label">Pack type</span>
+          <select id="reports-type-filter" class="ui-select">
+            <option value="">All pack types</option>
+          </select>
+        </label>
+        <button type="button" class="ghost reports-filter-clear" id="reports-clear-filters" hidden>Clear filters</button>
+      </div>
+      <p id="reports-filter-note" class="practice-note reports-filter-note" role="status" aria-live="polite"></p>
       <p id="reports-loading" class="practice-loading">Loading generated packs…</p>
       <div id="reports-list" class="reports-list"></div>
       <div id="reports-empty" class="practice-empty hidden">
@@ -849,6 +833,8 @@
   <script src="format.js"></script>
   <script src="practice-summary.js"></script>
   <script src="remove-file.js"></script>
+  <script src="clients-view.js"></script>
+  <script src="reports-view.js"></script>
   <script src="recon-centre.js"></script>
   <script src="update-state.js"></script>
   <script src="preflight-summary.js"></script>

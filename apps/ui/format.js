@@ -125,9 +125,14 @@
   }
 
   // "1 row", "2 rows" - used everywhere a count is shown to the CA.
-  function rowsLabel(count) {
+  function countLabel(count, singular, plural) {
     const n = Number(count) || 0;
-    return `${n} ${n === 1 ? "row" : "rows"}`;
+    const word = n === 1 ? singular : plural || `${singular}s`;
+    return `${n} ${word}`;
+  }
+
+  function rowsLabel(count) {
+    return countLabel(count, "row", "rows");
   }
 
   function looksLikeGstin(value) {
@@ -197,6 +202,7 @@
     formatReconMoney,
     formatWhen,
     formatFileSize,
+    countLabel,
     rowsLabel,
     looksLikeGstin,
     cropCaptionValue,

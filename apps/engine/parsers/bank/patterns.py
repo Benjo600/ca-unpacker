@@ -2,7 +2,7 @@ from __future__ import annotations
 
 import re
 
-from apps.engine.parsers.bank.money import DATE_RE, amounts_in
+from apps.engine.parsers.bank.money import amounts_in, date_match
 
 SKIP_LINE = re.compile(
     r"page\s+\d+|statement of account|account statement|customer id|"
@@ -29,6 +29,11 @@ _MONEY_CHARS = (
 )
 AMOUNT_LINE = re.compile(rf"^[{_MONEY_CHARS}]+$")
 
+# Printed evidence that a statement is valid but has nothing in it.
+NO_TRANSACTIONS_RE = re.compile(
+    r"\bno\s+(?:transactions?|entries|debits?|credits?)\b", re.I
+)
+
 
 def clean_text(text: str) -> str:
     return " ".join((text or "").split())
@@ -39,7 +44,7 @@ def is_boilerplate(text: str) -> bool:
         return True
     if OPENING_RE.search(text) or CLOSING_RE.search(text):
         return True
-    if HEADERISH.search(text) and not DATE_RE.search(text) and not amounts_in(text):
+    if HEADERISH.search(text) and not date_match(text) and not amounts_in(text):
         return True
     return False
 
@@ -47,7 +52,7 @@ def is_boilerplate(text: str) -> bool:
 def looks_like_txn(text: str) -> bool:
     if len(text) < 8 or is_boilerplate(text):
         return False
-    if not DATE_RE.search(text):
+    if not date_match(text):
         return False
     return len(amounts_in(text)) >= 2
 
@@ -63,7 +68,7 @@ def is_continuation(text: str) -> bool:
 
 
 def is_amount_line(text: str) -> bool:
-    if not text or DATE_RE.search(text):
+    if not text or date_match(text):
         return False
     if SKIP_LINE.search(text) or HEADERISH.search(text):
         return False

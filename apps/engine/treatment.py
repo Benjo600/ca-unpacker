@@ -10,6 +10,7 @@ from __future__ import annotations
 import re
 from typing import Any, Mapping, Sequence
 
+from apps.engine.pack.formatting import plural
 from apps.engine.profiles import (
     RULES_AS_OF,
     RULES_DISCLAIMER,
@@ -352,7 +353,8 @@ def _gst_flags(profile: Mapping, purchase_rows: Sequence[Mapping], sales_rows: S
                 severity=REVIEW,
                 title="GST charged on an exempt activity",
                 detail=(
-                    f"{len(taxed)} invoice line(s) carry GST even though this profession is "
+                    f"{plural(len(taxed), 'invoice line')} carry GST even though this "
+                    "profession is "
                     "preset as exempt. Exemption is line-by-line, so mixed activity is possible."
                 ),
                 action="Read the invoices and confirm which line is exempt and which is taxable before taking credit.",
@@ -402,7 +404,7 @@ def _gst_flags(profile: Mapping, purchase_rows: Sequence[Mapping], sales_rows: S
                     severity=INFO,
                     title="No GST charged on sales",
                     detail=(
-                        f"{len(sales_rows)} sales line(s) show no tax. That is normal for exempt or "
+                        f"{plural(len(sales_rows), 'sales line')} show no tax. That is normal for exempt or "
                         "below-threshold supplies, and unusual for a registered taxable business."
                     ),
                     action="Confirm whether these sales are exempt, composite, or simply missing tax.",

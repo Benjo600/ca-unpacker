@@ -5,10 +5,11 @@ from decimal import Decimal
 
 from apps.engine.parsers.bank.money import (
     AMOUNT_RE,
-    DATE_RE,
+    DATE_TOKEN_RE,
     MONEY_TOKEN_RE,
     amounts_in,
     annotated_txn_direction,
+    date_match,
     is_plausible_iso_date,
     normalize_date,
     parse_amount,
@@ -61,7 +62,7 @@ def rows_from_words(words: list[WordBox], profile: BankProfile, filename: str) -
         while index < len(bands):
             band = bands[index]
             text = _band_text(band)
-            if not DATE_RE.search(text) or is_boilerplate(text):
+            if not date_match(text) or is_boilerplate(text):
                 index += 1
                 continue
             gathered = list(band)
@@ -69,7 +70,7 @@ def rows_from_words(words: list[WordBox], profile: BankProfile, filename: str) -
             while cursor < len(bands) and cursor - index < 8:
                 nxt = bands[cursor]
                 nxt_text = _band_text(nxt)
-                if DATE_RE.search(nxt_text) or is_boilerplate(nxt_text):
+                if date_match(nxt_text) or is_boilerplate(nxt_text):
                     break
                 combined = clean_text(" ".join(word.text for word in gathered))
                 if looks_like_txn(combined) and not amounts_in(nxt_text) and not is_continuation(nxt_text):
@@ -169,8 +170,8 @@ def _words_to_row(
 ) -> dict | None:
     ordered = sorted(words, key=lambda word: (word.x, -word.y))
     text = clean_text(" ".join(word.text for word in ordered))
-    date_match = DATE_RE.search(text)
-    if not date_match or is_boilerplate(text):
+    date_match_found = date_match(text)
+    if not date_match_found or is_boilerplate(text):
         return None
 
     debit: Decimal | None = None
@@ -208,7 +209,7 @@ def _words_to_row(
     narration_x = columns.get("narration")
     for word in ordered:
         token = word.text.strip()
-        if DATE_RE.fullmatch(token):
+        if DATE_TOKEN_RE.fullmatch(token):
             continue
         if AMOUNT_RE.fullmatch(token) or MONEY_TOKEN_RE.fullmatch(token):
             continue
@@ -229,7 +230,7 @@ def _words_to_row(
     rights = [word.x + word.width for word in words]
     tops = [word.y + word.height for word in words]
     bbox = f"{min(xs):.1f},{min(ys):.1f},{max(rights) - min(xs):.1f},{max(tops) - min(ys):.1f}"
-    date = normalize_date(date_match.group(1))
+    date = normalize_date(date_match_found.group(1))
     if not is_plausible_iso_date(date):
         return None
     page = words[0].page

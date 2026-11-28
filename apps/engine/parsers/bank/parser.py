@@ -11,23 +11,26 @@ from apps.engine.evidence import (
     confidence_for_bbox,
 )
 from apps.engine.kinds import IMAGE_SUFFIXES
+from apps.engine.pack.formatting import plural
 from apps.engine.parsers.bank.docling_tables import rows_from_docling
 from apps.engine.parsers.bank.layout import _debit_credit, rows_from_words
 from apps.engine.parsers.bank.money import (
-    DATE_RE,
     amounts_in,
+    date_match,
     decimal_convention,
     detect_decimal_separator,
     is_plausible_iso_date,
     normalize_date,
     parse_amount,
     parse_amount_with_evidence,
+    remove_first_date,
     strip_amount_tokens,
 )
 from apps.engine.parsers.bank.patterns import (
     ACCOUNT_RE,
     CLOSING_RE,
     IFSC_RE,
+    NO_TRANSACTIONS_RE,
     OPENING_RE,
     clean_text,
     is_amount_line,
@@ -175,6 +178,38 @@ def parse_bank_statement(
             "Split the statement into smaller date ranges and re-import it."
         )
 
+    # An empty-but-valid statement ("No transactions were posted in this
+    # period") is not a parse failure.  It used to fall through to the
+    # no-statement-context branch below, which read `warnings` before it was
+    # assigned and raised UnboundLocalError.
+    warnings = list(getattr(extracted, "warnings", None) or [])
+    if not rows and not is_image and extracted.pdf_type != "encrypted":
+        statement_text = "\n".join(page.text or "" for page in extracted.pages)
+        said_empty = bool(NO_TRANSACTIONS_RE.search(statement_text))
+        empty = _empty_bank_result(extracted, profile, name, is_image, strategy)
+        empty.update(
+            {
+                "opening_balance": _dec(opening),
+                "stated_closing": _dec(closing),
+                "account_number": account,
+                "ifsc": ifsc,
+                "candidate_count": candidate_count,
+                "dropped_count": 0,
+                "skipped_rows": plumber_skipped[:50],
+                "rejected_rows": [],
+            }
+        )
+        if said_empty:
+            # Positive printed evidence: the statement itself says it is empty.
+            empty["valid_empty"] = True
+            empty["reason"] = "the statement says no transactions were posted in this period"
+            empty["warnings"] = warnings + ["no_transactions"]
+        else:
+            # Nothing printed and nothing extracted: a human should look.
+            empty["reason"] = "recognised as bank but no transaction rows could be read"
+            empty["warnings"] = warnings + ["no_transaction_rows"]
+        return empty
+
     # A mislabelled document (an invoice forced to "bank") used to have its
     # header totals accepted as a transaction and reported as processed.
     # Without printed statement context — no opening and no closing balance —
@@ -210,17 +245,17 @@ def parse_bank_statement(
             "No local OCR engine could read this image. Install the bundled "
             "Tesseract or enable RapidOCR, then re-import the image."
         )
-    warnings = list(getattr(extracted, "warnings", None) or [])
     repair_count = sum(
         1 for row in rows if "ocr_digit_repair" in (row.get("flags") or [])
     )
     if repair_count:
         warnings.append(
-            f"ocr_digit_repair: {repair_count} amount(s) needed OCR digit repairs; check them"
+            f"ocr_digit_repair: {plural(repair_count, 'amount')} needed OCR digit "
+            "repairs; check them"
         )
     if plumber_skipped:
         warnings.append(
-            f"table_rows_skipped: {len(plumber_skipped)} incomplete/repeated table row(s) "
+            f"table_rows_skipped: {plural(len(plumber_skipped), 'incomplete or repeated table row')} "
             "recorded but not treated as transactions"
         )
 
@@ -396,7 +431,7 @@ def _detect_period_ym(header: str) -> str | None:
 def _is_txn_start(text: str) -> bool:
     if is_boilerplate(text):
         return False
-    if DATE_RE.search(text):
+    if date_match(text):
         return True
     if DAY_MON_RE.search(text):
         return True
@@ -408,11 +443,11 @@ def _is_txn_start(text: str) -> bool:
 def _extract_line_date(
     text: str, default_ym: str | None, last_date: str | None
 ) -> tuple[str | None, str]:
-    m = DATE_RE.search(text)
+    m = date_match(text)
     if m:
         d = normalize_date(m.group(1))
         if d and is_plausible_iso_date(d):
-            return d, DATE_RE.sub("", text, count=1)
+            return d, remove_first_date(text)
     m = DAY_MON_RE.search(text)
     if m:
         day = int(m.group(1))
@@ -711,7 +746,7 @@ def _balance_near(
             if amounts:
                 return choose(amounts)
             for follow in rows[index + 1 : index + 3]:
-                if DATE_RE.search(follow):
+                if date_match(follow):
                     # A transaction row, not the value half of a summary block.
                     break
                 later = amounts_in(follow)
@@ -818,20 +853,20 @@ def _line_to_row(line: LineBox, profile: BankProfile, filename: str) -> dict | N
     text = clean_text(line.text)
     if len(text) < 8 or is_boilerplate(text):
         return None
-    date_match = DATE_RE.search(text)
-    if not date_match:
+    date_match_found = date_match(text)
+    if not date_match_found:
         return None
     amounts = amounts_in(text)
     if len(amounts) < 2:
         return None
 
-    date = normalize_date(date_match.group(1))
+    date = normalize_date(date_match_found.group(1))
     if not is_plausible_iso_date(date):
         return None
     balance = amounts[-1]
     debit, credit = _debit_credit(amounts, text, profile)
 
-    description = DATE_RE.sub("", text, count=1)
+    description = remove_first_date(text)
     description = strip_amount_tokens(description)
     description = re.sub(r"\s{2,}", " ", description).strip(" -|")
 

@@ -202,6 +202,19 @@ def delete_client(client_id: int) -> None:
             raise ValueError("Client was not found.")
         name = client.name
         cid = client.id
+        busy = (
+            session.query(Job)
+            .join(Period, Job.period_id == Period.id)
+            .filter(
+                Period.client_id == cid,
+                Job.status.in_(("queued", "routing", "parsing", "cancel_requested")),
+            )
+            .count()
+        )
+        if busy:
+            # Mirror delete_period: an import still running would recreate the
+            # rows and write into the folder that was just removed.
+            raise ValueError("This client is still being processed. Wait for it to finish.")
         period_ids = [
             row.id
             for row in session.query(Period).filter(Period.client_id == cid).all()

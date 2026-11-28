@@ -324,8 +324,12 @@ def _xlsx_preview(base: dict, path: Path, sheet: str) -> dict:
 
     workbook = load_workbook(filename=str(path), read_only=True, data_only=True)
     try:
+        from apps.engine.pack.style import data_sheet_name
+
         sheets = list(workbook.sheetnames)
-        chosen = sheet if sheet in sheets else (sheets[0] if sheets else "")
+        # A pack opens on its cover.  The reader wants the data, so the sheet is
+        # chosen by name rather than by position.
+        chosen = data_sheet_name(sheets, sheet)
         if not chosen:
             return _fail("This workbook has no sheets.", "unreadable")
         worksheet = workbook[chosen]

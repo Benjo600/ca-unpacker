@@ -13,13 +13,13 @@ import httpx
 from cryptography.fernet import Fernet, InvalidToken
 
 from apps.engine.auth_config import (
-    APP_VERSION,
     CA_UNPACKER_AUTH_URL,
     SUPABASE_ANON_KEY,
     SUPABASE_URL,
 )
 from apps.engine.license import STARTER_LIMIT, _QUOTA_MESSAGE
 from apps.engine.settings import load_settings, save_settings
+from apps.version import APP_VERSION
 
 OFFLINE_GRACE_DAYS = 7
 

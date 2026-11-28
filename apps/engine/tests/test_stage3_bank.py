@@ -213,6 +213,63 @@ class RunningGapRepairTests(unittest.TestCase):
         self.assertEqual(check["status"], "match", check)
 
 
+class EmptyStatementTests(unittest.TestCase):
+    """An empty-but-valid statement must not crash or pretend to fail.
+
+    ``banks/HDFC_EmptyStatement_998_Jul2026.pdf`` in the stress corpus used to
+    raise ``UnboundLocalError`` because the no-statement-context return path
+    read ``warnings`` before it was assigned.
+    """
+
+    def write_statement(self, folder: Path, note: str | None) -> Path:
+        lines = [
+            "HDFC Bank Account Statement",
+            "Account Number 50100123999999",
+            "IFSC HDFC0001234",
+            "Narration Withdrawal Deposit Balance",
+        ]
+        if note:
+            lines.append(note)
+        path = folder / "HDFC_EmptyStatement_998_Jul2026.pdf"
+        path.write_bytes(pdf_with_text(lines))
+        return path
+
+    def test_empty_statement_is_processed_with_no_transactions(self) -> None:
+        from apps.engine.outcomes import evaluate_file_outcome
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write_statement(
+                Path(tmp), "No transactions were posted in this period"
+            )
+            parsed = parse_bank_pdf(path)  # used to raise UnboundLocalError
+
+        self.assertEqual(parsed["rows"], [])
+        self.assertTrue(parsed.get("valid_empty"))
+        self.assertIn("no_transactions", parsed["warnings"])
+        outcome = evaluate_file_outcome(
+            kind="bank", rows=parsed["rows"], parser_metadata=parsed
+        )
+        self.assertEqual(outcome.outcome.value, "processed")
+        self.assertEqual(outcome.reason_code, "valid_empty")
+
+    def test_empty_statement_without_printed_evidence_goes_to_review(self) -> None:
+        from apps.engine.outcomes import evaluate_file_outcome
+        from apps.engine.parsers.bank.parser import parse_bank_pdf
+
+        with tempfile.TemporaryDirectory() as tmp:
+            path = self.write_statement(Path(tmp), None)
+            parsed = parse_bank_pdf(path)
+
+        self.assertEqual(parsed["rows"], [])
+        self.assertIsNone(parsed.get("valid_empty"))
+        outcome = evaluate_file_outcome(
+            kind="bank", rows=parsed["rows"], parser_metadata=parsed
+        )
+        self.assertEqual(outcome.outcome.value, "needs_review")
+        self.assertEqual(outcome.reason_code, "no_rows")
+
+
 class SplitLayoutTests(unittest.TestCase):
     def test_date_on_one_line_amounts_on_next(self) -> None:
         from apps.engine.parsers.bank.parser import parse_bank_pdf

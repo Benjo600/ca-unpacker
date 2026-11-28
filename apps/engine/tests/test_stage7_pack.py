@@ -17,7 +17,8 @@ from apps.engine.tests.dump_paths import TALLY_XML, ZOHO_CSV
 
 def _cell_texts(path: Path) -> list[str]:
     book = load_workbook(path)
-    sheet = book.active
+    # The workbooks open on a cover; the rows live on the next sheet.
+    sheet = book.worksheets[1] if len(book.worksheets) > 1 else book.active
     values = []
     for row in sheet.iter_rows(min_row=2, values_only=True):
         for cell in row:
