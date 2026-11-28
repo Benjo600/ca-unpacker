@@ -10,6 +10,7 @@ from sqlalchemy import (
     String,
     UniqueConstraint,
     create_engine,
+    event,
     text,
 )
 from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column, sessionmaker
@@ -397,6 +398,23 @@ _engine = None
 SessionLocal = None
 
 
+def _apply_sqlite_pragmas(dbapi_connection, _connection_record) -> None:
+    """Make a long import stop blocking the rest of the app.
+
+    Without WAL, SQLite locks the whole database file while a job writes, so a
+    big month's parse had other writes failing with "database is locked".
+    ``synchronous=NORMAL`` is the safe pairing with WAL, and the busy timeout
+    gives a second writer half a minute to wait its turn instead of giving up.
+    """
+    cursor = dbapi_connection.cursor()
+    try:
+        cursor.execute("PRAGMA journal_mode=WAL")
+        cursor.execute("PRAGMA synchronous=NORMAL")
+        cursor.execute("PRAGMA busy_timeout=30000")
+    finally:
+        cursor.close()
+
+
 def reset_engine() -> None:
     global _engine, SessionLocal
     if _engine is not None:
@@ -416,6 +434,7 @@ def get_engine():
             echo=False,
             connect_args={"check_same_thread": False, "timeout": 30},
         )
+        event.listen(_engine, "connect", _apply_sqlite_pragmas)
         from apps.engine.migrations import ensure_schema
 
         try:

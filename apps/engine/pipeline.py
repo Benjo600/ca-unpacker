@@ -31,31 +31,18 @@ from apps.engine.outcomes import (
 from apps.engine.pdf_passwords import get_file_password, redact_known_passwords
 from apps.engine.preflight import PreflightReport, load_report, run_preflight, save_report
 from apps.engine.settings import period_output_dir
-from apps.engine.pack.bank_xlsx import write_bank_workbook
 from apps.engine.row_approvals import apply_decisions, decisions_for, row_key
-from apps.engine.pack.file_review_xlsx import write_file_review_workbook
 from apps.engine.pack.gstr_json import (
     build_gstr1_json,
     build_gstr3b_json,
     build_gstr_report,
 )
-from apps.engine.pack.gstr_xlsx import (
-    write_cannot_include,
-    write_gstr_1,
-    write_gstr_2b,
-    write_gstr_3b,
-)
-from apps.engine.pack.preflight_xlsx import write_preflight_report
-from apps.engine.pack.recon_xlsx import write_master_grid
-from apps.engine.pack.table_xlsx import write_purchase_workbook, write_table
-from apps.engine.pack.treatment_xlsx import write_treatment_workbook
 from apps.engine.file_review import evaluate_file_review
 from apps.engine.profiles import resolve_profile
 from apps.engine.treatment import evaluate_treatment
 from apps.engine.recon import reconcile
 from apps.engine.parsers.bank.parser import attach_currency, parse_bank_statement
 from apps.engine.parsers.gstr import parse_gstr_file
-from apps.engine.parsers.invoice import parse_invoice_file
 from apps.engine.parsers.sap import parse_sap_file
 from apps.engine.parsers.tally import parse_tally_file
 from apps.engine.parsers.vendor_statement import parse_vendor_statement_file
@@ -217,6 +204,21 @@ SAP_COLS = [
 
 def file_kind(row: StoredFile) -> str:
     return row.override_kind or row.detected_kind
+
+
+def write_bank_workbook(
+    path: Path, files: list[dict], identity: dict | None = None
+) -> Path:
+    """Write ``Bank_Statement_Cleaned.xlsx``.
+
+    The workbook writers live in ``apps.engine.pack`` and pull in openpyxl,
+    which costs more than every other module the desktop shell needs. This
+    forwards to the real writer on first use so importing ``pipeline`` stays
+    cheap; the name still lives here because callers and tests patch it.
+    """
+    from apps.engine.pack.bank_xlsx import write_bank_workbook as write
+
+    return write(path, files, identity=identity)
 
 
 def _effective_currency(stored: StoredFile, detected: dict | None) -> dict:
@@ -588,6 +590,23 @@ def parse_period(period_id: int, job_id: int | None = None) -> dict | None:
 
         try:
             outputs: list[dict] = []
+            # openpyxl lives behind these writers and costs about a second of
+            # import time. They are imported the first time a month is packed,
+            # never on the path to the first paint.
+            from apps.engine.pack.file_review_xlsx import write_file_review_workbook
+            from apps.engine.pack.gstr_xlsx import (
+                write_gstr_1,
+                write_gstr_2b,
+                write_gstr_3b,
+            )
+            from apps.engine.pack.preflight_xlsx import write_preflight_report
+            from apps.engine.pack.recon_xlsx import write_master_grid
+            from apps.engine.pack.table_xlsx import (
+                write_purchase_workbook,
+                write_table,
+            )
+            from apps.engine.pack.treatment_xlsx import write_treatment_workbook
+
             recon_result = None
             if gstr_2b and purchase_rows:
                 bank_txns = _recon_bank_rows(bank_files)
@@ -956,6 +975,8 @@ def _write_gstr_upload_files(
     can be filed without guessing. Anything left out is listed, with a reason, in
     ``GSTR_Upload_Cannot_Include.xlsx`` and in the pack summary.
     """
+    from apps.engine.pack.gstr_xlsx import write_cannot_include
+
     if not sales_rows:
         return {
             "status": "skipped",
@@ -1302,6 +1323,10 @@ def _invoke_render(fn, **values):
 
 
 def _dispatch(path: Path, kind: str, filename: str, client_id: int | None = None) -> tuple[list[dict], dict]:
+    # The invoice parser reaches the OCR stack, which imports numpy and Pillow.
+    # It is imported here so neither is loaded until an invoice is actually read.
+    from apps.engine.parsers.invoice import parse_invoice_file
+
     if kind == "bank":
         parsed = parse_bank_statement(path, filename)
         check = check_balance(

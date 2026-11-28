@@ -5,12 +5,11 @@ import hashlib
 import json
 import platform
 import secrets
+import threading
+import time
 import uuid
 from datetime import date, datetime, timedelta, timezone
 from typing import Any
-
-import httpx
-from cryptography.fernet import Fernet, InvalidToken
 
 from apps.engine.auth_config import (
     CA_UNPACKER_AUTH_URL,
@@ -20,6 +19,11 @@ from apps.engine.auth_config import (
 from apps.engine.license import STARTER_LIMIT, _QUOTA_MESSAGE
 from apps.engine.settings import load_settings, save_settings
 from apps.version import APP_VERSION
+
+# ``httpx`` and ``cryptography`` are imported inside the functions that talk to
+# the network or open an encrypted token. A cold start on a signed-out machine
+# never does either, and those two libraries are most of a second of import
+# time, so the first paint must not pay for them.
 
 OFFLINE_GRACE_DAYS = 7
 
@@ -78,6 +82,8 @@ def device_fingerprint() -> str:
 
 
 def _fernet() -> Fernet:
+    from cryptography.fernet import Fernet
+
     data = load_settings()
     salt = data.get("auth_salt")
     if not salt:
@@ -102,6 +108,8 @@ def _encrypt_access_token(token: str) -> str:
 def _decrypt_token(token_enc: str) -> str | None:
     if not token_enc:
         return None
+    from cryptography.fernet import InvalidToken
+
     try:
         return _fernet().decrypt(token_enc.encode("ascii")).decode("utf-8")
     except InvalidToken:
@@ -257,6 +265,8 @@ def sign_up_with_password(email: str, password: str) -> dict:
 
 
 def send_password_reset(email: str) -> None:
+    import httpx
+
     address = (email or "").strip()
     if not address:
         return None
@@ -318,6 +328,8 @@ def _password_auth_error(exc: httpx.HTTPStatusError, signup: bool) -> ValueError
 
 
 def _post_password_auth(path: str, body: dict[str, Any], signup: bool = False) -> dict:
+    import httpx
+
     try:
         return _post_auth(path, body)
     except httpx.HTTPStatusError as exc:
@@ -363,6 +375,8 @@ def refresh_session() -> dict | None:
     The session is cleared only when the server explicitly rejects the
     refresh token (revoked / reused / invalid), or when the user logs out.
     """
+    import httpx
+
     session = get_session()
     if session is None:
         return None
@@ -418,6 +432,8 @@ def call_authenticated_function(name: str, body: dict[str, Any]) -> dict:
     session = get_session()
     if session is None:
         raise ValueError("Sign in to check for updates.")
+    import httpx
+
     try:
         return _call_function(name, body, session)
     except httpx.HTTPStatusError as exc:
@@ -454,6 +470,8 @@ def save_quota_cache(cache: dict) -> dict:
 
 
 def fetch_quota() -> dict:
+    import httpx
+
     session = get_session()
     if session is None:
         return load_quota_cache()
@@ -487,6 +505,8 @@ def fetch_quota() -> dict:
 
 
 def send_heartbeat() -> dict | None:
+    import httpx
+
     session = get_session()
     if session is None or not _network_available():
         return None
@@ -528,6 +548,8 @@ def check_can_ingest_offline(file_count: int, today: date | None = None) -> None
 
 
 def check_can_ingest(file_count: int, today: date | None = None) -> None:
+    import httpx
+
     count = int(file_count or 0)
     if count <= 0:
         return
@@ -553,6 +575,8 @@ def check_can_ingest(file_count: int, today: date | None = None) -> None:
 
 
 def record_usage(file_count: int) -> dict:
+    import httpx
+
     count = int(file_count or 0)
     if count <= 0:
         return load_quota_cache()
@@ -583,7 +607,11 @@ def record_usage(file_count: int) -> dict:
 def get_auth_state() -> dict:
     session = get_session()
     cache = load_quota_cache()
-    offline = session is not None and not _network_available()
+    # This runs on the first paint, so it must never wait on a network round
+    # trip: it reads the last recorded probe result instead of probing. With
+    # nothing recorded yet the desk is treated as online; the startup auth sync,
+    # a quota call or a heartbeat records the truth moments later.
+    offline = session is not None and _network_available_cached() is False
     plan = str(cache.get("plan") or "starter")
     files_used = int(cache.get("files_used") or 0)
     file_limit = cache.get("file_limit")
@@ -606,13 +634,57 @@ def get_auth_state() -> dict:
     }
 
 
-def _network_available() -> bool:
+# How long a recorded probe answer is trusted. Short enough that a CA who was
+# offline five minutes ago is not still described as offline, long enough that
+# the desk never re-probes on its own.
+_NETWORK_CACHE_MAX_AGE = 300.0
+_NETWORK_CACHE_LOCK = threading.Lock()
+#: ``(available, recorded_at)`` from the last real probe, or None.
+_network_cache: tuple[bool, float] | None = None
+
+
+def _record_network_available(available: bool) -> bool:
+    """Remember a probe result so the next state read does not probe again."""
+    global _network_cache
+    with _NETWORK_CACHE_LOCK:
+        _network_cache = (bool(available), time.monotonic())
+    return bool(available)
+
+
+def _network_available_cached(
+    max_age: float = _NETWORK_CACHE_MAX_AGE,
+) -> bool | None:
+    """The last recorded answer, without touching the network.
+
+    ``None`` means nothing recent is known. Callers on the boot path treat that
+    as "assume online" and let the background sync correct it, rather than make
+    the window wait for a request that may take seconds to time out.
+    """
+    with _NETWORK_CACHE_LOCK:
+        cached = _network_cache
+    if cached is None:
+        return None
+    available, recorded_at = cached
+    if time.monotonic() - recorded_at > max_age:
+        return None
+    return available
+
+
+def _probe_network() -> bool:
+    """One live request. Never called from the state read."""
+    import httpx
+
     try:
         with httpx.Client(timeout=3.0) as client:
             response = client.head(f"{SUPABASE_URL}/rest/v1/")
             return response.status_code < 500
     except httpx.HTTPError:
         return False
+
+
+def _network_available() -> bool:
+    """Probe the network and remember the answer for the non-blocking readers."""
+    return _record_network_available(_probe_network())
 
 
 def _reject_document_keys(body: dict[str, Any]) -> None:
@@ -635,6 +707,8 @@ def _auth_headers(session: dict | None = None) -> dict[str, str]:
 
 
 def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> dict:
+    import httpx
+
     _reject_document_keys(body)
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         response = client.post(
@@ -650,6 +724,8 @@ def _post_auth(path: str, body: dict[str, Any], session: dict | None = None) -> 
 
 
 def _post_function(name: str, body: dict[str, Any], session: dict | None) -> dict:
+    import httpx
+
     with httpx.Client(timeout=_HTTP_TIMEOUT) as client:
         response = client.post(
             f"{SUPABASE_URL}/functions/v1/{name}",
@@ -664,6 +740,8 @@ def _post_function(name: str, body: dict[str, Any], session: dict | None) -> dic
 
 
 def _call_function(name: str, body: dict[str, Any], session: dict) -> dict:
+    import httpx
+
     _reject_document_keys(body)
     try:
         return _post_function(name, body, session)

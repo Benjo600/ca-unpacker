@@ -1,9 +1,10 @@
 from __future__ import annotations
 
 import re
+from bisect import bisect_left, bisect_right
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import date
+from datetime import date, timedelta
 from decimal import Decimal, InvalidOperation
 
 from apps.engine.recon_parsing import (
@@ -88,6 +89,9 @@ def reconcile(
     if tolerance is None:
         tolerance = AMOUNT_TOLERANCE
     days = max(0, int(date_tolerance_days or 0))
+    index = _ReconIndex(books, twob, days)
+    book_facts = index.books
+    portal_facts = index.portal
 
     used_books: set[int] = set()
     used_2b: set[int] = set()
@@ -108,67 +112,77 @@ def reconcile(
         pairs.append((status, list(books_idx), list(portal_idx), side, size, note))
 
     # 1. Same supplier and invoice, date within the allowed days.
-    for bi, book in enumerate(books):
+    for bi, book in enumerate(book_facts):
         if bi in used_books:
             continue
-        for gi, portal in enumerate(twob):
+        for gi in index.portal_lines(book.gstin, book.invoice):
             if gi in used_2b:
                 continue
-            if _exact_key(book, portal, days) and _amounts_close(book, portal, tolerance):
-                status = "tax_mismatch" if _tax_gaps(book, portal, tolerance) else "matched"
-                _claim(status, [bi], [gi])
-                break
+            portal = portal_facts[gi]
+            if not _dates_agree(book.date, portal.date, days):
+                continue
+            if not _amounts_close(book.amount, portal.amount, tolerance):
+                continue
+            status = "tax_mismatch" if _tax_gaps(books[bi], twob[gi], tolerance) else "matched"
+            _claim(status, [bi], [gi])
+            break
 
     # 2. One invoice split across several portal lines, or several bills
     #    merged into one portal line. This runs before the amount check so a
     #    two-line split is not mistaken for a single line with a wrong total.
-    for bi, book in enumerate(books):
+    for bi in range(len(book_facts)):
         if bi in used_books:
             continue
-        group = _split_portal_group(book, twob, used_2b, days, tolerance)
+        group = _split_portal_group(index, bi, used_2b, tolerance)
         if group:
             _claim("split_merged", [bi], group, "portal")
-    for gi, portal in enumerate(twob):
+    for gi in range(len(portal_facts)):
         if gi in used_2b:
             continue
-        group = _split_books_group(portal, books, used_books, days, tolerance)
+        group = _split_books_group(index, gi, used_books, tolerance)
         if group:
             _claim("split_merged", group, [gi], "books")
 
     # 3. Same key, but the invoice total differs. Skip this when the portal
     #    carries several lines for the same invoice; those are split or
     #    repeated lines, not a single wrong total.
-    for bi, book in enumerate(books):
+    for bi, book in enumerate(book_facts):
         if bi in used_books:
             continue
-        if _unclaimed_portal_same_key(book, twob, used_2b) >= 2:
+        if index.unclaimed_portal_lines(book, used_2b) >= 2:
             continue
-        for gi, portal in enumerate(twob):
+        for gi in index.portal_lines(book.gstin, book.invoice):
             if gi in used_2b:
                 continue
-            if _exact_key(book, portal, days) and not _amounts_close(book, portal, tolerance):
-                _claim("amount_mismatch", [bi], [gi])
-                break
+            portal = portal_facts[gi]
+            if not _dates_agree(book.date, portal.date, days):
+                continue
+            if _amounts_close(book.amount, portal.amount, tolerance):
+                continue
+            _claim("amount_mismatch", [bi], [gi])
+            break
 
     # 4. Everything lines up except the invoice number itself.
-    for bi, book in enumerate(books):
+    for bi, book in enumerate(book_facts):
         if bi in used_books:
             continue
-        for gi, portal in enumerate(twob):
+        if not book.gstin or book.date is None or book.amount is None:
+            continue
+        for gi in index.portal_amount_candidates(book.gstin, book.amount, tolerance):
             if gi in used_2b:
                 continue
-            if _likely_pair(book, portal, days, tolerance):
+            if _likely_pair(book, portal_facts[gi], days, tolerance):
                 _claim("likely", [bi], [gi])
                 break
 
     # 5. The same invoice repeated on one side, with the same amount each time.
-    for index, side, size in _duplicate_items(
+    for index_pos, side, size in _duplicate_items(
         books, twob, used_books, used_2b, tolerance
     ):
         if side == "books":
-            _claim("duplicate", [index], [], "books", size)
+            _claim("duplicate", [index_pos], [], "books", size)
         else:
-            _claim("duplicate", [], [index], "portal", size)
+            _claim("duplicate", [], [index_pos], "portal", size)
 
     # 5b. The same bill recorded twice in the books — once in the accounting
     #     ledger, once from the supplier's invoice PDF. When one copy is already
@@ -195,6 +209,10 @@ def reconcile(
         if bi not in used_books:
             _claim("books_only", [bi], [])
 
+    # Bank lines are read once here. Hinting used to re-parse every line for
+    # every row, which is what stalled the 398-file month.
+    bank_index = _BankHintIndex(bank)
+
     rows = []
     counts = {key: 0 for key in COUNT_KEYS}
     for status, bis, gis, side, size, note in pairs:
@@ -211,7 +229,7 @@ def reconcile(
             side=side,
             same_bill_of=note,
         )
-        row["bank_hint"] = _bank_hint(row, book, portal, bank, tolerance)
+        row["bank_hint"] = _bank_hint(row, book, portal, bank_index, tolerance)
         rows.append(row)
         counts[status] = counts.get(status, 0) + 1
     for note in credit_notes:
@@ -337,27 +355,45 @@ def _gstr_amount(row: dict) -> Decimal | None:
     return _row_money(row, "invoice_value", "amount")
 
 
-def _exact_key(book: dict, portal: dict, days: int = 0) -> bool:
-    gstin = _books_gstin(book)
-    inv = _books_invoice(book)
-    if not gstin or not inv:
-        return False
-    if gstin != _gstr_gstin(portal) or inv != _gstr_invoice(portal):
-        return False
-    return _dates_agree(book, portal, days)
+# ---------------------------------------------------------------------------
+# Row facts
+#
+# Reading a row's GSTIN, invoice number, date and amount costs several regular
+# expressions and a Decimal parse.  Every rule below needs those four values on
+# every comparison, so each row is read once into :class:`_RowFacts` at the
+# start of a run and the rules work on the parsed values.
+# ---------------------------------------------------------------------------
 
 
-def _dates_agree(book: dict, portal: dict, days: int = 0) -> bool:
-    left = _books_date(book)
-    right = _gstr_date(portal)
+@dataclass(frozen=True, slots=True)
+class _RowFacts:
+    gstin: str
+    invoice: str
+    date: date | None
+    amount: Decimal | None
+
+
+def _books_facts(row: dict) -> _RowFacts:
+    return _RowFacts(
+        _books_gstin(row), _books_invoice(row), _books_date(row), _books_amount(row)
+    )
+
+
+def _gstr_facts(row: dict) -> _RowFacts:
+    return _RowFacts(
+        _gstr_gstin(row), _gstr_invoice(row), _gstr_date(row), _gstr_amount(row)
+    )
+
+
+def _dates_agree(left: date | None, right: date | None, days: int = 0) -> bool:
     if left is None or right is None:
         return True
     return abs((left - right).days) <= max(0, int(days or 0))
 
 
-def _amounts_close(book: dict, portal: dict, tolerance: Decimal | None = None) -> bool:
-    left = _books_amount(book)
-    right = _gstr_amount(portal)
+def _amounts_close(
+    left: Decimal | None, right: Decimal | None, tolerance: Decimal | None = None
+) -> bool:
     if left is None or right is None:
         return False
     limit = tolerance if tolerance is not None else AMOUNT_TOLERANCE
@@ -365,21 +401,19 @@ def _amounts_close(book: dict, portal: dict, tolerance: Decimal | None = None) -
 
 
 def _likely_pair(
-    book: dict,
-    portal: dict,
+    book: _RowFacts,
+    portal: _RowFacts,
     days: int = 0,
     tolerance: Decimal | None = None,
 ) -> bool:
-    gstin = _books_gstin(book)
-    when = _books_date(book)
-    if not gstin or when is None:
+    if not book.gstin or book.date is None:
         return False
-    if gstin != _gstr_gstin(portal) or not _dates_agree(book, portal, days):
+    if book.gstin != portal.gstin or not _dates_agree(book.date, portal.date, days):
         return False
-    if not _amounts_close(book, portal, tolerance):
+    if not _amounts_close(book.amount, portal.amount, tolerance):
         return False
-    left = _books_invoice(book)
-    right = _gstr_invoice(portal)
+    left = book.invoice
+    right = portal.invoice
     if not left or not right or left == right:
         return False
     shorter, longer = (left, right) if len(left) <= len(right) else (right, left)
@@ -409,94 +443,288 @@ def _tax_gaps(book: dict, portal: dict, tolerance: Decimal) -> list[tuple[str, D
     return gaps
 
 
+def _amount_index(
+    facts: list[_RowFacts], indices: list[int]
+) -> tuple[list[Decimal], list[int]]:
+    """Amounts and their row positions in ascending order, for bisecting."""
+    pairs: list[tuple[Decimal, int]] = []
+    for index in indices:
+        amount = facts[index].amount
+        if amount is not None:
+            pairs.append((amount, index))
+    pairs.sort()
+    return [amount for amount, _index in pairs], [index for _amount, index in pairs]
+
+
+class _ReconIndex:
+    """Lookups so no rule has to walk the whole file to find its candidates.
+
+    ``portal_lines`` answers the exact-invoice rules from one bucket,
+    ``book_pool`` gives the split-merge rule the rows that can share a portal
+    line's supplier and date, and the amount indexes turn "which rows add up
+    to this?" into a bisected window instead of a comparison against every
+    row in the month.
+    """
+
+    __slots__ = (
+        "books",
+        "portal",
+        "days",
+        "_portal_key",
+        "_portal_by_gstin",
+        "_book_by_gstin",
+        "_book_by_gstin_date",
+        "_book_undated",
+        "_portal_amount",
+        "_book_amount",
+        "_pool_cache",
+    )
+
+    def __init__(self, books: list[dict], portal: list[dict], days: int) -> None:
+        self.days = max(0, int(days or 0))
+        self.books = [_books_facts(row) for row in books]
+        self.portal = [_gstr_facts(row) for row in portal]
+        self._portal_key: dict[tuple[str, str], list[int]] = defaultdict(list)
+        self._portal_by_gstin: dict[str, list[int]] = defaultdict(list)
+        self._book_by_gstin: dict[str, list[int]] = defaultdict(list)
+        self._book_by_gstin_date: dict[tuple[str, date], list[int]] = defaultdict(list)
+        self._book_undated: dict[str, list[int]] = defaultdict(list)
+        for position, facts in enumerate(self.portal):
+            if not facts.gstin:
+                continue
+            self._portal_by_gstin[facts.gstin].append(position)
+            if facts.invoice:
+                self._portal_key[(facts.gstin, facts.invoice)].append(position)
+        for position, facts in enumerate(self.books):
+            if not facts.gstin:
+                continue
+            self._book_by_gstin[facts.gstin].append(position)
+            if facts.date is None:
+                self._book_undated[facts.gstin].append(position)
+            else:
+                self._book_by_gstin_date[(facts.gstin, facts.date)].append(position)
+        self._portal_amount = {
+            gstin: _amount_index(self.portal, indices)
+            for gstin, indices in self._portal_by_gstin.items()
+        }
+        self._book_amount = {
+            gstin: _amount_index(self.books, indices)
+            for gstin, indices in self._book_by_gstin.items()
+        }
+        self._pool_cache: dict[tuple[str, date | None], list[int]] = {}
+
+    def portal_lines(self, gstin: str, invoice: str) -> list[int]:
+        """Portal rows carrying this exact supplier and invoice number."""
+        return self._portal_key.get((gstin, invoice), [])
+
+    def unclaimed_portal_lines(self, book: _RowFacts, used_2b: set[int]) -> int:
+        if not book.gstin or not book.invoice:
+            return 0
+        return sum(
+            1
+            for position in self.portal_lines(book.gstin, book.invoice)
+            if position not in used_2b
+        )
+
+    def book_pool(self, portal_pos: int) -> list[int]:
+        """Book rows that share this portal line's supplier and agree on date.
+
+        Rows come back in file order, which is the order the split rules have
+        always reported their group in.
+        """
+        facts = self.portal[portal_pos]
+        key = (facts.gstin, facts.date)
+        cached = self._pool_cache.get(key)
+        if cached is not None:
+            return cached
+        pool = self._build_pool(facts)
+        self._pool_cache[key] = pool
+        return pool
+
+    def _build_pool(self, facts: _RowFacts) -> list[int]:
+        gstin = facts.gstin
+        undated = self._book_undated.get(gstin, [])
+        if facts.date is None:
+            # Without a portal date every book row of this supplier agrees.
+            return self._book_by_gstin.get(gstin, [])
+        buckets: list[list[int]] = [undated] if undated else []
+        for offset in range(-self.days, self.days + 1):
+            bucket = self._book_by_gstin_date.get(
+                (gstin, facts.date + timedelta(days=offset))
+            )
+            if bucket:
+                buckets.append(bucket)
+        if not buckets:
+            return []
+        if len(buckets) == 1:
+            return buckets[0]
+        # A row keeps one date, so it sits in one bucket only: sort, no dedupe.
+        return sorted(position for bucket in buckets for position in bucket)
+
+    def portal_amount_candidates(
+        self, gstin: str, amount: Decimal, tolerance: Decimal
+    ) -> list[int]:
+        """Portal rows of this supplier whose total is within the allowance."""
+        entry = self._portal_amount.get(gstin)
+        if entry is None:
+            return []
+        values, order = entry
+        start = bisect_left(values, amount - tolerance)
+        stop = bisect_right(values, amount + tolerance)
+        if stop - start <= 1:
+            return order[start:stop]
+        return sorted(order[start:stop])
+
+    def amount_pair(
+        self, portal_pos: int, used_books: set[int], tolerance: Decimal
+    ) -> tuple[int, int] | None:
+        """Two unused book bills that add up to this portal line, in file order."""
+        portal = self.portal[portal_pos]
+        target = portal.amount
+        entry = self._book_amount.get(portal.gstin)
+        if target is None or entry is None:
+            return None
+        values, order = entry
+        if not values:
+            return None
+        # A partner's amount is one of these values, so this candidate can only
+        # pair when its own amount leaves room for one. Cheap, exact pruning:
+        # it skips the bisect on months where no pair can add up at all.
+        lowest = target - values[-1] - tolerance
+        highest = target - values[0] + tolerance
+        for position in self.book_pool(portal_pos):
+            if position in used_books:
+                continue
+            amount = self.books[position].amount
+            if amount is None:
+                continue
+            if amount < lowest or amount > highest:
+                continue
+            start = bisect_left(values, target - amount - tolerance)
+            stop = bisect_right(values, target - amount + tolerance)
+            partner: int | None = None
+            for slot in range(start, stop):
+                other = order[slot]
+                if other <= position or other in used_books:
+                    continue
+                if not _dates_agree(self.books[other].date, portal.date, self.days):
+                    continue
+                if partner is None or other < partner:
+                    partner = other
+            if partner is not None:
+                return (position, partner)
+        return None
+
+    def amount_triple(
+        self, portal_pos: int, used_books: set[int], tolerance: Decimal
+    ) -> tuple[int, int, int] | None:
+        """Three unused book bills that add up to this portal line, in file order."""
+        portal = self.portal[portal_pos]
+        target = portal.amount
+        entry = self._book_amount.get(portal.gstin)
+        if target is None or entry is None:
+            return None
+        values, order = entry
+        if not values:
+            return None
+        pool = [
+            position
+            for position in self.book_pool(portal_pos)
+            if position not in used_books and self.books[position].amount is not None
+        ]
+        for slot, position in enumerate(pool):
+            first = self.books[position].amount
+            if first is None:  # pragma: no cover - filtered above
+                continue
+            # The other two bills must fall between the lowest and highest book
+            # amount for this supplier, so most candidates drop out here.
+            if first < target - 2 * values[-1] - tolerance:
+                continue
+            if first > target - 2 * values[0] + tolerance:
+                continue
+            for second_slot in range(slot + 1, len(pool)):
+                second = pool[second_slot]
+                second_amount = self.books[second].amount
+                if second_amount is None:  # pragma: no cover - filtered above
+                    continue
+                running = first + second_amount
+                start = bisect_left(values, target - running - tolerance)
+                stop = bisect_right(values, target - running + tolerance)
+                partner: int | None = None
+                for index in range(start, stop):
+                    third = order[index]
+                    if third <= second or third in used_books:
+                        continue
+                    if not _dates_agree(self.books[third].date, portal.date, self.days):
+                        continue
+                    if partner is None or third < partner:
+                        partner = third
+                if partner is not None:
+                    return (position, second, partner)
+        return None
+
+
 def _split_portal_group(
-    book: dict,
-    twob: list[dict],
+    index: "_ReconIndex",
+    book_pos: int,
     used_2b: set[int],
-    days: int,
     tolerance: Decimal,
 ) -> list[int]:
     """Portal lines that together add up to this one books invoice."""
-    gstin = _books_gstin(book)
-    inv = _books_invoice(book)
-    amount = _books_amount(book)
-    if not gstin or not inv or amount is None:
+    book = index.books[book_pos]
+    if not book.gstin or not book.invoice or book.amount is None:
         return []
     group: list[int] = []
-    for gi, portal in enumerate(twob):
-        if gi in used_2b:
+    for portal_pos in index.portal_lines(book.gstin, book.invoice):
+        if portal_pos in used_2b:
             continue
-        if _gstr_gstin(portal) != gstin or _gstr_invoice(portal) != inv:
+        if not _dates_agree(book.date, index.portal[portal_pos].date, index.days):
             continue
-        if not _dates_agree(book, portal, days):
-            continue
-        group.append(gi)
+        group.append(portal_pos)
     if len(group) < 2:
         return []
     total = Decimal("0")
-    for gi in group:
-        value = _gstr_amount(twob[gi])
+    for portal_pos in group:
+        value = index.portal[portal_pos].amount
         if value is None:
             return []
         total += value
-    return group if (total - amount).copy_abs() <= tolerance else []
+    return group if (total - book.amount).copy_abs() <= tolerance else []
+
+
+#: A three-bill split is only searched while the candidate set is small.  Each
+#: extra candidate multiplies the work, so one supplier with hundreds of bills
+#: on the same date would otherwise crawl through every combination for every
+#: portal line in the month.  Past this cap the row falls through to the
+#: ordinary books_only / portal_only answer, which is honest: the split was not
+#: proven, and the CA sees the row as unsupported rather than a guess.
+_TRIPLE_CANDIDATE_CAP = 40
 
 
 def _split_books_group(
-    portal: dict,
-    books: list[dict],
+    index: "_ReconIndex",
+    portal_pos: int,
     used_books: set[int],
-    days: int,
     tolerance: Decimal,
 ) -> list[int]:
-    """Several books bills that add up to this one portal line."""
-    from itertools import combinations
+    """Several books bills that add up to this one portal line.
 
-    gstin = _gstr_gstin(portal)
-    amount = _gstr_amount(portal)
-    if not gstin or amount is None:
+    Each candidate's amount is read once, and a pair is found by looking the
+    partner's amount up instead of trying every combination of bills.
+    """
+    portal = index.portal[portal_pos]
+    if not portal.gstin or portal.amount is None:
         return []
-    candidates: list[int] = []
-    for bi, book in enumerate(books):
-        if bi in used_books:
-            continue
-        if _books_gstin(book) != gstin:
-            continue
-        if _books_amount(book) is None:
-            continue
-        if not _dates_agree(book, portal, days):
-            continue
-        candidates.append(bi)
-    for size in (2, 3):
-        if len(candidates) < size:
-            continue
-        for combo in combinations(candidates, size):
-            total = Decimal("0")
-            for bi in combo:
-                value = _books_amount(books[bi])
-                if value is None:
-                    total = Decimal("0")
-                    break
-                total += value
-            if (total - amount).copy_abs() <= tolerance:
-                return list(combo)
-    return []
-
-
-def _unclaimed_portal_same_key(
-    book: dict, twob: list[dict], used_2b: set[int]
-) -> int:
-    gstin = _books_gstin(book)
-    inv = _books_invoice(book)
-    if not gstin or not inv:
-        return 0
-    count = 0
-    for gi, portal in enumerate(twob):
-        if gi in used_2b:
-            continue
-        if _gstr_gstin(portal) == gstin and _gstr_invoice(portal) == inv:
-            count += 1
-    return count
+    pool = index.book_pool(portal_pos)
+    if len(pool) < 2:
+        return []
+    pair = index.amount_pair(portal_pos, used_books, tolerance)
+    if pair is not None:
+        return list(pair)
+    if len(pool) > _TRIPLE_CANDIDATE_CAP:
+        return []
+    triple = index.amount_triple(portal_pos, used_books, tolerance)
+    return list(triple) if triple is not None else []
 
 
 _NAME_STOPWORDS = frozenset(
@@ -783,40 +1011,114 @@ def _reason(
     return ""
 
 
+@dataclass(frozen=True, slots=True)
+class _BankLine:
+    """One bank line, read once so hinting never re-parses it."""
+
+    position: int
+    date: date | None
+    debit: Decimal | None
+    credit: Decimal | None
+    amount: Decimal | None
+    narration: str
+    words: frozenset[str]
+
+
+class _BankHintIndex:
+    """Bank lines looked up by amount, so a hint never scans the statement.
+
+    Every reconciliation row used to score every bank line, re-parsing that
+    line's date and amounts on every comparison; a 398-file month spent hours
+    here.  The lines are read once instead, and a row only looks at lines
+    whose amount is within the rupee allowance.  That window loses nothing:
+    the amount match is worth 50 of the 100 points, so a line outside it can
+    never reach the 70 a hint needs.
+    """
+
+    __slots__ = ("lines", "_amounts", "_order")
+
+    def __init__(self, bank_rows: list[dict]) -> None:
+        self.lines: list[_BankLine] = []
+        for position, row in enumerate(bank_rows):
+            debit = money(row.get("debit"))
+            credit = money(row.get("credit"))
+            narration = str(row.get("narration") or row.get("description") or "")
+            self.lines.append(
+                _BankLine(
+                    position=position,
+                    date=parse_recon_date(row.get("date")),
+                    debit=debit,
+                    credit=credit,
+                    amount=debit if debit not in (None, Decimal("0")) else credit,
+                    narration=narration,
+                    words=_party_word_tokens(narration),
+                )
+            )
+        usable = sorted(
+            (line.amount, line.position) for line in self.lines if line.amount is not None
+        )
+        self._amounts = [amount for amount, _position in usable]
+        self._order = [position for _amount, position in usable]
+
+    def best(
+        self,
+        amount: Decimal | None,
+        when: date | None,
+        party: str,
+        tolerance: Decimal | None = None,
+    ) -> _BankLine | None:
+        """The highest-scoring line, and the earliest line on a tie."""
+        if amount is None or not self._order:
+            return None
+        limit = tolerance if tolerance is not None else AMOUNT_TOLERANCE
+        start = bisect_left(self._amounts, amount - limit)
+        stop = bisect_right(self._amounts, amount + limit)
+        if start >= stop:
+            return None
+        candidates = self._order[start:stop]
+        if len(candidates) > 1:
+            # Amount order is not file order; a tie must keep the old winner.
+            candidates = sorted(candidates)
+        party_words = _party_word_tokens(party)
+        best_score = 0
+        best_line: _BankLine | None = None
+        for position in candidates:
+            line = self.lines[position]
+            score = _bank_score(line, amount, when, party_words, limit)
+            if score > best_score:
+                best_score = score
+                best_line = line
+        if best_score < 70 or best_line is None:
+            return None
+        return best_line
+
+
 def _bank_hint(
     row: dict,
     book: dict,
     portal: dict,
-    bank_rows: list[dict],
+    bank: _BankHintIndex,
     tolerance: Decimal | None = None,
 ) -> str:
-    if not bank_rows:
-        return ""
     amount = _books_amount(book) if book else None
     if amount is None and portal:
         amount = _gstr_amount(portal)
+    if amount is None:
+        # A line can earn the 50 amount points only when the row has an amount,
+        # so nothing can reach the 70 needed: there is nothing to look up.
+        return ""
     when = _books_date(book) if book else None
     if when is None and portal:
         when = _gstr_date(portal)
-    party = str(row.get("party") or "")
-    best_score = 0
-    best_line: dict | None = None
-    for line in bank_rows:
-        score = _bank_score(line, amount, when, party, tolerance)
-        if score > best_score:
-            best_score = score
-            best_line = line
-    if best_score < 70 or best_line is None:
+    best_line = bank.best(amount, when, str(row.get("party") or ""), tolerance)
+    if best_line is None:
         return ""
-    line_date = parse_recon_date(best_line.get("date"))
-    debit = money(best_line.get("debit"))
-    credit = money(best_line.get("credit"))
-    shown = debit if debit else credit
-    narr = str(best_line.get("narration") or best_line.get("description") or "").strip()
+    shown = best_line.debit if best_line.debit else best_line.credit
+    narr = best_line.narration.strip()
     snippet = re.sub(r"\s+", " ", narr)[:40]
     parts = []
-    if line_date:
-        parts.append(line_date.isoformat())
+    if best_line.date:
+        parts.append(best_line.date.isoformat())
     if shown is not None:
         parts.append(f"{shown:.2f}")
     if snippet:
@@ -825,34 +1127,31 @@ def _bank_hint(
 
 
 def _bank_score(
-    line: dict,
+    line: _BankLine,
     amount: Decimal | None,
     when: date | None,
-    party: str,
+    party_words: frozenset[str],
     tolerance: Decimal | None = None,
 ) -> int:
     score = 0
     limit = tolerance if tolerance is not None else AMOUNT_TOLERANCE
-    debit = money(line.get("debit"))
-    credit = money(line.get("credit"))
-    line_amt = debit if debit not in (None, Decimal("0")) else credit
-    if amount is not None and line_amt is not None and (amount - line_amt).copy_abs() <= limit:
+    if amount is not None and line.amount is not None and (amount - line.amount).copy_abs() <= limit:
         score += 50
-    line_date = parse_recon_date(line.get("date"))
-    if when is not None and line_date is not None and abs((when - line_date).days) <= 7:
+    if when is not None and line.date is not None and abs((when - line.date).days) <= 7:
         score += 20
-    narr = str(line.get("narration") or line.get("description") or "")
-    if _name_overlap(party, narr):
+    if party_words and line.words and (party_words & line.words):
         score += 20
-    if debit not in (None, Decimal("0")):
+    if line.debit not in (None, Decimal("0")):
         score += 10
     return score
 
 
+def _party_word_tokens(value: str) -> frozenset[str]:
+    return frozenset(re.findall(r"[A-Za-z]{3,}", (value or "").upper()))
+
+
 def _name_overlap(party: str, narration: str) -> bool:
-    party_tokens = {tok for tok in re.findall(r"[A-Za-z]{3,}", (party or "").upper())}
-    narr_tokens = {tok for tok in re.findall(r"[A-Za-z]{3,}", (narration or "").upper())}
-    return bool(party_tokens & narr_tokens)
+    return bool(_party_word_tokens(party) & _party_word_tokens(narration))
 
 
 # ---------------------------------------------------------------------------

@@ -3,6 +3,7 @@ from __future__ import annotations
 import os
 import sys
 import tempfile
+import time
 from datetime import date
 from pathlib import Path
 
@@ -11,6 +12,14 @@ import pytest
 ROOT = Path(__file__).resolve().parents[3]
 if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
+
+
+@pytest.fixture(autouse=True)
+def _clean_network_cache(monkeypatch):
+    """Stop a recorded network answer leaking from one test into the next."""
+    from apps.engine import auth
+
+    monkeypatch.setattr(auth, "_network_cache", None)
 
 
 def test_offline_grace_allows_within_seven_days(tmp_path, monkeypatch):
@@ -563,3 +572,78 @@ def test_heartbeat_reports_the_real_app_version(tmp_path, monkeypatch):
     assert auth.send_heartbeat() == {"ok": True}
     assert sent[0][0] == "heartbeat"
     assert sent[0][1]["app_version"] == APP_VERSION
+
+
+def test_state_read_never_probes_the_network(tmp_path, monkeypatch):
+    """The first paint must not wait on a request that may take 3s to fail."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens("header.payload.sig", "refresh-token")
+
+    def must_not_probe():
+        raise AssertionError("get_auth_state must not probe the network")
+
+    monkeypatch.setattr(auth, "_network_available", must_not_probe)
+    monkeypatch.setattr(auth, "_probe_network", must_not_probe)
+
+    state = auth.get_auth_state()
+
+    assert state["signed_in"] is True
+    # Nothing recorded yet, so the desk is described as online rather than
+    # showing an offline banner it has no evidence for.
+    assert state["offline"] is False
+
+
+def test_state_read_reports_offline_from_the_recorded_probe(tmp_path, monkeypatch):
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens("header.payload.sig", "refresh-token")
+    monkeypatch.setattr(auth, "_probe_network", lambda: False)
+
+    assert auth._network_available() is False  # the probe records the answer
+    assert auth.get_auth_state()["offline"] is True
+
+
+def test_state_read_ignores_a_stale_offline_record(tmp_path, monkeypatch):
+    """A CA whose connection came back must not stay marked offline forever."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens("header.payload.sig", "refresh-token")
+    monkeypatch.setattr(
+        auth, "_network_cache", (False, time.monotonic() - 10_000.0)
+    )
+
+    assert auth._network_available_cached() is None
+    assert auth.get_auth_state()["offline"] is False
+
+
+def test_quota_gate_still_probes_the_network(tmp_path, monkeypatch):
+    """The quota path and the offline grace keep their live probe."""
+    monkeypatch.setenv("LOCALAPPDATA", str(tmp_path))
+    from apps.engine import auth
+
+    auth.login_via_tokens("header.payload.sig", "refresh-token")
+    probes: list[int] = []
+
+    def fake_probe() -> bool:
+        probes.append(1)
+        return True
+
+    monkeypatch.setattr(auth, "_probe_network", fake_probe)
+    monkeypatch.setattr(
+        auth,
+        "_call_function",
+        lambda name, body, session: {
+            "allowed": True,
+            "files_used": 1,
+            "file_limit": 100,
+            "plan": "starter",
+        },
+    )
+
+    auth.check_can_ingest(1)
+
+    assert probes, "check_can_ingest must still ask the network"

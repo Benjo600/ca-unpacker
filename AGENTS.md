@@ -23,6 +23,7 @@ Run Python from the repo root (tests add it to `sys.path` and import root-level 
 start.bat                                             # create .venv, install requirements.txt, run the app
 .venv\Scripts\python.exe -m apps.desktop              # run app directly
 .venv\Scripts\python.exe -m pytest apps -q            # full Python suite (~266 tests: engine + desktop)
+.venv\Scripts\python.exe boot_bench.py --main          # cold-start benchmark: import, first state, window-ready
 .venv\Scripts\python.exe -m pytest apps/engine/tests/test_stage3_bank.py -q   # one file
 .venv\Scripts\python.exe -m pytest apps/desktop/tests/test_app_import.py -q   # bridge contract tests
 node apps/ui/tests/status-summary.test.js             # UI JS tests (plain node scripts, not jest)

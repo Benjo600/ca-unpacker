@@ -1,10 +1,12 @@
 from __future__ import annotations
 
+import copy
 import os
 import re
 import shutil
 import tempfile
 import threading
+from collections import OrderedDict
 from pathlib import Path
 
 from apps.engine.imageprep import (
@@ -27,6 +29,21 @@ _MIN_OCR_IMAGE_SIDE = 1200
 _GOOD_ENOUGH_MEAN_CONF = 0.86
 _rapidocr_singleton = None
 _rapidocr_lock = threading.Lock()
+
+# --- Image extraction cache -------------------------------------------------
+# The classifier OCRs a raster to decide what it is, then the bank/invoice
+# parser OCRs the very same file moments later.  Running the engine twice
+# doubles the wall time of a scanned dump, so the last few image extractions
+# are kept in memory, keyed on the file's identity (resolved path + mtime +
+# size).  A replaced or re-imported file gets a different key, so cached text
+# can never leak into a new file's parse.
+_EXTRACTION_CACHE_LOCK = threading.Lock()
+_EXTRACTION_CACHE: "OrderedDict[tuple[str, int, int], tuple[int, ExtractedPdf]]" = OrderedDict()
+_EXTRACTION_CACHE_MAX_ENTRIES = 16
+_EXTRACTION_CACHE_MAX_BYTES = 32 * 1024 * 1024
+_extraction_cache_bytes = 0
+# Rough per-object cost of a LineBox/WordBox dataclass (fields + __dict__).
+_BOX_BYTES_ESTIMATE = 200
 
 
 def _rapidocr_engine():
@@ -402,8 +419,22 @@ def extract_image(path: Path) -> ExtractedPdf:
     reliable OCR pass.  The page coordinate system remains the *original*
     oriented pixel grid, so source boxes still open the right crop in the UI.
     If no local OCR engine is present, return empty lines, engine='none'.
+
+    Results are memoised per file identity for the life of the process, so a
+    classifier pass and the parser pass over the same image share one engine
+    run.  Every caller gets its own deep copy.
     """
     path = Path(path)
+    key = _extraction_cache_key(path)
+    cached = _extraction_cache_get(key)
+    if cached is not None:
+        return cached
+    extracted = _extract_image_uncached(path)
+    _extraction_cache_put(key, extracted)
+    return extracted
+
+
+def _extract_image_uncached(path: Path) -> ExtractedPdf:
     if not ocr_available():
         return ExtractedPdf(pdf_type="image_based", page_count=1, engine="none")
 
@@ -426,6 +457,90 @@ def extract_image(path: Path) -> ExtractedPdf:
         engine=engine if lines else "none",
         page_methods={1: engine} if lines else {},
     )
+
+
+def _extraction_cache_key(path: Path) -> tuple[str, int, int] | None:
+    """Identity of the file's current bytes. ``None`` bypasses the cache."""
+    try:
+        resolved = path.resolve()
+        stat = resolved.stat()
+    except OSError:
+        return None
+    if stat.st_size <= 0:
+        return None
+    return (str(resolved).lower(), stat.st_mtime_ns, stat.st_size)
+
+
+def _extracted_size_estimate(extracted: ExtractedPdf) -> int:
+    total = _BOX_BYTES_ESTIMATE
+    for line in extracted.lines:
+        total += _BOX_BYTES_ESTIMATE + len(line.text or "")
+    for word in extracted.words:
+        total += _BOX_BYTES_ESTIMATE + len(word.text or "")
+    for page in extracted.pages:
+        total += _BOX_BYTES_ESTIMATE + len(page.text or "")
+    return total
+
+
+def _extraction_cache_get(key: tuple[str, int, int] | None) -> ExtractedPdf | None:
+    if key is None:
+        return None
+    with _EXTRACTION_CACHE_LOCK:
+        stored = _EXTRACTION_CACHE.get(key)
+        if stored is None:
+            return None
+        _EXTRACTION_CACHE.move_to_end(key)
+        value = stored[1]
+    # Parsers merge and reorder box lists, so hand out a private copy.
+    return copy.deepcopy(value)
+
+
+def _extraction_cache_put(
+    key: tuple[str, int, int] | None, extracted: ExtractedPdf
+) -> None:
+    global _extraction_cache_bytes
+    if key is None:
+        return
+    # An empty pass is a failure (no engine yet, driver crash, unreadable
+    # image), not a result.  Pinning it would make the file unreadable for
+    # the rest of the session after a driver fix, so failures are never kept.
+    if not extracted.lines and not extracted.words:
+        return
+    size = _extracted_size_estimate(extracted)
+    if size > _EXTRACTION_CACHE_MAX_BYTES:
+        return
+    stored = copy.deepcopy(extracted)
+    with _EXTRACTION_CACHE_LOCK:
+        previous = _EXTRACTION_CACHE.pop(key, None)
+        if previous is not None:
+            _extraction_cache_bytes -= previous[0]
+        _EXTRACTION_CACHE[key] = (size, stored)
+        _extraction_cache_bytes += size
+        while _EXTRACTION_CACHE and (
+            len(_EXTRACTION_CACHE) > _EXTRACTION_CACHE_MAX_ENTRIES
+            or _extraction_cache_bytes > _EXTRACTION_CACHE_MAX_BYTES
+        ):
+            _evicted_key, (evicted_size, _value) = _EXTRACTION_CACHE.popitem(last=False)
+            _extraction_cache_bytes -= evicted_size
+
+
+def clear_extraction_cache() -> None:
+    """Drop every cached image OCR result (used when the library is wiped)."""
+    global _extraction_cache_bytes
+    with _EXTRACTION_CACHE_LOCK:
+        _EXTRACTION_CACHE.clear()
+        _extraction_cache_bytes = 0
+
+
+def extraction_cache_info() -> dict:
+    """{entries, bytes, max_entries, max_bytes} — diagnostics and tests."""
+    with _EXTRACTION_CACHE_LOCK:
+        return {
+            "entries": len(_EXTRACTION_CACHE),
+            "bytes": _extraction_cache_bytes,
+            "max_entries": _EXTRACTION_CACHE_MAX_ENTRIES,
+            "max_bytes": _EXTRACTION_CACHE_MAX_BYTES,
+        }
 
 
 def _prepare_image(path: Path, tmp_dir: Path) -> tuple[Path, float, float, float] | None:

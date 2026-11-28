@@ -10,6 +10,7 @@ import threading
 import time
 import webbrowser
 from pathlib import Path
+from typing import TYPE_CHECKING
 from urllib.parse import parse_qs, urlparse
 
 import webview
@@ -28,18 +29,6 @@ from apps.engine.clients import (
 from apps.engine.currency import currency_options
 from apps.engine.dashboard import get_dashboard as dashboard_state
 from apps.engine.db import ExtractedRow, Period, StoredFile, get_engine, get_session
-from apps.engine.dump import (
-    fail_job,
-    get_job,
-    ingest_paths,
-    list_period_files,
-    override_kind,
-    preflight_paths,
-    reconcile_interrupted_work,
-    reparse_period,
-    set_file_currency,
-    start_job,
-)
 from apps.engine.firm import get_firm, save_firm
 from apps.engine.kinds import KIND_LABELS, KINDS
 from apps.desktop.protocol import ensure_registered, is_registered
@@ -52,7 +41,6 @@ from apps.engine.library import (
     resolve_storage_key,
 )
 from apps.engine.recon_datasets import reconciliation_workspace
-from apps.engine.recon_report import export_reconciliation
 from apps.engine.recon_service import (
     accept_match as recon_accept_match,
     add_exception_note as recon_add_exception_note,
@@ -82,7 +70,6 @@ from apps.engine.recon_workflows import (
 )
 from apps.engine.reports import list_reports as report_packs
 from apps.engine import decisions
-from apps.engine.recon_exports import write_audit_summary, write_exceptions_workbook
 from apps.engine.settings import (
     get_output_root,
     get_snapshot_retention_days,
@@ -102,26 +89,187 @@ from apps.engine.periods import (
     set_period_tolerances,
     suggested_period_label,
 )
-from apps.engine.removal import remove_period_file
 from apps.engine.pdf_passwords import (
     get_file_password,
     set_file_password as store_file_password,
 )
 from apps.engine.profiles import profile_options
-from apps.engine.pipeline import (
-    get_period_pack,
-    get_period_preview,
-    get_source_crop as crop_source,
-    list_pack_versions as pack_versions,
-    open_pack_folder,
-    open_pack_path,
-    restore_pack_version as restore_version,
-)
 from apps.engine.preview import preview_file as build_preview, source_file_path
 from apps.engine.wipe import wipe_all
 from apps.version import APP_VERSION
 
+if TYPE_CHECKING:  # annotations only; the dataclass stays behind its function
+    from apps.engine.dump import IntakePreflight
+
 _log = logging.getLogger(__name__)
+
+
+# ---------------------------------------------------------------------------
+# Deferred engine entry points
+#
+# Creating the window and answering the first ``get_state`` need the database
+# and nothing else. Everything below reaches the parse pipeline, an Excel
+# writer or the reconciliation exporters — and behind them openpyxl, numpy and a
+# PDF engine, which together cost about five seconds of import time on a cold
+# machine. A CA who has not dropped a file yet should not pay for any of it.
+#
+# The names stay in this module (rather than being imported inside each method)
+# because the window's tests and the update gate use them as seams: patching
+# ``apps.desktop.app.start_job`` must still stop the work from starting.
+# ---------------------------------------------------------------------------
+
+
+def fail_job(job_id: int, message: str) -> None:
+    from apps.engine.dump import fail_job as run
+
+    run(job_id, message)
+
+
+def get_job(job_id: int) -> dict | None:
+    from apps.engine.dump import get_job as read
+
+    return read(job_id)
+
+
+def ingest_paths(job_id: int, paths: list[str]) -> dict:
+    from apps.engine.dump import ingest_paths as run
+
+    return run(job_id, paths)
+
+
+def list_period_files(period_id: int) -> list[dict]:
+    from apps.engine.dump import list_period_files as read
+
+    return read(period_id)
+
+
+def override_kind(file_id: int, kind: str) -> dict:
+    from apps.engine.dump import override_kind as run
+
+    return run(file_id, kind)
+
+
+def preflight_paths(raw_paths: list[str]) -> IntakePreflight:
+    from apps.engine.dump import preflight_paths as run
+
+    return run(raw_paths)
+
+
+def reconcile_interrupted_work(grace_minutes: int = 0) -> int:
+    from apps.engine.dump import reconcile_interrupted_work as run
+
+    return run(grace_minutes)
+
+
+def reparse_period(period_id: int, job_id: int | None = None) -> dict:
+    from apps.engine.dump import reparse_period as run
+
+    return run(period_id, job_id)
+
+
+def set_file_currency(file_id: int, code: str | None) -> dict:
+    from apps.engine.dump import set_file_currency as run
+
+    return run(file_id, code)
+
+
+def start_job(period_id: int) -> dict:
+    from apps.engine.dump import start_job as run
+
+    return run(period_id)
+
+
+def get_period_pack(period_id: int) -> dict | None:
+    from apps.engine.pipeline import get_period_pack as read
+
+    return read(period_id)
+
+
+def get_period_preview(period_id: int, limit: int = 8) -> dict:
+    from apps.engine.pipeline import get_period_preview as read
+
+    return read(period_id, limit)
+
+
+def get_source_crop(file_id: int, page: int, bbox: str | None) -> dict:
+    from apps.engine.pipeline import get_source_crop as read
+
+    return read(file_id, page, bbox)
+
+
+def list_pack_versions(period_id: int) -> list[dict]:
+    from apps.engine.pipeline import list_pack_versions as read
+
+    return read(period_id)
+
+
+def open_pack_folder(period_id: int) -> str:
+    from apps.engine.pipeline import open_pack_folder as run
+
+    return run(period_id)
+
+
+def open_pack_path(period_id: int, key: str | None = None) -> str:
+    from apps.engine.pipeline import open_pack_path as run
+
+    return run(period_id, key)
+
+
+def restore_pack_version(period_id: int, snapshot_id: str) -> dict:
+    from apps.engine.pipeline import restore_pack_version as run
+
+    return run(period_id, snapshot_id)
+
+
+def remove_period_file(file_id: int) -> dict:
+    from apps.engine.removal import remove_period_file as run
+
+    return run(file_id)
+
+
+def export_reconciliation(run_id: int) -> dict:
+    from apps.engine.recon_report import export_reconciliation as run
+
+    return run(run_id)
+
+
+def write_exceptions_workbook(
+    path: Path,
+    *,
+    client_name: str,
+    period_label: str,
+    recon: dict,
+    firm: str = "",
+) -> Path:
+    from apps.engine.recon_exports import write_exceptions_workbook as run
+
+    return run(
+        path,
+        client_name=client_name,
+        period_label=period_label,
+        recon=recon,
+        firm=firm,
+    )
+
+
+def write_audit_summary(
+    path: Path,
+    *,
+    client_name: str,
+    period_label: str,
+    recon: dict,
+    firm: str = "",
+) -> Path:
+    from apps.engine.recon_exports import write_audit_summary as run
+
+    return run(
+        path,
+        client_name=client_name,
+        period_label=period_label,
+        recon=recon,
+        firm=firm,
+    )
+
 
 _WINDOW: webview.Window | None = None
 _PENDING_AUTH_CALLBACK_FILE = "pending_auth_callback.url"
@@ -1260,7 +1408,7 @@ class DesktopApi:
         self._current_period_id = period["id"]
         client = get_client(period["client_id"])
         try:
-            versions = pack_versions(period["id"])
+            versions = list_pack_versions(period["id"])
         except Exception:
             versions = []
         return {
@@ -1549,13 +1697,13 @@ class DesktopApi:
         return {"ok": True, "path": str(dest)}
     def list_pack_versions(self, period_id: int) -> dict:
         try:
-            return {"ok": True, "versions": pack_versions(int(period_id))}
+            return {"ok": True, "versions": list_pack_versions(int(period_id))}
         except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
 
     def restore_pack_version(self, period_id: int, snapshot_id: str) -> dict:
         try:
-            result = restore_version(int(period_id), str(snapshot_id))
+            result = restore_pack_version(int(period_id), str(snapshot_id))
         except (OSError, ValueError) as exc:
             return {"ok": False, "error": str(exc)}
         return {"ok": True, **result, "pack": get_period_pack(int(period_id))}
@@ -1574,7 +1722,7 @@ class DesktopApi:
         return {"ok": True}
 
     def get_source_crop(self, file_id: int, page: int, bbox: str = "") -> dict:
-        return crop_source(int(file_id), int(page), bbox or None)
+        return get_source_crop(int(file_id), int(page), bbox or None)
 
     def get_file_preview(
         self,

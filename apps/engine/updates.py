@@ -18,8 +18,6 @@ from pathlib import Path
 from typing import Any, Callable
 from urllib.parse import urljoin, urlsplit
 
-import httpx
-
 from apps.engine import auth
 from apps.engine.library import get_library_path
 
@@ -424,6 +422,7 @@ def check_for_update(force: bool = False) -> UpdateState:
     network failures fall back to the last known newer release and never invent
     an update.
     """
+    import httpx
 
     cache = load_update_cache()
     if not force and _cache_is_fresh(cache):
@@ -606,6 +605,7 @@ def download_update(
     Redirects are followed manually so every hop is checked against the
     approved host list. A verified final file is reused without a request.
     """
+    import httpx
 
     version = _require_version(manifest.version)
     url = _require_approved_url(manifest.installer_url)

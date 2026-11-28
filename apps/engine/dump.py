@@ -10,8 +10,8 @@ import uuid
 from dataclasses import dataclass
 from datetime import datetime, timedelta, timezone
 from pathlib import Path
+from typing import TYPE_CHECKING
 
-from apps.engine.classifier import classify_path
 from apps.engine.currency import currency_label, is_known
 from apps.engine.db import Job, Period, StoredFile, get_session, utcnow
 from apps.engine.license import assert_can_ingest, record_ingested
@@ -20,8 +20,10 @@ from apps.engine.library import files_root
 from apps.engine.outcomes import derive_job_status, failed_file_outcome, persist_file_outcome
 from apps.engine.pdf_passwords import redact_known_passwords
 from apps.engine.periods import get_period
-from apps.engine.pipeline import parse_period_banks
 from apps.engine.preflight import load_report
+
+if TYPE_CHECKING:  # the classifier is imported on first use, see classify_path
+    from apps.engine.classifier import Classification
 
 _log = logging.getLogger(__name__)
 
@@ -37,6 +39,24 @@ _SKIP_NAMES = {"readme.md", "readme.txt", "thumbs.db", "desktop.ini"}
 _ACTIVE_JOB_STATUSES = ("queued", "routing", "parsing", "cancel_requested")
 _FILE_OUTCOMES = ("processed", "needs_review", "failed", "unclassified")
 _CANCEL_MESSAGE = "Processing was cancelled. Files already read were kept."
+
+
+# The classifier and the parse pipeline are imported on first use. Between them
+# they reach numpy, Pillow, openpyxl and the PDF engines — none of which a cold
+# start needs, because startup only reconciles jobs, it never reads a document.
+# The names stay at module scope because the ingestion tests replace them.
+
+
+def classify_path(path: Path) -> Classification:
+    from apps.engine.classifier import classify_path as run
+
+    return run(path)
+
+
+def parse_period_banks(period_id: int, job_id: int | None = None) -> dict | None:
+    from apps.engine.pipeline import parse_period_banks as run
+
+    return run(period_id, job_id)
 
 
 class JobCancelled(Exception):

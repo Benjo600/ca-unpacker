@@ -1,3 +1,11 @@
+// Timing marks: the boot shell is already painted by the time this script runs,
+// so "app" measures parse and execute time, not the first frame.
+function bootMark(name) {
+  if (window.CABoot) window.CABoot.mark(name);
+}
+
+bootMark("app");
+
 const welcomeEl = document.getElementById("welcome");
 const setupEl = document.getElementById("setup");
 const deskEl = document.getElementById("desk");
@@ -544,6 +552,15 @@ function showScreen(name) {
   setupEl.classList.toggle("hidden", name !== "setup");
   if (welcomeEl) welcomeEl.classList.toggle("hidden", name !== "welcome");
   deskEl.classList.toggle("hidden", name !== "desk");
+  // The first-paint shell stays up until a real screen is chosen, then leaves
+  // in the same frame so the person never sees a bare window or a half desk.
+  if (window.CABoot) window.CABoot.settleBootShell(name);
+}
+
+function markDeskReady() {
+  if (!window.CABoot) return;
+  window.CABoot.markOnce("desk-ready");
+  window.CABoot.measure("desk-render", "screen-desk", "desk-ready");
 }
 
 function firmIsConfigured(state) {
@@ -1503,6 +1520,9 @@ function setAuthLocked(locked) {
   if (authGateEl) authGateEl.classList.toggle("hidden", !locked);
   if (dropZone) dropZone.classList.toggle("disabled", Boolean(locked));
   setDumpBusy(Boolean(activeJobId));
+  // The gate is a real screen: it replaces the first-paint shell, and a
+  // signed-in user never sees either because their desk opens instead.
+  if (locked && window.CABoot) window.CABoot.settleBootShell("login");
 }
 
 function updateNeedsPolling(update) {
@@ -1670,6 +1690,9 @@ async function refreshUpdateState(force) {
     stopUpdatePolling();
     return null;
   }
+  // The card's wording lives in a deferred module; load it on first use so the
+  // first frame never waits for it.
+  if (window.CABoot) await window.CABoot.ensureModules("update-state");
   if (force) updateLaterDismissed = false;
   try {
     const result = await api.get_update_state(Boolean(force));
@@ -1774,9 +1797,13 @@ async function refreshAuthState() {
   renderQuotaBanner(authState);
   if (isUpdateSignedIn()) {
     scheduleUpdateChecks();
-    // Immediate snapshot so a startup check result surfaces without making
-    // the user open the account panel.
-    refreshUpdateState(false);
+    // The startup snapshot is useful but never urgent. Run it once the desk is
+    // painted, so the update bridge call cannot delay the first working frame.
+    const snapshot = () => {
+      refreshUpdateState(false);
+    };
+    if (window.CABoot) window.CABoot.whenIdle(snapshot, 900);
+    else snapshot();
   } else {
     clearUpdateTimers();
     updateState = null;
@@ -1836,6 +1863,7 @@ function showDesk(state) {
   showPane("clients");
   recordNav({ pane: "clients" });
   syncGuide();
+  markDeskReady();
 }
 
 let restoredLastLocation = false;
@@ -1877,11 +1905,18 @@ async function openClient(clientId) {
 async function openPeriod(periodId) {
   showError(dumpErrorEl, "");
   setSkippedNotice([]);
+  // The pack renderer needs the preflight helper. Start that load alongside the
+  // bridge call rather than before it, so opening a period is not serialised
+  // behind a script fetch. An early click still waits for the module below.
+  const preflightReady = window.CABoot
+    ? window.CABoot.ensureModules(["preflight-summary"])
+    : null;
   const result = await window.pywebview.api.get_period_desk(periodId);
   if (!result.ok) {
     showError(periodErrorEl, result.error);
     return;
   }
+  if (preflightReady) await preflightReady;
   currentPeriod = result.period;
   if (result.client) currentClient = result.client;
   packVersions = result.pack_versions || [];
@@ -2403,6 +2438,9 @@ async function loadDashboard() {
     showError(dashboardErrorEl, "Update the app to open the dashboard.");
     return;
   }
+  // The dashboard's labels live in a deferred module; load it on first use.
+  // The loading line is already on screen, so this is never a blank wait.
+  if (window.CABoot) await window.CABoot.ensureModules(["practice-summary"]);
   let result;
   try {
     result = await api.get_dashboard();
@@ -2641,6 +2679,11 @@ async function showReconciliation(options = {}) {
     });
   }
   syncGuide();
+  // The reconciliation surface is a deferred module: load it before opening,
+  // so the very first click on Reconciliation is not a race.
+  if (window.CABoot) {
+    await window.CABoot.ensureModules(["practice-summary", "recon-centre"]);
+  }
   if (window.CAReconCentre && window.CAReconCentre.open) {
     await window.CAReconCentre.open({
       runId: options.runId,
@@ -4920,6 +4963,7 @@ async function confirmClientDelete() {
 }
 
 async function boot(prefetched) {
+  bootMark("boot");
   let state;
   try {
     state = prefetched || (await window.pywebview.api.get_state());
@@ -4944,6 +4988,13 @@ async function boot(prefetched) {
   if (!isSignedIn) {
     // Strict in-app auth: gate is shown by refreshAuthState.
     // Do not show folder/firm setup or desk until signed in.
+    if (authGateEl && authGateEl.classList.contains("hidden")) {
+      // No gate and no desk means the bridge never answered the auth read (an
+      // older desktop build). Land on the gate with a reason instead of leaving
+      // the first-paint shell up forever.
+      setAuthLocked(true);
+      showError(authErrorEl, "Update the app to sign in here.");
+    }
     return;
   }
   if (state.firm && state.output_path) {
@@ -4953,9 +5004,16 @@ async function boot(prefetched) {
     const last = state.ui_last_nav;
     if (last && last.pane && last.pane !== "clients" && !restoredLastLocation) {
       restoredLastLocation = true;
-      setTimeout(() => {
+      const reopen = () => {
+        // If the person has already moved somewhere since the desk appeared,
+        // leave them there rather than jumping a frame later.
+        if (navHistory.length > 1) return;
         applyNavEntry(last).catch(() => {});
-      }, 0);
+      };
+      // After the first paint: a restored dashboard or reconciliation fetch
+      // must not push the client list out of the frame already on screen.
+      if (window.CABoot) window.CABoot.whenIdle(reopen, 600);
+      else setTimeout(reopen, 0);
     }
   } else {
     showSetup(state);
@@ -5802,6 +5860,15 @@ function startUiEventPump() {
 window.addEventListener("pywebviewready", () => {
   // Boot used to receive the event object as its "prefetched" state, so it fell
   // through to the setup screen and raced the auth refresh for the desk.
-  boot();
+  boot().catch((err) => {
+    // A throw before any screen was chosen would leave the first-paint shell up
+    // forever. Land on the sign-in gate with the reason instead.
+    setAuthLocked(true);
+    showError(
+      authErrorEl,
+      "CA Unpacker could not open the desk. Close the app and open it again. " +
+        ((err && err.message) || ""),
+    );
+  });
   startUiEventPump();
 });
