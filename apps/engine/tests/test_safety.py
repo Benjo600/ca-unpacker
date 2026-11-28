@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -75,6 +76,18 @@ class SnapshotTests(SafetyCase):
         stored = safety.list_snapshots(target=pack)
         self.assertEqual([item["id"] for item in stored], [manifest["id"]])
         self.assertEqual(bytes_of(pack), original)
+
+    def test_listing_matches_a_resolved_or_differently_cased_source(self) -> None:
+        """CI temp paths are short names; a manifest may store the other form."""
+        pack = write_pack(self.packs / "Acme" / "Jul 2026")
+        manifest = safety.snapshot(pack)
+        path = safety.snapshots_root() / manifest["id"] / "manifest.json"
+        data = json.loads(path.read_text(encoding="utf-8"))
+        data["source"] = str(pack.resolve()).upper()
+        path.write_text(json.dumps(data), encoding="utf-8")
+
+        stored = safety.list_snapshots(target=pack)
+        self.assertEqual([item["id"] for item in stored], [manifest["id"]])
 
     def test_snapshots_live_under_the_library_and_never_in_the_period_folder(self) -> None:
         pack = write_pack(self.library / "packs" / "Acme" / "Jul 2026")

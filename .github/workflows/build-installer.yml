@@ -44,10 +44,12 @@ jobs:
         with:
           python-version: "3.13"
           cache: pip
-          cache-dependency-path: requirements.txt
+          cache-dependency-path: |
+            requirements.txt
+            requirements-dev.txt
 
       - name: Install dependencies
-        run: python -m pip install --quiet -r requirements.txt pytest
+        run: python -m pip install --quiet -r requirements-dev.txt
 
       - name: Run Python tests
         run: python -m pytest apps -q

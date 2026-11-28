@@ -195,16 +195,29 @@ def _entries(root: Path) -> list[dict]:
     return entries
 
 
+def _normalise_target(value: object) -> str:
+    """A path form that survives short names, symlinks and Windows case."""
+    text = str(value or "").strip()
+    if not text:
+        return ""
+    try:
+        return str(Path(text).resolve()).casefold()
+    except (OSError, ValueError):
+        return text.casefold()
+
+
 def list_snapshots(target: str | Path | None = None) -> list[dict]:
     """Newest-first snapshot manifests, optionally only those of one folder."""
     entries = _entries(snapshots_root())
     if target is None:
         return entries
-    wanted = str(Path(target).resolve()).lower()
+    wanted = _normalise_target(target)
+    if not wanted:
+        return []
     return [
         item
         for item in entries
-        if str(item.get("source") or "").lower() == wanted
+        if _normalise_target(item.get("source")) == wanted
     ]
 
 
